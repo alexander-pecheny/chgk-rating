@@ -12,6 +12,10 @@ use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Bumped whenever the index grows a table or column the server reads, so a
+/// deploy rebuilds it instead of serving a page with nothing behind it.
+pub const VERSION: &str = "2";
+
 const SCHEMA: &str = "
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE release_ (id INTEGER PRIMARY KEY, date TEXT, shift REAL, shift_cum REAL,
@@ -28,6 +32,8 @@ CREATE TABLE player_rank (rank INTEGER PRIMARY KEY, player_id INTEGER, display R
                           games INTEGER, change REAL, provisional INTEGER);
 CREATE TABLE team_rank (rank INTEGER PRIMARY KEY, team_id INTEGER, display REAL, sigma REAL,
                         evidence REAL, change REAL, provisional INTEGER);
+CREATE TABLE anomaly (rank INTEGER PRIMARY KEY, player_id INTEGER, k REAL, f_gap REAL,
+                      f_on INTEGER, f_ip INTEGER, m_gap REAL, m_on INTEGER, m_ip INTEGER);
 CREATE TABLE place_hist (kind INTEGER, id INTEGER, places BLOB, PRIMARY KEY (kind, id)) WITHOUT ROWID;
 CREATE VIRTUAL TABLE player_fts USING fts5(name, tokenize='unicode61 remove_diacritics 0');
 CREATE VIRTUAL TABLE team_fts USING fts5(name, town, tokenize='unicode61 remove_diacritics 0');
@@ -40,6 +46,7 @@ CREATE INDEX idx_res_tour ON result_(tournament_id);
 CREATE INDEX idx_prank_player ON player_rank(player_id);
 CREATE INDEX idx_trank_team ON team_rank(team_id);
 CREATE INDEX idx_tour_date ON tournament(date);
+CREATE INDEX idx_anom_player ON anomaly(player_id);
 ";
 
 /// The ratings database is written once by `fit` and read for ever after, so a
@@ -100,6 +107,9 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
 
     // ── tournaments ──────────────────────────────────────────────────────────
     let mut tour_date: HashMap<i64, String> = HashMap::new();
+    // Whether a tournament could be played from home, which is what the anomaly
+    // score of `/anomaly/` is a comparison across.
+    let mut tour_online: HashMap<i64, bool> = HashMap::new();
     {
         let names: HashMap<i64, String> = {
             let mut st = b.prepare("select id, name from tournaments").unwrap();
@@ -124,12 +134,14 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
         while let Some(x) = rows.next().unwrap() {
             let id: i64 = x.get(0).unwrap();
             let date: String = x.get::<_, Option<String>>(1).unwrap().unwrap_or_default();
+            let kind: String = x.get::<_, Option<String>>(2).unwrap().unwrap_or_default();
             tour_date.insert(id, date.clone());
+            tour_online.insert(id, kind != "in-person");
             ins.execute(params![
                 id,
                 names.get(&id).cloned().unwrap_or_default(),
                 date,
-                x.get::<_, Option<String>>(2).unwrap().unwrap_or_default(),
+                kind,
                 x.get::<_, Option<f64>>(3).unwrap().unwrap_or(0.0),
                 x.get::<_, Option<i64>>(4).unwrap().unwrap_or(0),
                 x.get::<_, Option<i64>>(5).unwrap().unwrap_or(0),
@@ -287,6 +299,7 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
     drop(ins);
 
     for (k, v) in [
+        ("index_version", VERSION.to_string()),
         ("release_id", last_release.0.to_string()),
         ("release_date", last_release.1.clone()),
         ("n_player_rank", prows.len().to_string()),
@@ -298,6 +311,10 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
     ] {
         w.execute("insert into meta values (?1,?2)", params![k, v]).unwrap();
     }
+
+    let rows = crate::anomaly::build(&r, &b, &w, &tour_online);
+    crate::anomaly::write(&w, &rows);
+    eprintln!("index: anomaly scores [{:.1}s]", t0.elapsed().as_secs_f64());
 
     place_history(&r, &w, "player_ratings", "player_id", "theta", 0, d.a_player, d.b_player, d);
     place_history(&r, &w, "team_ratings", "team_id", "mu", 1, d.a_team, d.b_team, d);
@@ -395,4 +412,10 @@ fn place_history(
         ins.execute(params![kind, id, blob]).unwrap();
     }
     eprintln!("index: place history for {} entries of {table}", out.len());
+}
+
+/// The version the index at `path` was built with, or nothing if it cannot say.
+pub fn version(path: &Path) -> Option<String> {
+    let db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+    db.query_row("select value from meta where key = 'index_version'", [], |r| r.get(0)).ok()
 }

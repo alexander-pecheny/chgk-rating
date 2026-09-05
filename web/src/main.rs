@@ -1,3 +1,4 @@
+mod anomaly;
 mod data;
 mod html;
 mod index;
@@ -87,7 +88,8 @@ fn connect(ratings: &Path, web: &Path) -> Connection {
 fn main() {
     let a = args();
     let d = data::read_display(&a.config);
-    if a.rebuild || !a.web.exists() || modified(&a.web) < modified(&a.ratings) {
+    let stale = index::version(&a.web).as_deref() != Some(index::VERSION);
+    if a.rebuild || stale || modified(&a.web) < modified(&a.ratings) {
         eprintln!("building the serving index at {}", a.web.display());
         index::ensure_ratings_indexes(&a.ratings);
         index::build(&a.ratings, &a.buff, &a.web, &d);
@@ -220,6 +222,10 @@ fn handle(req: Request, s: &Site, c: &Connection, assets: &Path) {
         ["tournaments"] => ("Турниры".into(), pages::tournament_table(c, 1)),
         ["tournaments", "page", _] => {
             (format!("Турниры — страница {}", n(2)), pages::tournament_table(c, n(2)))
+        }
+        ["anomaly"] => ("Аномалии".into(), pages::anomaly_table(s, c, 1)),
+        ["anomaly", "page", _] => {
+            (format!("Аномалии — страница {}", n(2)), pages::anomaly_table(s, c, n(2)))
         }
         ["releases"] => ("Релизы".into(), pages::releases_page(s, c)),
         ["method"] => ("Методика".into(), method::BODY.to_string()),

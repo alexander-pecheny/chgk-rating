@@ -73,6 +73,10 @@ in-person tournament, awkward at a synchronous one and trivial when the
 synchronous circuit is played at home, as it was in 2020 and 2021, so a cheat's
 strength depends on the format and an honest player's does not.
 
+The site's `/anomaly/` page is a separate, leaner implementation of the same
+idea in `web/src/anomaly.rs`, computed at index time: one score per player,
+sorted descending.
+
 ```
 ./target/release/anomaly --top 200      # forecast and residual, split by format
 ./target/release/anomaly --masks        # the hard-question test, no ratings used

@@ -20,6 +20,7 @@ pub struct Site {
     pub release_date: String,
     pub n_teams: usize,
     pub n_players: usize,
+    pub n_anomaly: usize,
     /// Stamped onto the stylesheet and script URLs. Assets are served with an
     /// hour of cache, so without it a deploy leaves readers on the old CSS.
     pub assets_version: String,
@@ -51,6 +52,9 @@ impl Site {
             release_date: s,
             n_teams: meta(c, "n_team_rank") as usize,
             n_players: meta(c, "n_player_rank") as usize,
+            n_anomaly: c
+                .query_row("select count(*) from x.anomaly", [], |r| r.get::<_, i64>(0))
+                .unwrap_or(0) as usize,
             assets_version: String::new(),
         }
     }
@@ -99,6 +103,7 @@ pub fn layout(s: &Site, title: &str, body: &str) -> String {
     <a href="/">Команды</a>
     <a href="/players/">Игроки</a>
     <a href="/tournaments/">Турниры</a>
+    <a href="/anomaly/">Аномалии</a>
     <a href="/releases/">Релизы</a>
     <a href="/method/">Методика</a>
   </nav>
@@ -183,6 +188,28 @@ fn prov_toggle(hidden: usize, first_page: Option<usize>, page: usize) -> String 
         "<label class=\"checkbox prov-toggle\"><input type=\"checkbox\"> Показывать предварительные\
          <span class=\"prov-count\">{note}</span></label>"
     )
+}
+
+/// A signed percentage-point figure, to one decimal.
+fn signed1(v: f64) -> String {
+    if v < 0.0 {
+        format!("−{:.1}", -v)
+    } else {
+        format!("+{v:.1}")
+    }
+}
+
+/// A count inside running text reads better in groups of three.
+fn spaced(n: usize) -> String {
+    let d = n.to_string();
+    let mut out = String::with_capacity(d.len() + d.len() / 3);
+    for (i, c) in d.chars().enumerate() {
+        if i > 0 && (d.len() - i) % 3 == 0 {
+            out.push('\u{2009}');
+        }
+        out.push(c);
+    }
+    out
 }
 
 fn pages_of(n: usize) -> usize {
@@ -1158,5 +1185,108 @@ pub fn search_page(c: &Connection, q: &str) -> String {
         }
         out.push_str("</tbody></table></div></section>");
     }
+    out
+}
+
+// ── anomalies ────────────────────────────────────────────────────────────────
+
+pub fn anomaly_table(s: &Site, c: &Connection, page: usize) -> String {
+    let pages = pages_of(s.n_anomaly);
+    let page = page.clamp(1, pages);
+    let mut st = c
+        .prepare(
+            "select a.rank, a.player_id, p.name, k.rank, k.display, a.k, a.m_gap, a.m_on, \
+             a.m_ip, a.f_gap, a.f_on, a.f_ip from x.anomaly a join x.player p on p.id = a.player_id \
+             left join x.player_rank k on k.player_id = a.player_id \
+             where a.rank > ?1 and a.rank <= ?2 order by a.rank",
+        )
+        .unwrap();
+    let lo = ((page - 1) * PAGE) as i64;
+    #[allow(clippy::type_complexity)]
+    let rows: Vec<(i64, i64, String, Option<i64>, Option<f64>, f64, f64, i64, i64, f64, i64, i64)> =
+        st.query_map(params![lo, lo + PAGE as i64], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                r.get(3)?,
+                r.get(4)?,
+                r.get::<_, Option<f64>>(5)?.unwrap_or(0.0),
+                r.get::<_, Option<f64>>(6)?.unwrap_or(0.0),
+                r.get::<_, Option<i64>>(7)?.unwrap_or(0),
+                r.get::<_, Option<i64>>(8)?.unwrap_or(0),
+                r.get::<_, Option<f64>>(9)?.unwrap_or(0.0),
+                r.get::<_, Option<i64>>(10)?.unwrap_or(0),
+                r.get::<_, Option<i64>>(11)?.unwrap_or(0),
+            ))
+        })
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+
+    let mut out = String::with_capacity(rows.len() * 340 + 2048);
+    out.push_str(&head(
+        "Аномалии",
+        &format!(
+            "Списать на очном турнире почти невозможно, на синхроне трудно, дома за монитором — \
+             легко. Значит, у игрока, чей рейтинг набран не за столом, результат зависит от \
+             формата, а у остальных нет. Коэффициент измеряет эту зависимость и растёт и от \
+             величины разрыва, и от числа турниров, которые его подтверждают. Высокий \
+             коэффициент — повод посмотреть, а не приговор: обе величины командные и \
+             приписываются всем, кто сидел за столом. В списке {} игроков с восемью и более \
+             результатами онлайн.",
+            spaced(s.n_anomaly)
+        ),
+    ));
+    out.push_str(
+        "<section class=\"section\"><details class=\"note\"><summary>Как считается</summary>\
+         <p><b>Прогноз</b> — во сколько раз выше команда игрока финиширует по сравнению с местом, \
+         которое ей предсказывали рейтинги её же состава. Считается по всем результатам, включая \
+         незачтённые, где прогноз построен на одном составе; центрируется по тому, в какой части \
+         таблицы прогноз поставил команду, иначе величина мерила бы силу поля.</p>\
+         <p><b>Трудные вопросы</b> — на сколько процентных пунктов команда обыгрывает поле на той \
+         трети пакета, которую поле взяло хуже всего, сверх того, что даёт её результат на самой \
+         лёгкой трети. Лёгкую треть списывать незачем — её и так берут все. Рейтинги в этой \
+         величине не участвуют вовсе: шкалой трудности служит доля взятия в поле.</p>\
+         <p>Каждая берётся как разница «онлайн минус очно», а у игрока без очных турниров — \
+         как есть, но с поправкой на то, что сравнивать не с чем. Затем обе сжимаются тем \
+         сильнее, чем меньше турниров за ними стоит, и складываются в единицах собственного \
+         разброса по всем игрокам.</p></details>",
+    );
+    let url = |i: usize| if i == 1 { "/anomaly/".to_string() } else { format!("/anomaly/page/{i}/") };
+    out.push_str(&pager(page, pages, &url));
+    out.push_str(
+        "<div class=\"table-scroll\"><table class=\"data-table\"><thead><tr>\
+         <th class=\"num\">№</th><th>Игрок</th><th class=\"num\">Рейтинг</th>\
+         <th class=\"num\">Место</th><th class=\"num\">Онлайн</th><th class=\"num\">Очно</th>\
+         <th class=\"num\">Прогноз</th><th class=\"num\">Трудные вопросы</th>\
+         <th class=\"num\">Коэффициент</th></tr></thead><tbody>",
+    );
+    for r in &rows {
+        let name = if r.2.is_empty() { format!("Игрок {}", r.1) } else { r.2.clone() };
+        let _ = write!(
+            out,
+            "<tr><td class=\"num muted\">{}</td><td><a href=\"/players/{}/\">{}</a></td>\
+             <td class=\"num\">{}</td><td class=\"num muted\">{}</td>\
+             <td class=\"num\">{}</td><td class=\"num\">{}</td>\
+             <td class=\"num {}\">×{:.2}</td><td class=\"num {}\">{}</td>\
+             <td class=\"num strong\">{:.2}</td></tr>",
+            r.0,
+            r.1,
+            e(&name),
+            r.4.map(disp).unwrap_or_else(|| "—".into()),
+            r.3.map(|x| x.to_string()).unwrap_or_else(|| "—".into()),
+            r.10,
+            r.11,
+            delta_class(r.9),
+            r.9.exp(),
+            delta_class(r.6),
+            signed1(100.0 * r.6),
+            r.5
+        );
+    }
+    out.push_str("</tbody></table></div>");
+    out.push_str(&pager(page, pages, &url));
+    out.push_str("</section>");
     out
 }

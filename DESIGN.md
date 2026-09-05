@@ -298,7 +298,20 @@ every request from SQLite, so any of the 161 194 players who have played since
 2013 has a page, not only the 24 970 in the current release. Pages: team table,
 player table, team page with rating history and events, player page, tournament
 page with forecast against result, releases, search over players and teams,
-methodology, and the PDF report.
+anomalies, methodology, and the PDF report.
+
+The anomalies page ranks players by how much their results depend on the format.
+Cheating is close to impossible in person, awkward on a synchronous tournament
+and trivial when a synchronous tournament is played at home, so a rating not
+earned at the table shows a gap. Two independent measurements per result:
+`ln(forecast place) − ln(actual place)`, centred on where in the field the
+forecast put the team; and the team's edge over the field on the third of the
+package the field found hardest, given its edge on the third it found easiest,
+which uses no ratings at all. Each is taken as the player's online mean minus
+their in-person mean, shrunk towards zero by its own noise, and the score is the
+two shrunk gaps in units of their spread across players. It is a triage list,
+not a verdict: both statistics are team statistics attributed to everyone in the
+lineup.
 
 Two things neither database can answer with an index it already has — one
 player's games, which live behind a JSON blob in `buff.db` with no index, and
