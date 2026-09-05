@@ -11,6 +11,124 @@ pub struct Config {
     pub truedl: TrueDl,
     pub display: Display,
     pub numeric: Numeric,
+    #[serde(default)]
+    pub simple: Option<Simple>,
+}
+
+/// Model S, the spreadsheet-reproducible prototype of `src/bin/simple.rs`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Simple {
+    #[serde(rename = "D")]
+    pub d: f64,
+    #[serde(rename = "K")]
+    pub k: f64,
+    pub k_p: f64,
+    pub delta: f64,
+    pub k_q: f64,
+    pub r_new: f64,
+    #[serde(default = "pairwise")]
+    pub perf: Perf,
+    #[serde(default = "surprise")]
+    pub player_rule: PlayerRule,
+    #[serde(default = "no_anchor")]
+    pub anchor: Anchor,
+    #[serde(default = "mean_lineup")]
+    pub lineup: S2Lineup,
+}
+
+/// How a lineup's strength is estimated: the mean of the players' ratings less
+/// a penalty per empty seat, or the roster estimate of DESIGN 4.1.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum S2Lineup {
+    Mean,
+    Roster,
+}
+
+fn mean_lineup() -> S2Lineup {
+    S2Lineup::Mean
+}
+
+/// Which team engine `fit` runs: Model S2 of DESIGN 4, or the Kalman filter
+/// that DESIGN 8.3 keeps as the legacy engine.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TeamEngine {
+    Kalman,
+    S2,
+}
+
+fn kalman_engine() -> TeamEngine {
+    TeamEngine::Kalman
+}
+
+/// Model S2's five constants and the affine map that puts a player's `theta` on
+/// the team display scale.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct S2 {
+    #[serde(rename = "D")]
+    pub d: f64,
+    #[serde(rename = "K")]
+    pub k: f64,
+    pub k_q: f64,
+    /// `lineup = "mean"`: points a lineup loses per seat short of six.
+    pub delta: f64,
+    pub lineup: S2Lineup,
+    pub player_scale: f64,
+    pub player_zero: f64,
+}
+
+impl Default for S2 {
+    fn default() -> S2 {
+        S2 {
+            d: 1200.0,
+            k: 0.4,
+            k_q: 0.01,
+            delta: 150.0,
+            lineup: S2Lineup::Mean,
+            player_scale: 2454.8828,
+            player_zero: 6000.0,
+        }
+    }
+}
+
+/// How a result becomes a number of points: the order statistic at the team's
+/// place, or the field Elo sum.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Perf {
+    PlayedLike,
+    Pairwise,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlayerRule {
+    Surprise,
+    Level,
+}
+
+fn pairwise() -> Perf {
+    Perf::Pairwise
+}
+
+fn surprise() -> PlayerRule {
+    PlayerRule::Surprise
+}
+
+/// Per-release rescaling of every rating; DESIGN-free, see out/simple/rules.md.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Anchor {
+    None,
+    Mean,
+    MeanSd,
+}
+
+fn no_anchor() -> Anchor {
+    Anchor::None
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -24,8 +142,29 @@ pub struct Data {
     pub w_sync: f64,
     pub w_strict_sync: f64,
     pub w_async: f64,
+    /// Tournaments the official system leaves out; chgk.quest trains on them.
+    #[serde(default)]
+    pub include_unrated: bool,
     pub rows_every: i64,
     pub passes: usize,
+}
+
+/// How a question's parameters are found: Newton on the penalised likelihood,
+/// or the closed-form difficulty that matches the observed take rate.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QFit {
+    Newton,
+    TakeRate,
+}
+
+/// How a question's outcome is shared out among the lineup: the exact noisy-OR
+/// gradient, or credit in proportion to each player's chance of knowing it.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QGradient {
+    Exact,
+    Share,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -38,6 +177,30 @@ pub struct Question {
     pub s_aff: f64,
     pub aff_rank: usize,
     pub eta_v: f64,
+    #[serde(default = "newton")]
+    pub fit: QFit,
+    #[serde(default = "exact")]
+    pub gradient: QGradient,
+}
+
+fn newton() -> QFit {
+    QFit::Newton
+}
+
+fn exact() -> QGradient {
+    QGradient::Exact
+}
+
+/// The Kalman step of DESIGN 3.3, or a decaying learning rate in its place.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PUpdate {
+    Kalman,
+    Schedule,
+}
+
+fn kalman() -> PUpdate {
+    PUpdate::Kalman
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -60,6 +223,21 @@ pub struct Player {
     pub warm_until: String,
     pub tau_p: f64,
     pub tau_aff: f64,
+    #[serde(default = "kalman")]
+    pub update: PUpdate,
+    /// `update = "schedule"`: step `eta0 / sqrt(c0 + games)`.
+    #[serde(default = "eta0")]
+    pub eta0: f64,
+    #[serde(default = "c0")]
+    pub c0: f64,
+}
+
+fn eta0() -> f64 {
+    0.15
+}
+
+fn c0() -> f64 {
+    0.25
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -72,6 +250,11 @@ pub struct Gauge {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Team {
+    /// DESIGN 4 ("s2") or the legacy filter of DESIGN 8.3 ("kalman").
+    #[serde(default = "kalman_engine")]
+    pub engine: TeamEngine,
+    #[serde(default)]
+    pub s2: S2,
     pub sigma_model: f64,
     /// Mean residual of realised strength around the raw roster estimate; added to it.
     pub roster_bias: f64,

@@ -1,4 +1,4 @@
-use chgk_rating::config::Config;
+use chgk_rating::config::{Config, TeamEngine};
 use chgk_rating::util::{csv_rows, spearman};
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -273,6 +273,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     conn.execute_batch(&format!("ATTACH DATABASE '{}' AS buff", cfg.data.db_path))?;
     let prov = cfg.display.provisional_sigma;
+    // S2 keeps no variance, so everything the uncertainty calibration reads is a
+    // placeholder under it.
+    let kalman = cfg.team.engine == TeamEngine::Kalman;
 
     if flag("--brief") {
         let (sole, _shared) = violations(&conn)?;
@@ -386,19 +389,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("(sole first {sole}, shared first {shared})");
 
     println!("\n### Uncertainty calibration\n");
-    println!("In-person from 2018, evidence >= 6. Variance of 1 means sigma is honest.");
-    println!("\n| group | n | mean z | var z |");
-    println!("|---|---:|---:|---:|");
-    for (name, extra) in [
-        ("all (drives nu)", ""),
-        ("returning after >= 1 year (tau_T)", "AND e.gap_days >= 365"),
-        (
-            "after losing >= 30% of evidence (gamma)",
-            "AND e.lost_prev > 0.3",
-        ),
-    ] {
-        let (n, m, v) = zvar(&conn, extra)?;
-        println!("| {name} | {n} | {m:.3} | {v:.3} |");
+    if !kalman {
+        println!("n/a: `team.engine = \"s2\"` publishes no variance to calibrate.");
+    } else {
+        println!("In-person from 2018, evidence >= 6. Variance of 1 means sigma is honest.");
+        println!("\n| group | n | mean z | var z |");
+        println!("|---|---:|---:|---:|");
+        for (name, extra) in [
+            ("all (drives nu)", ""),
+            ("returning after >= 1 year (tau_T)", "AND e.gap_days >= 365"),
+            (
+                "after losing >= 30% of evidence (gamma)",
+                "AND e.lost_prev > 0.3",
+            ),
+        ] {
+            let (n, m, v) = zvar(&conn, extra)?;
+            println!("| {name} | {n} | {m:.3} | {v:.3} |");
+        }
     }
 
     // Test 4.
@@ -521,42 +528,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Where a top team's uncertainty comes from.
-    println!("\n### Uncertainty budget of the top 20 teams, trailing year\n");
-    println!(
-        "Variance per rated event: removed by results, re-added by diffusion and by departures.\n"
-    );
-    println!("| # | team | sigma | events | -var results | +var diffusion | +var departures |");
-    println!("|---:|---|---:|---:|---:|---:|---:|");
-    let mut st = conn.prepare(
-        "WITH e AS (
-           SELECT te.team_id AS tid, te.sigma_before AS sb, te.sigma_after AS sa,
-                  te.var_diff AS vd,
-                  LAG(te.sigma_after) OVER (PARTITION BY te.team_id ORDER BY te.rowid) AS pa
-           FROM team_events te JOIN tournament_metrics m ON m.tournament_id = te.tournament_id
-           WHERE m.date >= date(?3, '-365 day') AND te.rated = 1
-         )
-         SELECT r.team_id, r.sigma, COUNT(*),
-                AVG(sb*sb - sa*sa), AVG(vd),
-                AVG(sb*sb - pa*pa - vd),
-                (SELECT x.team_current_name FROM buff.tournament_results x
-                 WHERE x.team_id = r.team_id ORDER BY x.id DESC LIMIT 1)
-         FROM team_ratings r JOIN e ON e.tid = r.team_id AND e.pa IS NOT NULL
-         WHERE r.release_id = ?1 AND r.sigma <= ?2
-         GROUP BY r.team_id ORDER BY r.mu DESC LIMIT 20",
-    )?;
-    let mut rows = st.query(rusqlite::params![rid, prov, rdate])?;
-    let mut i = 0;
-    while let Some(r) = rows.next()? {
-        i += 1;
+    if !kalman {
+        println!("\n### Uncertainty budget of the top 20 teams, trailing year\n");
+        println!("n/a under `team.engine = \"s2\"`.");
+    } else {
+            println!("\n### Uncertainty budget of the top 20 teams, trailing year\n");
         println!(
-            "| {i} | {} | {:.3} | {} | {:.5} | {:.5} | {:.5} |",
-            r.get::<_, Option<String>>(6)?.unwrap_or_else(|| "?".into()),
-            r.get::<_, f64>(1)?,
-            r.get::<_, i64>(2)?,
-            r.get::<_, f64>(3)?,
-            r.get::<_, f64>(4)?,
-            r.get::<_, f64>(5)?
+            "Variance per rated event: removed by results, re-added by diffusion and by departures.\n"
         );
+        println!("| # | team | sigma | events | -var results | +var diffusion | +var departures |");
+        println!("|---:|---|---:|---:|---:|---:|---:|");
+        let mut st = conn.prepare(
+            "WITH e AS (
+               SELECT te.team_id AS tid, te.sigma_before AS sb, te.sigma_after AS sa,
+                      te.var_diff AS vd,
+                      LAG(te.sigma_after) OVER (PARTITION BY te.team_id ORDER BY te.rowid) AS pa
+               FROM team_events te JOIN tournament_metrics m ON m.tournament_id = te.tournament_id
+               WHERE m.date >= date(?3, '-365 day') AND te.rated = 1
+             )
+             SELECT r.team_id, r.sigma, COUNT(*),
+                    AVG(sb*sb - sa*sa), AVG(vd),
+                    AVG(sb*sb - pa*pa - vd),
+                    (SELECT x.team_current_name FROM buff.tournament_results x
+                     WHERE x.team_id = r.team_id ORDER BY x.id DESC LIMIT 1)
+             FROM team_ratings r JOIN e ON e.tid = r.team_id AND e.pa IS NOT NULL
+             WHERE r.release_id = ?1 AND r.sigma <= ?2
+             GROUP BY r.team_id ORDER BY r.mu DESC LIMIT 20",
+        )?;
+        let mut rows = st.query(rusqlite::params![rid, prov, rdate])?;
+        let mut i = 0;
+        while let Some(r) = rows.next()? {
+            i += 1;
+            println!(
+                "| {i} | {} | {:.3} | {} | {:.5} | {:.5} | {:.5} |",
+                r.get::<_, Option<String>>(6)?.unwrap_or_else(|| "?".into()),
+                r.get::<_, f64>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, f64>(3)?,
+                r.get::<_, f64>(4)?,
+                r.get::<_, f64>(5)?
+            );
+        }
+
     }
 
     // Synergy.

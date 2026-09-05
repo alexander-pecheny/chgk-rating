@@ -2,6 +2,16 @@
 
 A team-first rating for sports ChGK. `DESIGN.md` is the specification; this file is how to run it.
 
+## The pipeline
+
+One chronological pass over the tournaments, in `fit`. Per tournament, in order:
+
+1. **Questions.** Each question's difficulty is set from the take rate of the lineups that played it, given their strengths as they stood this morning.
+2. **Teams.** Model S2 — Elo in a field, on the published scale. A team stands at its rating shifted by how much stronger today's lineup is than its usual one, gains or loses `K · w · D ·` (actual minus expected wins over the field), and the forecast published beside the result is the strength of the lineup alone.
+3. **Players.** A Kalman step on `θ` from the question model's gradient and Fisher information, then a small pull towards the lineup mean.
+
+Every Thursday is a release: the player gauge is re-centred on the established players and the two tables are written out. The team engine is `[team] engine` — `s2` ships, `kalman` is the filter it replaced and still runs from the same config. `DESIGN.md` sections 3, 4 and 8.3.
+
 ## Data
 
 `buff.db` in the repo root is a mirror of rating.chgk.info (tournaments, results with masks and lineups, players, the old system's releases). It is read-only and never written to. Calibration inputs from other systems live in `data/external/`: the old system's 2019 team and player releases, and player tables exported from chgk.quest and rating.chgk.fun.
@@ -14,7 +24,7 @@ cargo build --release
 
 ## fit
 
-Runs the chronological pass and writes `out/ratings.db` (about 1.4 GB, a few minutes).
+Runs the chronological pass and writes `out/ratings.db` (about 1.4 GB, under a minute).
 
 ```
 ./target/release/fit
@@ -23,6 +33,8 @@ Runs the chronological pass and writes `out/ratings.db` (about 1.4 GB, a few min
 ./target/release/fit --diag-player 24850              # per-release uncertainty decomposition
 ./target/release/fit --swap 28751:49804,16329:168@2018-12-22 --out out/swap.db
 ```
+
+`--diag-player` and the uncertainty machinery it prints belong to `engine = "kalman"`.
 
 Write large outputs to `out/`, not to `/tmp` — `/tmp` is a 3.8 GB tmpfs and a full run does not fit.
 
@@ -35,6 +47,37 @@ Prints the Markdown report: log-loss, the six acceptance tests, uncertainty cali
 ./target/release/eval --db out/ratings.db --swap-db out/swap.db --swap-date 2018-12-22
 ./target/release/eval --brief                         # one line, for parameter sweeps
 ```
+
+## simple
+
+Model S2, a prototype: the whole rating on the display scale with five
+constants, written to the `ratings.db` schema so `eval` and `tools/ndcg.py` read
+it unchanged. `out/simple/rules.md` is the regulation, `out/simple/comparison.md`
+the numbers against the shipped model.
+
+```
+./target/release/simple --config config_simple.toml            # Model S2 -> out/s2.db
+./target/release/simple --config config_simple_level.toml      # the level player rule
+./target/release/simple --config config_simple_s.toml          # Model S, the order statistic
+./target/release/simple --config config_simple.toml --out out/s2_hybrid.db \
+    --players-from out/ratings.db          # player strengths from the question model
+./target/release/simple --config config_simple.toml --anchor mean_sd \
+    --out out/s2_anchor_sd.db                                  # rule 11, no inflation
+./target/release/simple --config config_simple.toml --lineup roster  # the shipped lineup rule
+./target/release/simple --config config_simple.toml --grid     # the tuning sweep
+./target/release/simple --config config_simple.toml --players-from out/ratings.db \
+    --grid-kq                                     # K x k_q, per lineup rule -> out/s2_grid_kq.md
+./target/release/simple --config config_simple.toml --calibrate-d   # D by log-loss
+./target/release/simple --config config_simple.toml --dry      # scores only, nothing written
+```
+
+`[simple].lineup` picks the lineup rule of DESIGN 4.1 — `roster`, the shipped
+one, or `mean`, the average less `delta` per empty seat — and `--lineup`
+overrides it. `[simple].perf` picks the rule that turns a result into points — `pairwise`, the
+field Elo sum, or `played_like`, the order statistic at the finishing place —
+`[simple].player_rule` picks `surprise` or `level`, and `[simple].anchor` picks
+`none`, `mean` or `mean_sd`, the per-release rescaling that keeps the scale
+still. `--perf`, `--player-rule` and `--anchor` override them.
 
 ## calibrate
 
@@ -83,6 +126,24 @@ sorted descending.
 ./target/release/anomaly --profile 308949   # one player, tournament by tournament
 ./target/release/anomaly --who 308949       # one player's mask numbers
 ```
+
+## ext_fun
+
+rating.chgk.fun (Sirotkin's alternative rating) reimplemented from its published
+rules, over its own scope — no `in_rating` filter, asynchronous tournaments
+included — and written to the `ratings.db` schema. `--as-of` is the day the
+upstream site was last run and is what fixes the number of releases.
+
+```
+./target/release/ext_fun                                   # -> out/ext/fun.db, 1.1 GB, 40 s
+./target/release/ext_fun --db buff.db --out out/ext/fun.db --as-of 2026-09-04
+uv run tools/ext_fun_report.py                             # -> out/ext/fun/report.md
+```
+
+`out/ext/fun/report.md` is the method in prose and the fidelity check against the
+site's own API: nine of the ten tournaments of releases 1 and 2 reproduce every
+fitted question difficulty bit-exactly, and the current player table correlates
+0.9990 with `data/external/chgk_fun/players_rating_release263.csv`.
 
 ## Report
 

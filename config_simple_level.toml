@@ -1,0 +1,122 @@
+[data]
+db_path = "buff.db"
+out_path = "out/s2_level.db"
+from = "2013-01-01"
+to = "2026-09-05"
+w_in_person = 1.0
+w_strict_sync = 0.6666666666666666
+w_sync = 0.5
+w_async = 0.0
+# Per-player and per-team rows are written every Nth weekly release (plus the last one);
+# releases and their listed counts stay weekly. 1 is every release.
+rows_every = 1
+passes = 2
+
+[question]
+b_bar = 1.5
+s_b = 2.0
+s_a = 0.5
+# s_m = 0 fixes m at 1, the nested noisy-OR baseline.
+s_m = 0.0
+s_aff = 0.3
+aff_rank = 0
+eta_v = 0.2
+
+[player]
+mu_new = -1.0
+sigma_new = 1.0
+# Restart width for --passes 2; see the report.
+warm_sigma = 0.5
+warm_until = "2016-01-01"
+info_scale = 0.46
+teammate_shrink = 0.005
+tau_p = 0.25
+v_min = 0.05
+v_max = 0.6
+v_eta = 0.15
+tau_aff = 0.05
+
+[gauge]
+n_est = 8
+window_days = 365
+
+[team]
+# beta and sigma_model come from `calibrate`; see the report.
+sigma_model = 0.3669
+roster_bias = -0.2427
+sigma_new_team = 0.5
+beta = 0.3757
+kappa_m = 10.0
+m_max = 2.0
+nu = 2.6
+e_cap = 20.0
+rho = 0.8
+miss_streak = 3
+gamma = 2.0
+tau_t = 0.2
+v_min = 0.05
+v_max = 0.6
+v_eta = 0.15
+# The switches of DESIGN 8.2; these values are the shipped model.
+# Multiplies the precision the margin channel contributes; 0 removes the channel.
+margin_prec_scale = 1.0
+# Lower bound on sigma after an update: a minimum K-factor.
+sigma_floor = 0.2
+# Variance is divided by forget^(w*c) before each rated update: fading memory in games.
+forget = 1.0
+# Prior inflation when |z_raw| exceeds this, by min((z_raw/z0)^2, surprise_max); 0 is off.
+surprise_z0 = 0.0
+surprise_max = 9.0
+# Inflate only on a result worse than expected.
+surprise_down_only = false
+# Multiplies a negative mean step.
+k_down = 1.0
+# The margin channel moves the mean, from s* recalibrated by (s* - intercept)/slope.
+margin_mean = false
+margin_slope = 1.0
+margin_intercept = 0.0
+# Residual sd of that recalibration; falls back to sigma_model.
+# margin_sigma = 0.3340
+
+[truedl]
+# Six equal players at the strength of a balanced 251-500 team; fixed at launch.
+theta_ref = 0.2368
+
+[display]
+# Model S publishes on the display scale directly, so these maps are the identity.
+a_team = 0.0
+b_team = 1.0
+a_player = 0.0
+b_player = 1.0
+provisional_sigma = 0.3
+
+[numeric]
+newton_iters = 12
+newton_tol = 1e-4
+a_min = 0.3
+a_max = 3.0
+m_min = 0.5
+m_max = 4.0
+b_min = -10.0
+b_max = 12.0
+exp_lo = -60.0
+exp_hi = 30.0
+info_floor = 1e-3
+theta_max_step = 1.5
+u_max = 15.0
+crossfit_seed = 20250829
+
+[simple]
+# Tuned on the mean in-person forecast Spearman, 2018-09-01 to 2024-08-29.
+D = 1200.0
+K = 0.8
+k_p = 0.2
+delta = 150.0
+k_q = 0.01
+r_new = 3000.0
+# "pairwise" is Model S2, the field Elo sum; "played_like" is Model S, the order
+# statistic at the finishing place.
+perf = "pairwise"
+player_rule = "level"
+# Rule 13 of out/simple/rules.md; --anchor mean_sd turns it on.
+anchor = "none"

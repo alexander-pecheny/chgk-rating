@@ -148,15 +148,19 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
         &cfg.data.db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
     )?;
-    let mut stmt = conn.prepare(
+    let rated = if cfg.data.include_unrated {
+        ""
+    } else {
+        "t.in_rating = 1 AND"
+    };
+    let mut stmt = conn.prepare(&format!(
         "SELECT t.id, substr(t.date_start,1,10), t.tournament_type, t.editors,
                 r.team_id, r.position, r.questions_total, r.mask, r.team_members, r.rating,
                 t.questions_by_tour
          FROM tournaments t JOIN tournament_results r ON r.id = t.id
-         WHERE t.in_rating = 1
-           AND substr(t.date_start,1,10) >= ?1 AND substr(t.date_start,1,10) < ?2
-         ORDER BY substr(t.date_start,1,10), t.id",
-    )?;
+         WHERE {rated} substr(t.date_start,1,10) >= ?1 AND substr(t.date_start,1,10) < ?2
+         ORDER BY substr(t.date_start,1,10), t.id"
+    ))?;
     let mut rows = stmt.query([from, to])?;
 
     let mut pidx: HashMap<i64, u32> = HashMap::new();

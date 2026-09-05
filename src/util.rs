@@ -139,3 +139,23 @@ pub fn csv_rows(path: &str) -> std::io::Result<Vec<Vec<String>>> {
     }
     Ok(out)
 }
+
+/// Average ranks of `key` ascending, ties sharing the mean of their places.
+pub fn avg_ranks(key: &[f64]) -> Vec<f64> {
+    let mut o: Vec<usize> = (0..key.len()).collect();
+    o.sort_by(|&a, &b| key[a].total_cmp(&key[b]));
+    let mut r = vec![0.0; key.len()];
+    let mut i = 0;
+    while i < o.len() {
+        let mut j = i;
+        while j + 1 < o.len() && key[o[j + 1]] == key[o[i]] {
+            j += 1;
+        }
+        let avg = (i + j) as f64 / 2.0 + 1.0;
+        for &k in &o[i..=j] {
+            r[k] = avg;
+        }
+        i = j + 1;
+    }
+    r
+}

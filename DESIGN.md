@@ -4,12 +4,12 @@ This document is the specification. Code is checked against it. Constants marked
 
 ## 1. Principles
 
-1. A team's rating is its demonstrated strength on a stable scale, with an uncertainty. It moves only when the team plays.
+1. A team's rating is its demonstrated strength on a stable scale. It moves only when the team plays.
 2. A predicted winner that wins never loses points. The direction of every update comes from placement against the other teams in the field.
-3. A lineup change never moves a team's rating. Arrivals are guests until they have earned their place. Departures widen the uncertainty, and results then move the rating quickly.
-4. Inactivity widens uncertainty and never decays the number. The published table lists only teams and players with a rated game in the trailing 365 days.
-5. The scale is anchored to the population: each release, the mean strength of established players is zero. Inflation is impossible by construction.
-6. The forecast for a tournament is a separate object from the rating. It may use the lineup, the editors and the format.
+3. A lineup change never moves a team's rating. Today's lineup shifts the strength the team is judged at, not the rating itself.
+4. Inactivity never decays the number. The published table lists only teams and players with a rated game in the trailing 365 days.
+5. The scale is anchored to the population: each release, the mean strength of established players is zero. The team scale stands on the same footing, because both a lineup's strength and a new team's first rating are read off the players.
+6. The forecast for a tournament is a separate object from the rating: it is the strength of the lineup that turned up, and uses no team state at all.
 7. Individual ratings are raw estimates from the question model, published with their uncertainty, with no ladder rule.
 8. Publication is online and chronological. A published number is never rewritten. Full refits run offline for tuning and the initial backfill.
 
@@ -23,12 +23,12 @@ Format weight `w_t`, an evidence multiplier: in-person (`Обычный`, `Ре�
 
 Per result: `team_id`, `position` (fractional for shared places), `questions_total` (count of correct answers), `mask` (one char per question: `1` correct, `0` wrong, `X` removed, `?` unknown; skip `X` and `?`), `team_members` (player ids of the actual lineup), and the JSON blob `rating`, from which two fields are read:
 
-- `inRating` — the **rated flag**. A result with `inRating` false or absent is a pickup lineup without a base roster. It earns its team no rating update, no evidence and no listing credit, and never opens a team state; the team still stands in the field as an opponent for everyone else, entering the pairwise stage at its forecast strength (the roster estimate when it has no state), and its players update through the question model as usual. Of 522 131 rated-tournament results since 2013, 395 917 are flagged 1, 125 265 are flagged 0 and 949 are absent.
+- `inRating` — the **rated flag**. A result with `inRating` false or absent is a pickup lineup without a base roster. It earns its team no rating update, no evidence and no listing credit, and never opens a team state; the team still stands in the field as an opponent for everyone else, entering the pairwise stage at its own field strength, or at the strength of its lineup when it has no state, and its players update through the question model as usual. Of 522 131 rated-tournament results since 2013, 395 917 are flagged 1, 125 265 are flagged 0 and 949 are absent.
 - `predictedPosition` — the old system's forecast, stored for the comparison of section 7.2.
 
 Per tournament: `editors` (player ids), `tournament_type`, `date_start`, `questions_by_tour`.
 
-Question count `n_q` of a tournament is the longest mask over its results. When no result carries a mask, `n_q` falls back to the sum of the comma-separated `questions_by_tour`; when that is absent too, `n_q = 0` and section 4.3 substitutes 36. About 2.4% of rated results have an empty mask; they take part in the team update by position only.
+Question count `n_q` of a tournament is the longest mask over its results. When no result carries a mask, `n_q` falls back to the sum of the comma-separated `questions_by_tour`; when that is absent too, `n_q = 0` and section 8.3 substitutes 36. S2 does not read `n_q` at all. About 2.4% of rated results have an empty mask; they take part in the team update by position only.
 
 Events are processed in order of `date_start`, then tournament id. A release is a weekly snapshot (Thursday) of the state.
 
@@ -61,7 +61,15 @@ Priors: `log a_q ~ N(0, s_a²)`, `log m_q ~ N(0, s_m²)`, `b_q ~ N(b̄, s_b²)`,
 
 ### 3.3 Online update per tournament
 
-1. **Question fit.** With all player parameters fixed, fit `(b_q, log a_q, log m_q)` for every question by Newton iterations with damping and step halving on the penalised log-likelihood `prior + w_t · Σ log P`. Questions are independent given the players, so this is cheap and parallel. Parameters are clamped to `[a_min, a_max]`, `[m_min, m_max]`, `[b_min, b_max]`.
+1. **Question fit** (`question.fit`, `take_rate` ships). The difficulty is the closed form that reproduces the observed take rate of the lineups that played the question, with `a_q = m_q = 1`:
+
+```
+b_q = mean over lineups L of ln R_L  −  ln( −ln(1 − r) ),   R_L = Σ_{i∈L} exp(θ_i + aff_i,t)
+```
+
+`r` is the share of those lineups that took the question, clamped to `[0.02, 0.98]` so a question everyone or nobody took stays on the scale. Setting `b_q` this way makes the model's predicted take rate for a lineup of average reach equal to the observed one, exactly.
+
+`question.fit = "newton"` replaces it with the fit it succeeded: with all player parameters fixed, `(b_q, log a_q, log m_q)` per question by Newton iterations with damping and step halving on the penalised log-likelihood `prior + w_t · Σ log P`, clamped to `[a_min, a_max]`, `[m_min, m_max]`, `[b_min, b_max]`. Questions are independent given the players, so either way this is cheap and parallel. The ladder of `out/ladder/report.md` measured the difference: 0.0009 of cross-fitted log-loss and 0.018 in sample. The questions were nearly at the closed form already.
 
 2. **Player update.** With question parameters fixed, compute for each player in the tournament the gradient `g_i` and observed Fisher information `I_i` of the tournament log-likelihood with respect to `θ_i`, and likewise for `u_i`. A team's answers are not independent given `θ`, so one tournament carries less information than its curvature claims; the effective precision is discounted by `info_scale` (tunable, calibrated in section 7):
 
@@ -97,13 +105,13 @@ z_i = ( g_i / I_i ) / sqrt( prior + 1/I_eff )
 log v_i += v_eta · ( log(v_max if |z_i| > 1 else v_min) − log v_i )
 ```
 
-so a long, consistent history drives uncertainty to its floor whatever the calendar says, and only a run of results unlike the past reopens it. `v_i` starts at `τ_p`. Teams carry the same mechanism in place of a constant `τ_T` (section 4.3).
+so a long, consistent history drives uncertainty to its floor whatever the calendar says, and only a run of results unlike the past reopens it. `v_i` starts at `τ_p`. The Kalman team engine carries the same mechanism (section 8.3); S2 has no volatility.
 
 A player with no history enters at `θ = μ_new`, `σ = σ_new` (tunable, defaults −1.0 and 1.0). Recorded per player: count of rated games and date of the last one, for the listing rule.
 
 ### 3.5 Gauge
 
-At each release: `shift = mean θ_i` over players with at least `n_est` (tunable, default 8) rated tournaments in the trailing 365 days. Subtract `shift` from every `θ_i`, every team `μ_T` and every team `s̄_T` (section 4). Questions are never reused, so `b` needs no correction. The cumulative shift is stored per release for diagnostics.
+At each release: `shift = mean θ_i` over players with at least `n_est` (tunable, default 8) rated tournaments in the trailing 365 days. Subtract `shift` from every `θ_i`. Under `engine = "kalman"` it is subtracted from every team `μ_T` and `s̄_T` as well; S2 needs no team correction, because it never holds a team number on the `θ` scale — the shift reaches it only through the player ratings a lineup strength is read off. Questions are never reused, so `b` needs no correction. The cumulative shift is stored per release for diagnostics.
 
 Player and team state is held on the pre-gauge scale and the cumulative shift subtracted on read, so a release costs `O(1)` and the published **change** since an entity's previous listed release (section 6) is its own movement, free of the gauge.
 
@@ -118,92 +126,117 @@ Because the snapshot is taken at `warm_until` and no player who debuts after it 
 
 ## 4. The team model
 
-### 4.1 Team strength scale
+Model S2: Elo in a field, kept on the published scale. Five constants and no
+algebra beyond a weighted average. `team.engine` selects it (`s2`, shipped)
+against the Kalman filter it replaced, which stays selectable as section 8.3.
 
-The roster estimate of a lineup `L` at tournament `t`:
+### 4.1 The team scale and the strength of a lineup
+
+A player's strength on the team scale is the affine image of `θ`:
 
 ```
-s_r(L) = log Σ_{i∈L} exp(θ_i + aff_i,t) + roster_bias
-Var    ≈ Σ_i p_i² σ_i² + σ_model²,   p_i = softmax weights of (θ_i + aff_i,t)
+r_i = player_zero + player_scale · (θ_i + aff_i,t + ln 6 + roster_bias)
 ```
 
-`s_r` is on the same scale as `θ`: a single player of strength `s_r` has the same total intensity as the lineup. `roster_bias` is the mean residual of realised team strength around the uncorrected sum of parts, calibrated offline and negative — real teams score below the independent-players estimate. `σ_model²` is the residual variance around it, also calibrated offline.
+so that six equal players of rating `r` make a lineup of strength exactly `r`.
+`player_scale` is the display slope of the engine this one replaced;
+`player_zero` is a free shift, because nothing in S2 reads an absolute level.
 
-`roster_bias` enters the roster estimate used for new-team entry (4.2), for the forecast blend (4.3 step 4) and for the margin channel (4.3 step 6). The core strength `s̄_T` accumulates the uncorrected estimate, so the lineup offset `δ_L` of 4.3 step 2 is a difference of like with like and is unaffected.
+The **strength of the lineup** `L` that turned up is the roster estimate —
+`log Σ_{i∈L} exp(θ_i + aff_i,t)`, the strength at which a single player would
+answer as much as the whole table — mapped by the same affine map. In display
+units the bias and the zero cancel and only the slope survives:
+
+```
+Q(L) = player_scale · ( ln Σ_{i∈L} exp( r_i / player_scale ) − ln 6 )
+```
+
+A short table is worth less than a full one and a strong player carries more
+than his share of the average, both by construction rather than by a penalty.
+
+`team.s2.lineup = "mean"` is the alternative that was tested against it: the
+mean of `r_i` less `delta` per seat short of six. Section 7.2 has the numbers;
+the roster estimate wins, and `delta` is then unused.
+
+The roster estimate also has a variance, which `calibrate` and section 8.3 use
+and S2 does not.
 
 ### 4.2 Team state
 
-- Rating `μ_T`, variance `σ_T²`, volatility `v_T`.
-- Evidence `e_T,i` per player and a miss counter `k_T,i`: the weighted count of rated games with the team, and how many of the team's rated tournaments in a row that player has missed. Total `E_T = Σ_i e_T,i`.
-- Core strength `s̄_T`: the evidence-weighted mean of the uncorrected roster estimate over the lineups with which the team earned `μ_T`.
-- Date of last rated game, and the share of evidence lost at the previous tournament.
+- Rating `R`, on the published scale.
+- Usual lineup `Q̄`: the strength of the lineups the rating was earned with.
+- Count of rated games `n` and the date of the last one.
 
-A team with `E_T = 0` is new. It enters at `μ_T = s_r(L)`, `σ_T² = Var(s_r(L)) + σ_new_team²`, `s̄_T = s_r(L) − roster_bias`, `v_T = τ_T`. A result flagged `inRating = 0` never opens a state.
+A team with no state opens one at its first rated result, at `R = Q̄ = Q(L)`.
+A result flagged `inRating = 0` never opens a state.
 
-### 4.3 Per tournament, for each team `T` with lineup `L`
+### 4.3 Per tournament
 
-The field is every rated team of the tournament with a non-empty lineup or an existing state; a team with neither is skipped. Steps 1 to 5 read the player states as they stood before the tournament and are computed for the whole field before any state is written.
+The field is every result with a lineup or an existing state; a result with
+neither is skipped. Everything below reads the player states as they stood
+before the tournament.
 
-1. Continuity `c = Σ_{i∈L} e_T,i / E_T` (1 for a new team). This is the share of the team's evidence present today.
-2. Lineup offset `δ_L = (s_r(L) − roster_bias) − s̄_T`: how much stronger or weaker today's lineup is than the lineups that earned the rating.
-3. Expected strength for the update: `x_T = μ_T + δ_L`. The rating is judged relative to its own core; guests raise the expectation, absences lower it.
-4. Forecast strength, published only: the precision-weighted blend of `(x_T, σ_T²)` and `(s_r(L), Var(s_r(L)))`. After heavy departures `σ_T²` is wide and the forecast is close to the roster estimate; the rating is not. Forecast places are the ranking of forecast strengths in the field, 1 strongest. A team whose result is flagged `inRating = 0` enters step 5 at its forecast strength instead of `x_T`.
-5. Pairwise update. For every other team `B` in the field:
+1. **Field strength.** `F_T = R + (Q(L) − Q̄)`: the rating, shifted by how much
+   stronger or weaker today's lineup is than the lineups that earned it. A team
+   opening its state stands at `Q(L)`; a result with no lineup listed stands at
+   `R`. Guests raise the expectation, absences lower it, and neither moves `R`.
 
-```
-P_AB = logistic( (x_A − x_B) / β_t ),     β_t = β · sqrt(36 / n_q),  n_q = 36 when unknown
-y_AB = 1 if A placed above B, 0 if below; a shared place contributes nothing
-m_AB = min( 1 + |score_A − score_B| / κ_m , m_max ),  m_AB = 1 when either score is missing
-S_A  = Σ_B (y_AB − P_AB) · m_AB
-I_A  = Σ_B P_AB (1 − P_AB) · m_AB
-```
-
-`β` is the slope of team strength against pairwise wins on a 36-question set, calibrated offline once (tunable). A shared place is uninformative about which team is better and is skipped in both sums, equivalent to `y = P` at zero information. Because `y − P ≥ 0` for every pair a first-placed team is in, its `S_A ≥ 0`: principle 2 holds by construction, for shared first places as well as sole ones. Margin only scales magnitude.
-
-Pairs are not independent, so normalise: multiply `S_A` and `I_A` by `n_eff / (N − 1)` with `n_eff = min(N − 1, ν)` (tunable `ν`).
-
-6. Apply, scaled by continuity and format. Two channels contribute precision; only the placement channel moves the mean.
+2. **Pairwise.** Against every other team `B` of the field,
 
 ```
-realised s*  = the strength at which one player of that strength would answer
-               exactly `questions_total` of this package (bisection on the fitted
-               question parameters); absent when the mask is empty
-π_pair = w_t · c · I_A / β_t²
-π_marg = w_t · c / σ_model²        when s* exists, 0 otherwise
-π_T'   = 1/σ_T² + π_pair + π_marg
-μ_T   += w_t · c · (S_A / β_t) / π_T'
-σ_T²   = max( 1/π_T', σ_floor² )
+P_AB = 1 / ( 1 + 10 ^ ( (F_B − F_A) / D ) )
+y_AB = 1 if A placed above B, 0 if below; a shared place is skipped in both sums
+S_A  = ( Σ_B y_AB  −  Σ_{B not tied with A} P_AB ) / (N − 1)
 ```
 
-The score says how strong the team was but not whom it beat, so it sharpens the posterior without moving it and the winner rule of step 5 stays exact. Without this channel a team that wins nearly every pair has `P(1−P) ≈ 0` and gathers information an order of magnitude more slowly than an ordinary team, and never leaves the provisional list.
+A shared place says nothing about which of the two teams is better, so its
+expectation is left out along with its outcome. Because `y − P ≥ 0` for every
+pair a first-placed team is in, `S_A ≥ 0` for a team that finished first, sole
+or shared: principle 2 holds by construction. The margin of the score does not
+enter at all.
 
-The floor `σ_floor` (tunable, 0.2) is a minimum K-factor. Precision without an innovation is a confirmation of the current mean, so without the floor an established team's precision climbs past 100 and a year of poor results moves it by a few display points. With the floor the innovations are white (lag-1 autocorrelation 0.004 against 0.097 without) and test 2 rises from 0.8124 to 0.8224.
-
-The standardised residual of that same observation is stored for the calibration of section 7:
-
-```
-z_T = ( s* − x_T ) / sqrt( σ_T² + σ_model² )     (σ_T² before the update)
-```
-
-7. Bookkeeping after the update:
-   - Present players: `e_T,i = min(e_T,i + w_t, e_cap)`, `k_T,i = 0`.
-   - Absent players: `k_T,i += 1`. Once `k_T,i ≥ miss_streak` (tunable) their evidence decays, `e_T,i *= ρ`, and joins the lost share `ℓ = Σ_decaying e_T,i (1 − ρ) / E_T`, which widens uncertainty: `σ_T² /= (1 − ℓ)^γ` with `γ ≥ 1` (tunable), `ℓ` clamped at 0.9. This is the departure rule: convex in the share lost, no threshold, and it touches only the uncertainty. The streak condition is what separates a departure from a rotating roster; without it a team that fields nine players in turn is treated as losing a member every week.
-   - `σ_T²` is then capped at `Var(s_r(L)) + σ_new_team²`: after total turnover a team knows no more about itself than a new team of the same lineup.
-   - `s̄_T` is updated as an evidence-weighted running mean, weight `E_T` before the update against `w_t · |L|` for the new lineup.
-   - Volatility, from the pairwise innovation `S_A · β_t / I_A`:
+3. **Update**, on a rated result only:
 
 ```
-z_pair = ( S_A · β_t / I_A ) / sqrt( σ_T² + 1/π_pair )      (σ_T² before the update)
-log v_T += v_eta · ( log(v_max if |z_pair| > 1 else v_min) − log v_T )
+R  += K · w_t · D · S_A
+Q̄  += K_q · ( Q(L) − Q̄ )        when a lineup is listed
+n  += 1
 ```
 
-   - Between tournaments: `σ_T² += v_T² · Δt`.
+An unrated result stands in the field for everyone else and takes no update, no
+game and no listing credit. The date of the last rated game advances only on a
+rated result.
 
-A lineup with `c = 0` (an old team id used by strangers) gets a forecast but no update. The date of the last rated game advances only on a result flagged `inRating = 1`.
+### 4.4 Forecast
 
-Teams with an empty mask still take part in step 5 with `score` from `questions_total`; if that is missing too, `m_AB = 1`.
+The forecast for a team at a tournament is `Q(L)`, the strength of the lineup it
+declared, falling back to `F_T` when the result lists no lineup. Forecast places
+are the ranking of the field by it, ties sharing the mean place.
 
-### 4.4 Tournament difficulty
+The forecast therefore reads no team state whatsoever. That is not a
+simplification but the measured result: over the in-person tournaments of the
+last two seasons the lineup alone forecasts better than the team rating, better
+than the rating with the lineup offset, and better than the old system's
+`predictedPosition` (section 7.2). Teams are stable; the question of who turns up
+is not, and the lineup answers it.
+
+### 4.5 What is published
+
+`R` is published through the affine map of section 5. A team's `sigma` is the provisional flag in the shape the
+schema expects — `0.1` at five rated games or more, `0.5` below — so
+`display.provisional_sigma` keeps a team out of the ranked tables until it has
+five. S2 estimates no variance and publishes none.
+
+### 4.6 Inactivity and lineup change
+
+Neither has an effect. A rating does not decay between games and a lineup change
+does not move it; today's lineup moves the strength the team is judged at, and
+the usual lineup follows the real change over the next hundred games. There is
+no volatility, no departure rule and no evidence per player: `evidence` in the
+outputs is the count of rated games.
+
+
+### 4.7 Tournament difficulty
 
 Published alongside the ratings, computed from the fitted question parameters against a fixed reference lineup of six identical players of strength `θ*` (`truedl.theta_ref`, fixed at launch and never recomputed):
 
@@ -216,14 +249,18 @@ NULL when no question of the tournament was answered by anyone. `θ* = 0.2368` i
 
 ## 5. Display scale
 
-Internal numbers are on the `θ` scale with mean zero. Published numbers are affine maps, fixed once at launch and never revised:
+Published numbers are affine maps of the internal ones, fixed once and never revised:
 
 ```
-R_team   = A_T + B_T · μ_T
+R_team   = A_T + B_T · R
 R_player = A_P + B_P · θ_i
 ```
 
-Constants are chosen so that the 50th and 1000th of our listed non-provisional teams at the release nearest 2019-09-05 match the old system's values at those places (7028 and 2992), and likewise for players at the release nearest 2019-10-03 (12865 and 9778). The top lands where the internal scale puts it. A rating with `σ > provisional_sigma` (tunable, default 0.3) is published as provisional and left out of the ranked tables.
+Both maps come from `calibrate --display`: `A_T`, `B_T` so that the 50th and 1000th of our listed non-provisional teams at the release nearest 2019-09-05 match the old system's values at those places (7028 and 2992), and `A_P`, `B_P` likewise for players at the release nearest 2019-10-03 (12865 and 9778). The top lands where the internal scale puts it.
+
+S2 carries its rating on an internal team scale set by the player map of section 4.1: `player_scale` fixes the slope and `player_zero` the level. `player_scale` is not free — halving it halves every rating, every lineup strength and every step relative to `D`, which is a different model — and `player_zero` is a pure shift. The published map only moves that scale onto the familiar level: its slope is 1.19 because the S2 spread between the 50th and 1000th teams in 2019 is narrower than the old system's.
+
+A rating with `σ > provisional_sigma` (tunable, default 0.3) is published as provisional and left out of the ranked tables. Under S2 that is exactly "fewer than five rated games" (section 4.5).
 
 ## 6. Outputs
 
@@ -237,7 +274,9 @@ Constants are chosen so that the 50th and 1000th of our listed non-provisional t
 - `question_params(tournament_id, q, b, a, m)`
 - `tournament_metrics(tournament_id, date, type, weight, n_teams, n_q, n_obs, logloss_insample, logloss_crossfit, spearman_forecast, spearman_old_system, truedl)`
 
-`change` is the entity's own movement since its previous written release, excluding gauge shifts, and 0 on a first appearance or an idle week. `expected_place` is `1 + Σ_B P_BA` over the field, the place the pairwise model of step 5 expects, against `forecast_place`, the rank of forecast strengths. They differ where the field is tight: a team ranked sixth on strength is beaten by more than five teams in expectation when the six are close. The columns beyond section 4's formulas — `sigma_before`, `sigma_after`, `evidence`, `gap_days`, `var_diff`, `lost_prev`, `z` — are what the uncertainty calibration of section 7 reads; `s_r` and `rated` are what the site shows.
+`change` is the entity's own movement since its previous written release, excluding gauge shifts, and 0 on a first appearance or an idle week. `expected_place` is `N − Σ_B P_AB` over the field, the place the pairwise model expects, against `forecast_place`, the rank of the lineup strengths. They differ where the field is tight: a team ranked sixth on strength is beaten by more than five teams in expectation when the six are close.
+
+Under `engine = "s2"` the columns carry the S2 quantities: `mu` and `mu_before/after` are `R`, `core_strength` is `Q̄`, `evidence` is the count of rated games, `x` is the field strength `F_T`, `s_r` and `forecast` are both the lineup strength `Q(L)`, `s_pair` is `S_T`, `i_pair` is 1, `c` is the rated flag, `delta_l` is `Q(L) − Q̄`, and `sigma` is the provisional flag of section 4.5. The columns the Kalman filter needs and S2 has no analogue for — `var_diff`, `lost_prev`, `z` — are written as 0 or NULL. Under `engine = "kalman"` they carry the meanings of section 8.3 and are what its uncertainty calibration reads.
 
 Indexes: `team_events(team_id)`, `team_events(tournament_id)`, `team_ratings(release_id)`, `team_ratings(team_id)`, `player_ratings(player_id)`, `player_events(player_id)`.
 
@@ -247,21 +286,42 @@ Indexes: `team_events(team_id)`, `team_events(tournament_id)`, `team_ratings(rel
 
 `β` and `σ_model` come from `calibrate`, over in-person tournaments 2015 to 2024: `β` as the maximum-likelihood logistic slope of pairwise wins against the difference of roster estimates rescaled to a 36-question basis (812 782 pairs), `σ_model` and `roster_bias` as the standard deviation and mean of `s* − s_r` over full six-player lineups (25 971 lineups). The display constants come from `calibrate --display` against the 2019 releases of section 5.
 
-`info_scale` and `ν` are fixed by the requirement that the published uncertainty be honest: over in-person tournaments from 2018, the standardised residuals must have unit variance — `z_i` of section 3.4 for players, `z_T` of section 4.3 step 6 for teams with `E_T ≥ 6`. The same test on teams returning after a year of inactivity fixes the volatility floor, and on teams that lost 30% of their evidence would fix `γ`; with `miss_streak` in force that group is empty, so `γ` keeps its default and is not identified by the data.
+`info_scale` is fixed by the requirement that the published player uncertainty be honest: over in-person tournaments from 2018, the standardised residuals `z_i` of section 3.4 must have unit variance. The team-side half of that test, and `ν`, belong to section 8.3.
+
+S2's own constants are not calibrated offline. `D` is the maximum-likelihood scale of the pairwise outcomes, and the likelihood is flat from 900 to 2400 (`simple --calibrate-d`); `K` and `K_q` are tuned on the mean in-person forecast Spearman over 2018-09-01 to 2024-08-29, on the grid `K ∈ {0.2, 0.3, 0.4, 0.6}` against `K_q ∈ {0.01, 0.03, 0.1}`, run once per lineup rule (`out/s2_grid_kq.md`).
 
 ### 7.2 Acceptance tests
 
-1. **Cross-fitted log-loss** on in-person rated tournaments, per variant. A variant (step count, affinity rank, async weight, teammate shrinkage) stays only if it lowers the number. **Result: 0.4891 over all seasons, 0.5180 in 2025/26.** Passed.
-2. **Forecast rank correlation.** Spearman between forecast places and actual places per tournament, averaged over in-person tournaments of the last two seasons, against the old system's `predictedPosition`. Target: within 0.02 of the best external system. **Result: 0.8224 against 0.8177; sync 0.8166 against 0.7897.** Passed.
-3. **Individual top-200 overlap with chgk.quest of at least 70%.** **Result: 126/200 against chgk.quest and 128/200 against rating.chgk.fun. Failed.** For context those two systems agree with each other on 136/200, so the 140 threshold is above what mature external systems reach between themselves; the rank correlation of `θ` over players with at least 50 games is 0.91 against chgk.quest and 0.79 against rating.chgk.fun.
-4. **Inflation:** the display value of the 50th team at each September release from 2015 to 2026 stays within a band of ±10%. A September whose trailing year holds fewer than 200 rated teams is a hole in the data, not inflation, and is excluded from the band; only September 2021 is. **Result: largest deviation 5.3% over 11 Septembers (range 6663 to 7388 around a mean of 7037).** Passed.
-5. **Transfer invariance:** swap the strongest player between two top teams in the input at a chosen date and confirm no team rating changes at that date. Forecasts must change. **Result: 0 teams moved, maximum difference exactly 0; the two teams' forecasts at their next tournament move by 0.38 while `mu_before` is bit-identical.** Passed.
-6. **Winner rule:** no team that finished first, sole or shared, has `mu_after < mu_before` anywhere in `team_events`. **Result: 0.** Passed.
+Results are from `out/eval_s2.md`, over `out/ratings_s2.db`.
+
+1. **Cross-fitted log-loss** on in-person rated tournaments, per variant. A variant (step count, affinity rank, async weight, teammate shrinkage) stays only if it lowers the number. **Result: 0.4900 over all seasons, 0.5161 in 2025/26.** Passed.
+2. **Forecast rank correlation.** Spearman between forecast places and actual places per tournament, averaged over in-person tournaments of the last two seasons, against the old system's `predictedPosition`. Target: within 0.02 of the best external system. **Result: 0.8363 against 0.8177; sync 0.8194 against 0.7897.** Passed, and ahead rather than within.
+3. **Individual top-200 overlap with chgk.quest of at least 70%.** **Result: 117/200 against chgk.quest and 122/200 against rating.chgk.fun. Failed.** For context those two systems agree with each other on 136/200, so the 140 threshold is above what mature external systems reach between themselves; the rank correlation of `θ` over players with at least 50 games is 0.90 against chgk.quest and 0.79 against rating.chgk.fun.
+4. **Inflation:** the display value of the 50th team at each September release from 2015 to 2026 stays within a band of ±10%. A September whose trailing year holds fewer than 200 rated teams is a hole in the data, not inflation, and is excluded from the band; only September 2021 is. **Result: largest deviation 6.3% over 11 Septembers (range 6612 to 7416 around a mean of 6978).** Passed.
+5. **Transfer invariance:** swap the strongest player between two top teams in the input at a chosen date and confirm no team rating changes at that date. Forecasts must change. **Result: 0 teams moved, maximum difference exactly 0; 286 139 team events on or after the swap have a different forecast.** Passed.
+6. **Winner rule:** no team that finished first, sole or shared, has `mu_after < mu_before` anywhere in `team_events`. **Result: 0, sole and shared alike.** Passed.
 7. The user's read of the resulting tables.
+
+**The lineup rule.** Both rules of section 4.1 were run over the same players, tuned on the same window (`out/s2_grid_kq.md`). The roster estimate wins at each rule's own optimum and on both held-out formats, and `delta` goes with the rule it belongs to:
+
+| | tune Spearman | tune NDCG@3 | test Spearman, in person | test Spearman, sync |
+|---|---:|---:|---:|---:|
+| mean of `r_i` less `delta` | 0.7947 | 0.7659 | 0.8259 | 0.7796 |
+| **roster estimate** | **0.7975** | **0.7716** | **0.8309** | **0.8162** |
+
+**The forecast against the rating.** On the 284 in-person tournaments of the test window that both databases forecast (`tools/ndcg.py --common`):
+
+| | Spearman | NDCG@3 |
+|---|---:|---:|
+| lineup alone (shipped forecast) | **0.8357** | 0.7765 |
+| rating with the lineup offset, `F_T` | 0.8300 | 0.7711 |
+| rating alone, `R` | 0.6592 | 0.7349 |
+| the Kalman engine's forecast | 0.8234 | 0.7456 |
+| the old system's `predictedPosition` | 0.8202 | 0.7428 |
 
 ## 8. Implementation
 
-Rust workspace, one library crate `chgk-rating` with modules `data`, `question_model`, `team_model`, `gauge`, `display`, `output`, `util`, and binaries `fit` (online pass, writes `out/ratings.db`), `eval` (metrics report from the outputs), `calibrate` (`β`, `σ_model`, `roster_bias`, and the display constants). Configuration in `config.toml`. Parallelism through rayon over questions within a tournament and over teams within a tournament's pairwise stage.
+Rust workspace, one library crate `chgk-rating` with modules `data`, `question_model`, `team_s2` (the shipped team engine), `team_model` (the legacy one), `gauge`, `display`, `output`, `util`, and binaries `fit` (online pass, writes `out/ratings.db`), `eval` (metrics report from the outputs), `calibrate` (`β`, `σ_model`, `roster_bias`, and the display constants). Both engines expose the same `step(tournament, players, config) -> Vec<TeamEvent>` and the same release rows, so `fit` differs only in which one it constructs. `src/bin/simple.rs` is the same S2 rules as a research tool, over player ratings of its own or from a finished `fit`; it stays the place tuning grids are run. Configuration in `config.toml`. Parallelism through rayon over questions within a tournament and over teams within a tournament's pairwise stage.
 
 `fit --swap PLAYER_A:TEAM_A,PLAYER_B:TEAM_B@DATE` exchanges two players between two teams from that date on, for test 5. `fit --diag-player ID` prints that player's uncertainty decomposition at every release.
 
@@ -269,19 +329,23 @@ Rust workspace, one library crate `chgk-rating` with modules `data`, `question_m
 
 ```
 [data]     w_in_person 1, w_strict_sync 2/3, w_sync 1/2, w_async 0, rows_every 1, passes 2
-[question] b_bar 1.5, s_b 2.0, s_a 0.5, s_m 0, s_aff 0.3, aff_rank 0, eta_v 0.2
+[question] b_bar 1.5, s_b 2.0, s_a 0.5, s_m 0, s_aff 0.3, aff_rank 0, eta_v 0.2,
+           fit take_rate, gradient exact
 [player]   mu_new −1.0, sigma_new 1.0, warm_sigma 0.5, warm_until 2016-01-01,
            info_scale 0.46, teammate_shrink 0.005,
            tau_p 0.25, v_min 0.05, v_max 0.6, v_eta 0.15, tau_aff 0.05
 [gauge]    n_est 8, window_days 365
-[team]     sigma_model 0.3669, roster_bias −0.2427, sigma_new_team 0.5, beta 0.3757,
-           kappa_m 10, m_max 2, nu 2.6, e_cap 20, rho 0.8, miss_streak 3, gamma 2,
-           tau_t 0.2, v_min 0.05, v_max 0.6, v_eta 0.15, sigma_floor 0.2
+[team]     engine s2, roster_bias −0.2427, sigma_model 0.3669
+[team.s2]  D 1200, K 0.4, k_q 0.01, lineup roster, delta 150 (unused under roster),
+           player_scale 2454.8828, player_zero 6000
 [truedl]   theta_ref 0.2368
-[display]  provisional_sigma 0.3
+[display]  a_team −7295.3562, b_team 1.1904, a_player 5543.6775, b_player 4723.7898,
+           provisional_sigma 0.3
 [numeric]  newton_iters 12, a ∈ [0.3, 3], m ∈ [0.5, 4], b ∈ [−10, 12],
            info_floor 1e−3, theta_max_step 1.5, u_max 15
 ```
+
+The rest of `[team]` — `sigma_new_team 0.5, beta 0.3757, kappa_m 10, m_max 2, nu 2.6, e_cap 20, rho 0.8, miss_streak 3, gamma 2, tau_t 0.2, v_min 0.05, v_max 0.6, v_eta 0.15, sigma_floor 0.2` and the switches below — belongs to `engine = "kalman"` and is kept at the values that engine shipped with. `roster_bias` and `sigma_model` are read by both.
 
 ### 8.2 Reserved extensions
 
@@ -290,14 +354,37 @@ Two question-model extensions are implemented, tested and switched off. Both sta
 - **Free step count** (`question.s_m > 0`), the collaboration term `m_q` of section 3.2. Mean fitted `m` was 1.056; it bought in-sample fit and paid for it out of sample.
 - **Affinity** (`question.aff_rank > 0`), the player-editor interaction `u_i · v_e` of section 3.1. Learned magnitudes reached about 0.01 on the `θ` scale: the Fisher information for `u_i` is smaller than that for `θ_i` by a factor `v̄²`, so a single online pass cannot identify it. A fair test needs a full offline refit.
 
-The team update of section 4.3 carries a second group of switches, tried on 2026-09-05 against the sluggishness of established teams: the margin channel adds precision without an innovation, and the volatility ramp reopens `σ_T` over months. Of the group only `sigma_floor` ships at a live value; the rest stay at the value that leaves the section unchanged. The comparison is `out/variants/comparison.md`.
+The question model carries a third group, the simplification ladder of `out/ladder/report.md`. Of these only `question.fit` moved: `take_rate` is rung Q1, the last rung that held, and it ships.
 
-- `team.margin_prec_scale` (1) multiplies `π_marg`; 0 removes the confirmation channel, and leaves 46% of teams provisional.
-- `team.sigma_floor` (0.2, shipped) is the floor of step 6.
+- `question.fit` (`take_rate`, shipped; section 3.3 step 1) against `newton`.
+- `question.gradient` (`exact`, shipped) replaces the noisy-OR gradient of step 2 with `share`: `g_i = (y - P) * p_i / sum_j p_j`, credit in proportion to `p_i = 1 - exp(-lambda_i)`. Rung Q3; it fails on the individual table, 102/200 against chgk.quest.
+- `player.update` (`kalman`, shipped) replaces the Kalman step with `schedule`: `theta_i += eta0/sqrt(c0 + games_i) * w_t * g_i`, no `sigma`, no volatility; a player under five games is provisional. Rung Q2; it costs 0.012 of forecast Spearman.
+
+### 8.3 The Kalman team engine (`team.engine = "kalman"`)
+
+The engine S2 replaced, kept whole and selectable. Its formulas are in the git history of this file; the summary is:
+
+A team carried a rating `μ_T`, a variance `σ_T²`, a volatility `v_T`, per-player evidence `e_T,i` with a miss counter, a core strength `s̄_T` and the date of its last rated game. The roster estimate on the `θ` scale,
+
+```
+s_r(L) = log Σ_{i∈L} exp(θ_i + aff_i,t) + roster_bias
+Var    ≈ Σ_i p_i² σ_i² + σ_model²,   p_i = softmax weights of (θ_i + aff_i,t)
+```
+
+set a new team's entry, the forecast blend and the margin channel; `roster_bias` and `σ_model` are the mean and standard deviation of `s* − s_r` over full six-player lineups, from `calibrate`. `s_r` is still what `team_model::roster_estimate` computes, still what `calibrate` fits, and still the quantity section 4.1 maps onto the display scale.
+
+Per tournament: continuity `c` as the share of the team's evidence present today; a lineup offset `δ_L = (s_r − roster_bias) − s̄_T` and expected strength `x_T = μ_T + δ_L`; a logistic pairwise stage on `x` with slope `β_t = β √(36/n_q)` and a score-margin multiplier, normalised by `n_eff/(N−1)`; a Kalman step `μ_T += w_t c (S_A/β_t)/π'_T` with precision from the pairwise channel and a margin channel that added precision without moving the mean; then evidence bookkeeping, the departure rule `σ_T² /= (1−ℓ)^γ`, a variance cap at a new team's, a running update of `s̄_T`, a volatility step and diffusion `σ_T² += v_T² Δt` between games. The forecast was the precision-weighted blend of `(x_T, σ_T²)` and `(s_r, Var(s_r))`.
+
+`info_scale`, `ν` and the volatility floor were fixed by the honest-uncertainty test of section 7.1 on `z_T = (s* − x_T)/√(σ_T² + σ_model²)` for teams with `E_T ≥ 6`; `γ` was never identified by the data. `eval` prints those sections only under this engine.
+
+It also carries its own switches, tried on 2026-09-05 against the sluggishness of established teams. Of the group only `sigma_floor` ships at a live value; the rest stay at the value that leaves the engine unchanged. The comparison is `out/variants/comparison.md`.
+
+- `team.margin_prec_scale` (1) multiplies the margin precision; 0 removes the confirmation channel, and leaves 46% of teams provisional.
+- `team.sigma_floor` (0.2) is a minimum K-factor: without it an established team's precision climbs past 100 and a year of poor results moves it by a few display points.
 - `team.forget` (1) divides `σ_T²` by `forget^(w_t·c)` before each rated update, a memory that fades in games rather than in calendar time.
-- `team.surprise_z0` (0, off) with `surprise_max` (9) and `surprise_down_only` (false) multiplies the prior variance by `min((z_raw/z0)², surprise_max)` when `|z_raw| > z0`, where `z_raw = (S_A·β_t/I_A) / sqrt(σ_T² + β_t²/I_raw)` is the innovation against the un-normalised pairwise information: an immediate response to a surprise beside the slow ramp.
+- `team.surprise_z0` (0, off) with `surprise_max` (9) and `surprise_down_only` (false) multiplies the prior variance by `min((z_raw/z0)², surprise_max)` when `|z_raw| > z0`: an immediate response to a surprise beside the slow ramp.
 - `team.k_down` (1) multiplies a negative mean step.
-- `team.margin_mean` (false), with `margin_slope`, `margin_intercept` and `margin_sigma`, lets the margin channel move the mean, on the innovation `s*_cal − x_T` with `s*_cal = (s* − intercept)/slope` from an offline regression of `s*` on `x_T`. A team that placed first is then clamped at a non-negative step, because the channel is not placement and principle 2 has to be imposed rather than inherited.
+- `team.margin_mean` (false), with `margin_slope`, `margin_intercept` and `margin_sigma`, lets the margin channel move the mean. A team that placed first is then clamped at a non-negative step, because the channel is not placement and principle 2 has to be imposed rather than inherited.
 
 ## 9. Report
 
@@ -333,7 +420,9 @@ the two ranking tables, which need the last release ordered by rating out of
 
 Rating history is interactive: the chart carries its points in viewBox
 coordinates, and the crosshair is a nearest-x lookup that draws a vertical rule
-and a dated tooltip. Without JavaScript the line and its band still render.
+and a dated tooltip. Without JavaScript the line and its band still render. A
+team's series has no band under S2, which publishes no uncertainty; the team page
+shows its rated games and its usual lineup where the player page shows a `±`.
 
 Styling follows the user's design system in `~/dopesuite/dopeuikit`: reuse its
 tokens, type scale and table styles from `assets/core.css` and its fonts from

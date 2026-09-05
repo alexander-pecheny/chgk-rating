@@ -34,6 +34,7 @@ impl Site {
             a_player: meta(c, "a_player"),
             b_player: meta(c, "b_player"),
             provisional_sigma: 0.3,
+            s2: meta(c, "s2") != 0.0,
         };
         let mut st = c.prepare("select id, date from x.release_ order by date, id").unwrap();
         let rels: Vec<Rel> = st
@@ -296,12 +297,17 @@ pub fn team_table(s: &Site, c: &Connection, page: usize) -> String {
     ));
     let url = |i: usize| if i == 1 { "/".to_string() } else { format!("/page/{i}/") };
     out.push_str(&pager(page, pages, &url));
-    out.push_str(
+    let _ = write!(
+        out,
         "<div class=\"table-scroll\"><table class=\"data-table\"><thead><tr>\
          <th class=\"num\">Место</th><th>Команда</th><th>Город</th>\
-         <th class=\"num\">Рейтинг</th>\
-         <th class=\"num\" title=\"Неопределённость оценки\">±</th>\
+         <th class=\"num\">Рейтинг</th>{}\
          <th class=\"num\">Изменение</th></tr></thead><tbody>",
+        if s.d.s2 {
+            "<th class=\"num\" title=\"Зачтённых турниров\">Турниров</th>"
+        } else {
+            "<th class=\"num\" title=\"Неопределённость оценки\">±</th>"
+        }
     );
     let mut split = lo as usize >= firm;
     for r in &rows {
@@ -324,7 +330,7 @@ pub fn team_table(s: &Site, c: &Connection, page: usize) -> String {
             if r.8 { prov_badge() } else { "" },
             e(&r.3),
             disp(r.4),
-            disp(r.5),
+            if s.d.s2 { format!("{:.0}", r.6) } else { disp(r.5) },
             change_cell(r.7)
         );
     }
@@ -534,7 +540,16 @@ fn places(c: &Connection, kind: i64, id: i64) -> Vec<u32> {
 }
 
 /// The rating history and, beside it, the same weeks as a place in the table.
-fn chart_section(s: &Site, c: &Connection, kind: i64, id: i64, sql: &str, a: f64, b: f64) -> String {
+fn chart_section(
+    s: &Site,
+    c: &Connection,
+    kind: i64,
+    id: i64,
+    sql: &str,
+    a: f64,
+    b: f64,
+    band: bool,
+) -> String {
     let hist = history(s, c, sql, id, a, b);
     if hist.len() < 2 {
         return String::new();
@@ -549,7 +564,11 @@ fn chart_section(s: &Site, c: &Connection, kind: i64, id: i64, sql: &str, a: f64
             mid,
             sigma,
             date: date(rel),
-            text: format!("{} ± {}", disp(mid), disp(sigma)),
+            text: if band {
+                format!("{} ± {}", disp(mid), disp(sigma))
+            } else {
+                disp(mid)
+            },
         })
         .collect();
     // Lengths differ only if the index was built against another ratings file;
@@ -572,7 +591,7 @@ fn chart_section(s: &Site, c: &Connection, kind: i64, id: i64, sql: &str, a: f64
             name: "Рейтинг".into(),
             pts: thin(&rating, CHART_POINTS),
             invert: false,
-            band: true,
+            band,
         },
         Series {
             name: "Место".into(),
@@ -659,6 +678,7 @@ pub fn player_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         "select release_id, theta, sigma from player_ratings where player_id = ?1",
         s.d.a_player,
         s.d.b_player,
+        true,
     ));
 
     let mut st = c
@@ -740,16 +760,17 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         .ok()?;
     let name = if name.is_empty() { format!("Команда {id}") } else { name };
 
-    let now: Option<(f64, f64, f64)> = c
+    let now: Option<(f64, f64, f64, f64)> = c
         .query_row(
-            "select display, sigma, evidence from team_ratings where team_id = ?1 \
-             order by release_id desc limit 1",
+            "select display, sigma, evidence, core_strength from team_ratings \
+             where team_id = ?1 order by release_id desc limit 1",
             [id],
             |r| {
                 Ok((
                     r.get::<_, Option<f64>>(0)?.unwrap_or(0.0),
                     r.get::<_, Option<f64>>(1)?.unwrap_or(0.0),
                     r.get::<_, Option<f64>>(2)?.unwrap_or(0.0),
+                    r.get::<_, Option<f64>>(3)?.unwrap_or(f64::NAN),
                 ))
             },
         )
@@ -777,10 +798,23 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
     );
     out.push_str("<dl class=\"stats\">");
     match now {
-        Some((display, sigma, evidence)) => {
+        Some((display, sigma, evidence, core)) => {
             out.push_str(&stat("Рейтинг", &e(&disp(display))));
-            out.push_str(&stat("Неопределённость", &format!("±{}", e(&disp(s.d.b_team * sigma)))));
-            out.push_str(&stat("Наигранность", &format!("{evidence:.1}")));
+            if s.d.s2 {
+                out.push_str(&stat("Рейтинговых турниров", &format!("{evidence:.0}")));
+                if core.is_finite() {
+                    out.push_str(&stat(
+                        "Обычный состав",
+                        &e(&disp(s.d.a_team + s.d.b_team * core)),
+                    ));
+                }
+            } else {
+                out.push_str(&stat(
+                    "Неопределённость",
+                    &format!("±{}", e(&disp(s.d.b_team * sigma))),
+                ));
+                out.push_str(&stat("Наигранность", &format!("{evidence:.1}")));
+            }
         }
         None => out.push_str(&stat("Рейтинг", "—")),
     }
@@ -798,6 +832,7 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         "select release_id, mu, sigma from team_ratings where team_id = ?1",
         s.d.a_team,
         s.d.b_team,
+        !s.d.s2,
     ));
 
     let mut st = c
@@ -835,12 +870,18 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         out.push_str("<p class=\"empty\">Рейтинговых турниров нет.</p></section>");
         return Some(out);
     }
-    out.push_str(
+    // Under S2 continuity is only the rated flag, which the row already carries.
+    let _ = write!(
+        out,
         "<div class=\"table-scroll\"><table class=\"data-table\"><thead><tr>\
          <th>Дата</th><th>Турнир</th><th class=\"num\">Прогноз</th><th class=\"num\">Место</th>\
-         <th class=\"num\">Было</th><th class=\"num\">Стало</th><th class=\"num\">Δ</th>\
-         <th class=\"num\" title=\"Доля наигранного состава, вышедшая на этот турнир\">c</th>\
+         <th class=\"num\">Было</th><th class=\"num\">Стало</th><th class=\"num\">Δ</th>{}\
          </tr></thead><tbody>",
+        if s.d.s2 {
+            ""
+        } else {
+            "<th class=\"num\" title=\"Доля наигранного состава, вышедшая на этот турнир\">c</th>"
+        }
     );
     for v in &evs {
         let before = s.d.a_team + s.d.b_team * v.5;
@@ -855,7 +896,7 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
             "<tr><td class=\"nowrap\">{}</td><td><a href=\"/tournaments/{}/\">{}</a>{}</td>\
              <td class=\"num muted\">{}</td><td class=\"num{beat}\">{}</td>\
              <td class=\"num\">{}</td><td class=\"num\">{}</td>\
-             <td class=\"num {}\">{}</td><td class=\"num muted\">{:.2}</td></tr>",
+             <td class=\"num {}\">{}</td>{}</tr>",
             e(&v.2),
             v.0,
             e(if v.1.is_empty() { "без названия" } else { &v.1 }),
@@ -866,7 +907,11 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
             disp(after),
             delta_class(after - before),
             signed(after - before),
-            v.7
+            if s.d.s2 {
+                String::new()
+            } else {
+                format!("<td class=\"num muted\">{:.2}</td>", v.7)
+            }
         );
     }
     out.push_str("</tbody></table></div></section>");

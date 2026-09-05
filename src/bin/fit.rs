@@ -1,9 +1,10 @@
-use chgk_rating::config::Config;
+use chgk_rating::config::{Config, TeamEngine};
 use chgk_rating::data::Arena;
 use chgk_rating::gauge::{self, Activity};
 use chgk_rating::output::Writer;
 use chgk_rating::question_model as qm;
-use chgk_rating::team_model::Teams;
+use chgk_rating::team_model::{TeamEvent, Teams};
+use chgk_rating::team_s2::TeamsS2;
 use chgk_rating::util::parse_date as crate_parse_date;
 use chgk_rating::util::{format_date, next_thursday, parse_date, spearman};
 use std::time::Instant;
@@ -123,6 +124,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// The team side of the pass. Both engines write the same `team_events` and the
+/// same release rows, so everything downstream reads one schema.
+enum Engine {
+    Kalman(Teams),
+    S2(TeamsS2),
+}
+
+impl Engine {
+    fn new(n: usize, cfg: &Config) -> Engine {
+        match cfg.team.engine {
+            TeamEngine::Kalman => Engine::Kalman(Teams::new(n)),
+            TeamEngine::S2 => Engine::S2(TeamsS2::new(n)),
+        }
+    }
+
+    fn step(
+        &mut self,
+        t: &chgk_rating::data::Tournament,
+        players: &qm::Players,
+        params: &[qm::QParams],
+        cfg: &Config,
+    ) -> Vec<TeamEvent> {
+        match self {
+            Engine::Kalman(e) => e.step(t, players, params, cfg),
+            Engine::S2(e) => e.step(t, players, cfg),
+        }
+    }
+
+    /// `(index, raw rating, published rating, sigma, core strength, evidence)`.
+    /// The raw value is what `change` is measured on: for the Kalman engine that
+    /// is the pre-gauge scale, and S2 has no gauge of its own to remove.
+    fn rows(&self, day: i32, window: i32, cfg: &Config, shift: f64)
+        -> Vec<(usize, f64, f64, f64, f64, f64)> {
+        match self {
+            Engine::Kalman(e) => e
+                .listed(day, window)
+                .map(|(i, s)| {
+                    (i, s.mu_raw, s.mu_raw - shift, s.sigma_at(day, cfg), s.core_raw - shift, s.evidence())
+                })
+                .collect(),
+            Engine::S2(e) => e
+                .rows(day, window)
+                .into_iter()
+                .map(|(i, r, sg, q, n)| (i, r, r, sg, q, n))
+                .collect(),
+        }
+    }
+}
+
 /// One chronological sweep. Without a writer nothing is stored and the trailing
 /// releases are skipped, so the player state ends on the last tournament.
 #[allow(clippy::too_many_arguments)]
@@ -139,7 +189,7 @@ fn run_pass(
     start: Instant,
 ) -> Result<i64, Box<dyn std::error::Error>> {
     let zfrom = crate_parse_date("2018-01-01").unwrap();
-    let mut teams = Teams::new(arena.n_teams());
+    let mut teams = Engine::new(arena.n_teams(), cfg);
     let mut activity = Activity::new(arena.n_players());
     // Last published raw value per entity, so `change` excludes the gauge shift.
     let mut prev_p = vec![f64::NAN; arena.n_players()];
@@ -298,7 +348,7 @@ fn emit_release(
     day: i32,
     players: &mut qm::Players,
     activity: &mut Activity,
-    teams: &Teams,
+    teams: &Engine,
     arena: &Arena,
     cfg: &Config,
     diag: Option<usize>,
@@ -400,22 +450,12 @@ fn emit_release(
             .collect();
         w.player_ratings(release_id, &prows, |t| chgk_rating::display::player(t, cfg))?;
         let trows: Vec<(i64, f64, f64, f64, f64, f64)> = teams
-            .listed(day, cfg.gauge.window_days)
-            .map(|(i, s)| {
-                let change = if prev_t[i].is_finite() {
-                    s.mu_raw - prev_t[i]
-                } else {
-                    0.0
-                };
-                prev_t[i] = s.mu_raw;
-                (
-                    arena.team_ids[i],
-                    s.mu_raw - players.shift_cum,
-                    s.sigma_at(day, cfg),
-                    s.core_raw - players.shift_cum,
-                    s.evidence(),
-                    change,
-                )
+            .rows(day, cfg.gauge.window_days, cfg, players.shift_cum)
+            .into_iter()
+            .map(|(i, raw, mu, sigma, core, evidence)| {
+                let change = if prev_t[i].is_finite() { raw - prev_t[i] } else { 0.0 };
+                prev_t[i] = raw;
+                (arena.team_ids[i], mu, sigma, core, evidence, change)
             })
             .collect();
         w.team_ratings(release_id, &trows, |m| chgk_rating::display::team(m, cfg))?;

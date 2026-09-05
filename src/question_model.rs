@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::{Config, PUpdate, QFit, QGradient};
 use crate::data::{Tournament, CORRECT, SKIP};
 use rayon::prelude::*;
 
@@ -89,8 +89,10 @@ impl Players {
     /// Uncertainty as of `day`, including the diffusion since the last game.
     pub fn sigma_at(&self, i: usize, day: i32, cfg: &Config) -> f64 {
         let s = &self.state[i];
+        if cfg.player.update == PUpdate::Schedule {
+            return if s.games >= 5 { 0.1 } else { 0.5 };
+        }
         let dt = ((day - s.last_day).max(0) as f64) / 365.25;
-        let _ = cfg;
         (s.var + s.vol * s.vol * dt).sqrt()
     }
 
@@ -211,22 +213,27 @@ impl Players {
         for &(i, g, info) in grads {
             let s = &mut self.state[i as usize];
             let dt = ((t.day - s.last_day).max(0) as f64) / 365.25;
-            s.var += s.vol * s.vol * dt;
-            let prior = s.var;
-            let ieff = t.weight * info * cfg.player.info_scale;
-            let prec = 1.0 / prior + ieff.max(cfg.numeric.info_floor);
-            s.theta_raw += (t.weight * cfg.player.info_scale * g / prec)
-                .clamp(-cfg.numeric.theta_max_step, cfg.numeric.theta_max_step);
-            s.var = 1.0 / prec;
-            if ieff > cfg.numeric.info_floor {
-                // Standardised surprise of this tournament against the prior.
-                let z = (g / info) / (prior + 1.0 / ieff).sqrt();
-                let lv = s.vol.ln();
-                s.vol = (lv + eta * (if z.abs() > 1.0 { hi } else { lo } - lv)).exp();
-                if collect && s.games > 6 {
-                    self.zstat.0 += 1.0;
-                    self.zstat.1 += z;
-                    self.zstat.2 += z * z;
+            if cfg.player.update == PUpdate::Schedule {
+                let step = cfg.player.eta0 / (cfg.player.c0 + s.games as f64).sqrt();
+                s.theta_raw += step * t.weight * g;
+            } else {
+                s.var += s.vol * s.vol * dt;
+                let prior = s.var;
+                let ieff = t.weight * info * cfg.player.info_scale;
+                let prec = 1.0 / prior + ieff.max(cfg.numeric.info_floor);
+                s.theta_raw += (t.weight * cfg.player.info_scale * g / prec)
+                    .clamp(-cfg.numeric.theta_max_step, cfg.numeric.theta_max_step);
+                s.var = 1.0 / prec;
+                if ieff > cfg.numeric.info_floor {
+                    // Standardised surprise of this tournament against the prior.
+                    let z = (g / info) / (prior + 1.0 / ieff).sqrt();
+                    let lv = s.vol.ln();
+                    s.vol = (lv + eta * (if z.abs() > 1.0 { hi } else { lo } - lv)).exp();
+                    if collect && s.games > 6 {
+                        self.zstat.0 += 1.0;
+                        self.zstat.1 += z;
+                        self.zstat.2 += z * z;
+                    }
                 }
             }
             s.games += 1;
@@ -496,6 +503,9 @@ pub fn fit_question(field: &Field, q: usize, sel: Option<u8>, cfg: &Config) -> Q
     let free_m = cfg.question.s_m > 0.0;
     let dim = if free_m { 3 } else { 2 };
     let mut p = init_params(field, q, sel, cfg);
+    if cfg.question.fit == QFit::TakeRate {
+        return p;
+    }
     let mut f = objective(field, q, sel, &p, cfg, free_m);
     for _ in 0..cfg.numeric.newton_iters {
         let (_, pg, ph) = prior(&p, cfg, free_m);
@@ -631,6 +641,9 @@ pub fn score(field: &Field, params: &[QParams], sel: Option<u8>, cfg: &Config) -
 /// Gradient and observed Fisher information of the tournament log-likelihood in each theta_i,
 /// summed per player and sorted by player index.
 pub fn player_grads(field: &Field, params: &[QParams], cfg: &Config) -> Vec<(u32, f64, f64)> {
+    if cfg.question.gradient == QGradient::Share {
+        return share_grads(field, params, cfg);
+    }
     let mut out: Vec<(u32, f64, f64)> = Vec::new();
     let mut lam: Vec<f64> = Vec::new();
     let mut acc: Vec<(f64, f64)> = Vec::new();
@@ -675,6 +688,10 @@ pub fn player_grads(field: &Field, params: &[QParams], cfg: &Config) -> Vec<(u32
             out.push((i, acc[k].0, acc[k].1));
         }
     }
+    merge(out)
+}
+
+fn merge(mut out: Vec<(u32, f64, f64)>) -> Vec<(u32, f64, f64)> {
     out.sort_unstable_by_key(|e| e.0);
     out.dedup_by(|b, a| {
         if a.0 == b.0 {
@@ -686,6 +703,49 @@ pub fn player_grads(field: &Field, params: &[QParams], cfg: &Config) -> Vec<(u32
         }
     });
     out
+}
+
+/// The spreadsheet gradient: each player of a lineup takes the team's error
+/// `y - p` in proportion to their own chance of knowing the question.
+fn share_grads(field: &Field, params: &[QParams], cfg: &Config) -> Vec<(u32, f64, f64)> {
+    let mut out: Vec<(u32, f64, f64)> = Vec::new();
+    let mut pi: Vec<f64> = Vec::new();
+    let mut acc: Vec<(f64, f64)> = Vec::new();
+    for t in &field.teams {
+        if t.z.is_empty() {
+            continue;
+        }
+        acc.clear();
+        acc.resize(t.z.len(), (0.0, 0.0));
+        for (q, &y) in t.mask.iter().enumerate() {
+            if y == SKIP {
+                continue;
+            }
+            let b = params[q].b;
+            pi.clear();
+            let (mut sum, mut miss) = (0.0, 1.0);
+            for &zi in &t.z {
+                let p = -(-clamped_exp(zi - b, cfg)).exp_m1();
+                pi.push(p);
+                sum += p;
+                miss *= 1.0 - p;
+            }
+            if sum <= 0.0 {
+                continue;
+            }
+            let p_team = 1.0 - miss;
+            let d = ((y == CORRECT) as u8 as f64) - p_team;
+            for (k, &p) in pi.iter().enumerate() {
+                let share = p / sum;
+                acc[k].0 += d * share;
+                acc[k].1 += p_team * miss * share;
+            }
+        }
+        for (k, &i) in t.members.iter().enumerate() {
+            out.push((i, acc[k].0, acc[k].1));
+        }
+    }
+    merge(out)
 }
 
 /// Builds the per-question view of a tournament, with the crossfit halves assigned.

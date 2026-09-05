@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// Bumped whenever the index grows a table or column the server reads, so a
 /// deploy rebuilds it instead of serving a page with nothing behind it.
-pub const VERSION: &str = "5";
+pub const VERSION: &str = "6";
 
 const SCHEMA: &str = "
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
@@ -311,6 +311,7 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
         ("b_team", d.b_team.to_string()),
         ("a_player", d.a_player.to_string()),
         ("b_player", d.b_player.to_string()),
+        ("s2", (d.s2 as u8).to_string()),
     ] {
         w.execute("insert into meta values (?1,?2)", params![k, v]).unwrap();
     }

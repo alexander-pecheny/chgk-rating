@@ -8,6 +8,9 @@ pub struct Display {
     pub a_player: f64,
     pub b_player: f64,
     pub provisional_sigma: f64,
+    /// Model S2 publishes no team uncertainty, only the provisional flag, so the
+    /// pages that would show a band or a plus-minus show rated games instead.
+    pub s2: bool,
 }
 
 /// Column names a table actually has, so the server survives the schema growing
@@ -53,5 +56,6 @@ pub fn read_display(path: &Path) -> Display {
         a_player: g("a_player", 0.0),
         b_player: g("b_player", 1.0),
         provisional_sigma: g("provisional_sigma", 0.3),
+        s2: v.get("team").and_then(|t| t.get("engine")).and_then(|x| x.as_str()) == Some("s2"),
     }
 }
