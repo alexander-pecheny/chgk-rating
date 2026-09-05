@@ -497,3 +497,23 @@ a:hover {
 .note p + p {
   margin-top: var(--space-2);
 }
+
+/* The glyph sits inside the field, so the box reads as a search box before the
+   placeholder is read. */
+.site-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.site-search .ico {
+  position: absolute;
+  left: 9px;
+  vertical-align: 0;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.site-search input {
+  padding-left: 30px;
+}
