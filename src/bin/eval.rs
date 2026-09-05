@@ -71,50 +71,125 @@ fn loss_table(conn: &Connection, title: &str, from: &str, to: &str) -> rusqlite:
     Ok(())
 }
 
-/// Mean per-tournament Spearman of a naive ranking by `mu_before` alone, by format.
-fn naive_spearman(conn: &Connection) -> rusqlite::Result<Vec<(String, f64, i64)>> {
+/// Mean per-tournament Spearman of two naive rankings, by format: `mu_before`
+/// alone, and `x = mu_before + delta_l`, the rating with the lineup offset.
+fn naive_spearman(conn: &Connection) -> rusqlite::Result<Vec<(String, f64, f64, i64)>> {
     let mut st = conn.prepare(
-        "SELECT m.type, e.tournament_id, e.mu_before, e.actual_place
+        "SELECT m.type, e.tournament_id, e.mu_before, e.mu_before + e.delta_l, e.actual_place
          FROM team_events e JOIN tournament_metrics m ON m.tournament_id = e.tournament_id
          WHERE m.date >= ?1 AND m.date < ?2 AND e.mu_before IS NOT NULL
          ORDER BY m.type, e.tournament_id",
     )?;
     let mut rows = st.query([WIN.0, WIN.1])?;
-    let mut acc: Vec<(String, f64, i64)> = Vec::new();
+    let mut acc: Vec<(String, f64, f64, i64)> = Vec::new();
     let (mut cur, mut kind) = (-1i64, String::new());
-    let (mut mu, mut pl) = (Vec::new(), Vec::new());
-    let flush = |kind: &str, mu: &mut Vec<f64>, pl: &mut Vec<f64>, acc: &mut Vec<_>| {
-        if let Some(s) = spearman(mu, pl) {
-            match acc
-                .iter_mut()
-                .find(|(k, _, _): &&mut (String, f64, i64)| k == kind)
-            {
+    let (mut mu, mut x, mut pl) = (Vec::new(), Vec::new(), Vec::new());
+    let flush = |kind: &str,
+                 mu: &mut Vec<f64>,
+                 x: &mut Vec<f64>,
+                 pl: &mut Vec<f64>,
+                 acc: &mut Vec<(String, f64, f64, i64)>| {
+        if let (Some(a), Some(b)) = (spearman(mu, pl), spearman(x, pl)) {
+            match acc.iter_mut().find(|e| e.0 == kind) {
                 Some(e) => {
-                    e.1 += s;
-                    e.2 += 1;
+                    e.1 += a;
+                    e.2 += b;
+                    e.3 += 1;
                 }
-                None => acc.push((kind.to_string(), s, 1)),
+                None => acc.push((kind.to_string(), a, b, 1)),
             }
         }
         mu.clear();
+        x.clear();
         pl.clear();
     };
     while let Some(r) = rows.next()? {
         let tid: i64 = r.get(1)?;
         if tid != cur {
-            flush(&kind, &mut mu, &mut pl, &mut acc);
+            flush(&kind, &mut mu, &mut x, &mut pl, &mut acc);
             cur = tid;
             kind = r.get(0)?;
         }
         mu.push(-r.get::<_, f64>(2)?);
-        pl.push(r.get::<_, f64>(3)?);
+        x.push(-r.get::<_, f64>(3)?);
+        pl.push(r.get::<_, f64>(4)?);
     }
-    flush(&kind, &mut mu, &mut pl, &mut acc);
+    flush(&kind, &mut mu, &mut x, &mut pl, &mut acc);
     for e in acc.iter_mut() {
-        e.1 /= e.2 as f64;
+        e.1 /= e.3 as f64;
+        e.2 /= e.3 as f64;
     }
     acc.sort_by_key(|r| fmt_key(&r.0));
     Ok(acc)
+}
+
+/// Lag-1 correlation of a team's successive pairwise innovations. A well-tuned
+/// filter has white innovations; a sluggish one leaves them positively correlated.
+fn innovation_acf(conn: &Connection, extra: &str) -> rusqlite::Result<(usize, f64)> {
+    let mut st = conn.prepare(&format!(
+        "SELECT e.team_id, e.s_pair / MAX(e.i_pair, 1e-9)
+         FROM team_events e JOIN tournament_metrics m ON m.tournament_id = e.tournament_id
+         WHERE m.date >= ?1 AND m.date < ?2 AND e.rated = 1 AND e.evidence >= 20 {extra}
+         ORDER BY e.team_id, m.date, e.tournament_id"
+    ))?;
+    let mut rows = st.query([WIN.0, WIN.1])?;
+    let (mut a, mut b) = (Vec::new(), Vec::new());
+    let (mut cur, mut prev) = (-1i64, 0.0);
+    while let Some(r) = rows.next()? {
+        let (team, v): (i64, f64) = (r.get(0)?, r.get(1)?);
+        if team == cur {
+            a.push(prev);
+            b.push(v);
+        }
+        cur = team;
+        prev = v;
+    }
+    let n = a.len();
+    if n < 2 {
+        return Ok((0, f64::NAN));
+    }
+    let mean = |v: &[f64]| v.iter().sum::<f64>() / n as f64;
+    let (ma, mb) = (mean(&a), mean(&b));
+    let cov: f64 = a.iter().zip(&b).map(|(u, v)| (u - ma) * (v - mb)).sum();
+    let va: f64 = a.iter().map(|u| (u - ma) * (u - ma)).sum();
+    let vb: f64 = b.iter().map(|v| (v - mb) * (v - mb)).sum();
+    Ok((n, cov / (va * vb).sqrt()))
+}
+
+/// The two teams of the falling-too-slowly case: where they stand and how far
+/// three tournaments moved them, in display points.
+fn case_rows(conn: &Connection, b_team: f64) -> rusqlite::Result<Vec<(i64, Vec<String>)>> {
+    let mut near = conn
+        .prepare("SELECT id FROM releases ORDER BY ABS(julianday(date)-julianday(?1)) LIMIT 1")?;
+    let last: i64 = conn.query_row("SELECT MAX(id) FROM releases", [], |r| r.get(0))?;
+    let mut rel = vec![last, last, last];
+    for (i, d) in ["2025-09-05", "2026-03-05"].iter().enumerate() {
+        rel[i] = near.query_row([d], |r| r.get(0))?;
+    }
+    let mut disp =
+        conn.prepare("SELECT display FROM team_ratings WHERE release_id = ?1 AND team_id = ?2")?;
+    let mut step = conn.prepare(
+        "SELECT mu_after - mu_before FROM team_events WHERE team_id = ?1 AND tournament_id = ?2",
+    )?;
+    let mut out = Vec::new();
+    for team in [45556i64, 86405] {
+        let mut cells = Vec::new();
+        for r in &rel {
+            let v: Option<f64> = disp
+                .query_row(rusqlite::params![r, team], |x| x.get(0))
+                .ok();
+            cells.push(v.map_or("-".into(), |v| format!("{v:.0}")));
+        }
+        for t in [13917i64, 12826, 13444] {
+            let v: Option<f64> = step
+                .query_row(rusqlite::params![team, t], |x| x.get::<_, Option<f64>>(0))
+                .ok()
+                .flatten();
+            cells.push(v.map_or("-".into(), |v| format!("{:+.0}", v * b_team)));
+        }
+        out.push((team, cells));
+    }
+    Ok(out)
 }
 
 fn violations(conn: &Connection) -> rusqlite::Result<(i64, i64)> {
@@ -215,6 +290,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             mean_forecast(&conn)?,
             100.0 * (n - prov_n) as f64 / n.max(1) as f64
         );
+        let naive = naive_spearman(&conn)?;
+        let col = |f: &str, i: usize| {
+            naive
+                .iter()
+                .find(|e| e.0 == f)
+                .map_or(f64::NAN, |e| if i == 0 { e.1 } else { e.2 })
+        };
+        let (_, ip) = innovation_acf(&conn, "AND m.type='in-person'")?;
+        let (_, af) = innovation_acf(&conn, "")?;
+        println!(
+            "naive mu {:.4}/{:.4}  x {:.4}/{:.4} (in-person/sync)  innovation acf {ip:.3} in-person, {af:.3} all",
+            col("in-person", 0),
+            col("sync", 0),
+            col("in-person", 1),
+            col("sync", 1)
+        );
+        for (team, cells) in case_rows(&conn, cfg.display.b_team)? {
+            println!("team {team}: {}", cells.join(" "));
+        }
         return Ok(());
     }
 
@@ -241,8 +335,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "\n### Forecast rank correlation, {} to {} (test 2)\n",
         WIN.0, WIN.1
     );
-    println!("| format | tournaments | ours | old system | naive (mu only) |");
-    println!("|---|---:|---:|---:|---:|");
+    println!("| format | tournaments | ours | old system | naive (mu only) | naive (x) |");
+    println!("|---|---:|---:|---:|---:|---:|");
     let naive = naive_spearman(&conn)?;
     let mut st = conn.prepare(
         "SELECT type, COUNT(spearman_forecast), AVG(spearman_forecast), AVG(spearman_old_system)
@@ -255,11 +349,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     all.sort_by_key(|r| fmt_key(&r.0));
     for (f, n, ours, old) in &all {
-        let nv = naive
+        let (nv, nx) = naive
             .iter()
-            .find(|(k, _, _)| k == f)
-            .map_or(f64::NAN, |(_, v, _)| *v);
-        println!("| {f} | {n} | {ours:.4} | {old:.4} | {nv:.4} |");
+            .find(|e| &e.0 == f)
+            .map_or((f64::NAN, f64::NAN), |e| (e.1, e.2));
+        println!("| {f} | {n} | {ours:.4} | {old:.4} | {nv:.4} | {nx:.4} |");
+    }
+
+    println!("\n### Innovation autocorrelation\n");
+    println!(
+        "Lag 1 over teams with evidence >= 20, {} to {}. Zero is a white innovation.\n",
+        WIN.0, WIN.1
+    );
+    println!("| formats | consecutive pairs | correlation |");
+    println!("|---|---:|---:|");
+    for (name, extra) in [("in-person", "AND m.type='in-person'"), ("all", "")] {
+        let (n, c) = innovation_acf(&conn, extra)?;
+        println!("| {name} | {n} | {c:.3} |");
+    }
+
+    println!("\n### Case teams\n");
+    println!("Display value at three releases, then the display step at three tournaments.\n");
+    println!("| team | 2025-09 | 2026-03 | last | 13917 | 12826 | 13444 |");
+    println!("|---|---:|---:|---:|---:|---:|---:|");
+    for (team, cells) in case_rows(&conn, cfg.display.b_team)? {
+        println!("| {team} | {} |", cells.join(" | "));
     }
 
     // Test 6.

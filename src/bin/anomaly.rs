@@ -50,7 +50,6 @@ impl Kind {
 struct Event {
     kind: Kind,
     covid: bool,
-    rated: bool,
     resid: Option<f64>,
     surprise: Option<f64>,
 }
@@ -442,7 +441,6 @@ fn load_events(db: &Connection) -> (HashMap<(i64, i64), Event>, (f64, f64)) {
                 Event {
                     kind: e.1,
                     covid: e.2,
-                    rated: e.3,
                     surprise: e.4.map(|v| v - cs[&(e.1, e.3)].mean()),
                     resid: e.5.map(|v| v - cr[&e.1].mean()),
                 },
@@ -568,7 +566,7 @@ fn profile_player(db: &Connection, buff: &Connection, evs: &HashMap<(i64, i64), 
 /// How far this team's take rate sits above the field's, on the easiest and the
 /// hardest third of the package. A team that looks answers up gains where the
 /// field cannot, so its edge is lopsided towards the hard third.
-fn mask_edge(db: &Connection, buff: &Connection, tid: i64, team: i64) -> Option<(f64, f64)> {
+fn mask_edge(_db: &Connection, buff: &Connection, tid: i64, team: i64) -> Option<(f64, f64)> {
     let mut st = buff
         .prepare("select team_id, mask from tournament_results where id = ?1")
         .ok()?;

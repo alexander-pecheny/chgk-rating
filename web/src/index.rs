@@ -55,7 +55,9 @@ CREATE INDEX idx_anom_player ON anomaly(player_id);
 pub fn ensure_ratings_indexes(path: &Path) {
     let db = Connection::open(path).unwrap_or_else(|e| panic!("open {}: {e}", path.display()));
     db.execute_batch(
-        "CREATE INDEX IF NOT EXISTS idx_qp_tour ON question_params(tournament_id);
+        "CREATE TABLE IF NOT EXISTS player_events (tournament_id INTEGER, player_id INTEGER, theta_before REAL, theta_after REAL, sigma_after REAL);
+         CREATE INDEX IF NOT EXISTS idx_player_events_player ON player_events(player_id);
+         CREATE INDEX IF NOT EXISTS idx_qp_tour ON question_params(tournament_id);
          CREATE INDEX IF NOT EXISTS idx_player_ratings_player ON player_ratings(player_id);
          CREATE INDEX IF NOT EXISTS idx_team_ratings_team ON team_ratings(team_id);
          CREATE INDEX IF NOT EXISTS idx_team_events_team ON team_events(team_id);

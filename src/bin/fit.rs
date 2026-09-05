@@ -226,8 +226,32 @@ fn run_pass(
         }
 
         let collect = t.format == chgk_rating::data::Format::InPerson && t.day >= zfrom;
+        let mut lineup: Vec<u32> = t
+            .teams
+            .iter()
+            .flat_map(|r| r.members.iter().copied())
+            .collect();
+        lineup.sort_unstable();
+        lineup.dedup();
+        let before: Vec<f64> = lineup.iter().map(|&i| players.theta(i as usize)).collect();
         players.absorb(t, &grads, &mut ed_seen, collect, cfg);
         players.shrink_to_lineups(t, cfg);
+        if let Some(w) = w {
+            let rows: Vec<(i64, f64, f64, f64)> = lineup
+                .iter()
+                .zip(&before)
+                .map(|(&i, &b)| {
+                    let i = i as usize;
+                    (
+                        arena.player_ids[i],
+                        b,
+                        players.theta(i),
+                        players.sigma_at(i, t.day, cfg),
+                    )
+                })
+                .collect();
+            w.player_events(t.id, &rows)?;
+        }
         for &(i, _, info) in &grads {
             activity.push(t.day, i, t.weight * info);
         }

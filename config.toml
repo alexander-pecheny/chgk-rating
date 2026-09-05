@@ -57,6 +57,26 @@ tau_t = 0.2
 v_min = 0.05
 v_max = 0.6
 v_eta = 0.15
+# The switches of DESIGN 8.2; these values are the shipped model.
+# Multiplies the precision the margin channel contributes; 0 removes the channel.
+margin_prec_scale = 1.0
+# Lower bound on sigma after an update: a minimum K-factor.
+sigma_floor = 0.2
+# Variance is divided by forget^(w*c) before each rated update: fading memory in games.
+forget = 1.0
+# Prior inflation when |z_raw| exceeds this, by min((z_raw/z0)^2, surprise_max); 0 is off.
+surprise_z0 = 0.0
+surprise_max = 9.0
+# Inflate only on a result worse than expected.
+surprise_down_only = false
+# Multiplies a negative mean step.
+k_down = 1.0
+# The margin channel moves the mean, from s* recalibrated by (s* - intercept)/slope.
+margin_mean = false
+margin_slope = 1.0
+margin_intercept = 0.0
+# Residual sd of that recalibration; falls back to sigma_model.
+# margin_sigma = 0.3340
 
 [truedl]
 # Six equal players at the strength of a balanced 251-500 team; fixed at launch.

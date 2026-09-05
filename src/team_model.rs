@@ -59,6 +59,8 @@ pub struct TeamEvent {
     pub x: f64,
     pub forecast: f64,
     pub forecast_place: f64,
+    /// 1 + sum over the field of P(B beats A): the place the pairwise model expects.
+    pub expected_place: f64,
     pub actual_place: f64,
     /// The old system's `predictedPosition`, carried through for DESIGN 7.2.
     pub pred_place: Option<f64>,
@@ -96,6 +98,9 @@ struct Entry {
     var_diff: f64,
     lost_prev: f64,
     rated: bool,
+    /// Realised strength of the result and its standardised residual; DESIGN 4.3 step 6.
+    real: Option<f64>,
+    z: Option<f64>,
 }
 
 pub struct Teams {
@@ -130,7 +135,6 @@ impl Teams {
         let tm = &cfg.team;
 
         let mut es: Vec<Entry> = Vec::with_capacity(t.teams.len());
-        let mut zs: Vec<Option<f64>> = Vec::with_capacity(t.teams.len());
         for (ri, r) in t.teams.iter().enumerate() {
             let idx = r.team as usize;
             let sr = (!r.members.is_empty()).then(|| {
@@ -176,8 +180,9 @@ impl Teams {
                             var_diff: 0.0,
                             lost_prev: 0.0,
                             rated: false,
+                            real: None,
+                            z: None,
                         });
-                        zs.push(None);
                         continue;
                     }
                     self.state[idx] = Some(TeamState {
@@ -213,13 +218,13 @@ impl Teams {
                 }
                 None => x,
             };
-            let z = (!r.mask.is_empty())
+            let real = (!r.mask.is_empty())
                 .then(|| {
                     let hits = r.mask.iter().filter(|&&y| y == CORRECT).count() as f64;
                     realised_strength(params, &r.mask, hits, cfg)
                 })
-                .flatten()
-                .map(|real| (real - x) / (s.var + tm.sigma_model * tm.sigma_model).sqrt());
+                .flatten();
+            let z = real.map(|real| (real - x) / (s.var + tm.sigma_model * tm.sigma_model).sqrt());
             es.push(Entry {
                 ri,
                 idx,
@@ -238,8 +243,9 @@ impl Teams {
                 var_diff,
                 lost_prev: s.lost_prev,
                 rated: r.rated,
+                real,
+                z,
             });
-            zs.push(z);
         }
 
         let n = es.len();
@@ -257,22 +263,23 @@ impl Teams {
         } else {
             0.0
         };
-        let si: Vec<(f64, f64)> = es
+        let si: Vec<(f64, f64, f64)> = es
             .par_iter()
             .enumerate()
             .map(|(ia, a)| {
-                let (mut s, mut i) = (0.0, 0.0);
+                let (mut s, mut i, mut beaten) = (0.0, 0.0, 0.0);
                 for (ib, b) in es.iter().enumerate() {
                     if ia == ib {
                         continue;
                     }
+                    let p = 1.0 / (1.0 + ((b.x - a.x) / beta_t).exp());
+                    beaten += 1.0 - p;
                     // A shared place says nothing about which team is better.
                     let y = match a.place.total_cmp(&b.place) {
                         std::cmp::Ordering::Less => 1.0,
                         std::cmp::Ordering::Equal => continue,
                         std::cmp::Ordering::Greater => 0.0,
                     };
-                    let p = 1.0 / (1.0 + ((b.x - a.x) / beta_t).exp());
                     let m = match (a.score, b.score) {
                         (Some(u), Some(v)) => (1.0 + (u - v).abs() / tm.kappa_m).min(tm.m_max),
                         _ => 1.0,
@@ -280,13 +287,14 @@ impl Teams {
                     s += (y - p) * m;
                     i += p * (1.0 - p) * m;
                 }
-                (s * scale, i * scale)
+                (s * scale, i * scale, 1.0 + beaten)
             })
             .collect();
+        let first_place = es.iter().map(|e| e.place).fold(f64::INFINITY, f64::min);
 
         let mut out = Vec::with_capacity(n);
         for (k, e) in es.iter().enumerate() {
-            let (s_pair, i_pair) = si[k];
+            let (s_pair, i_pair, expected_place) = si[k];
             let members = &t.teams[e.ri].members;
             let Some(st) = self.state[e.idx].as_mut() else {
                 out.push(TeamEvent {
@@ -296,6 +304,7 @@ impl Teams {
                     x: e.x,
                     forecast: e.forecast,
                     forecast_place: fplace[k],
+                    expected_place,
                     actual_place: e.place,
                     pred_place: t.teams[e.ri].pred_pos,
                     s_r: e.sr.map_or(f64::NAN, |p| p.0 + tm.roster_bias),
@@ -316,16 +325,40 @@ impl Teams {
             };
             let mut mu_after = e.mu_before;
             if e.rated && e.c > 0.0 {
+                st.var /= tm.forget.powf(t.weight * e.c);
+                if tm.surprise_z0 > 0.0 {
+                    let i_raw = i_pair / scale.max(1e-12);
+                    let z_raw = (s_pair * beta_t / i_pair.max(1e-9))
+                        / (st.var + beta_t * beta_t / i_raw.max(1e-9)).sqrt();
+                    let down = !tm.surprise_down_only || z_raw < 0.0;
+                    if down && z_raw.abs() > tm.surprise_z0 {
+                        st.var *= (z_raw / tm.surprise_z0).powi(2).min(tm.surprise_max);
+                    }
+                }
                 let obs_prec = t.weight * e.c * i_pair / (beta_t * beta_t);
+                let marg_sigma = tm.margin_sigma.unwrap_or(tm.sigma_model);
                 // The score says how strong the team was but not who it beat, so it
                 // sharpens the posterior without moving it: the winner rule is exact.
-                let margin_prec = match zs[k] {
-                    Some(_) => t.weight * e.c / (tm.sigma_model * tm.sigma_model),
+                let margin_prec = match e.real {
+                    Some(_) => tm.margin_prec_scale * t.weight * e.c / (marg_sigma * marg_sigma),
                     None => 0.0,
                 };
                 let prec = 1.0 / st.var + obs_prec + margin_prec;
-                st.mu_raw += t.weight * e.c * (s_pair / beta_t) / prec;
-                st.var = 1.0 / prec;
+                let mut step = t.weight * e.c * (s_pair / beta_t) / prec;
+                if step < 0.0 {
+                    step *= tm.k_down;
+                }
+                if tm.margin_mean {
+                    if let Some(real) = e.real {
+                        let cal = (real - tm.margin_intercept) / tm.margin_slope;
+                        step += margin_prec * (cal - e.x) / prec;
+                        if e.place <= first_place {
+                            step = step.max(0.0);
+                        }
+                    }
+                }
+                st.mu_raw += step;
+                st.var = (1.0 / prec).max(tm.sigma_floor * tm.sigma_floor);
                 let z = (s_pair * beta_t / i_pair.max(1e-9))
                     / (e.var + 1.0 / obs_prec.max(1e-12)).sqrt();
                 let (lo, hi) = (tm.v_min.ln(), tm.v_max.ln());
@@ -382,6 +415,7 @@ impl Teams {
                 x: e.x,
                 forecast: e.forecast,
                 forecast_place: fplace[k],
+                expected_place,
                 actual_place: e.place,
                 pred_place: t.teams[e.ri].pred_pos,
                 s_r: e.sr.map_or(f64::NAN, |p| p.0 + tm.roster_bias),
@@ -392,7 +426,7 @@ impl Teams {
                 var_diff: e.var_diff,
                 lost_prev: e.lost_prev,
                 rated: e.rated,
-                z: zs[k],
+                z: e.z,
                 s_pair,
                 i_pair,
                 mu_before: e.mu_before,

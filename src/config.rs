@@ -89,6 +89,37 @@ pub struct Team {
     pub miss_streak: u32,
     pub gamma: f64,
     pub tau_t: f64,
+    /// The switches of DESIGN 8.2, all shipped at the value that leaves the model unchanged.
+    #[serde(default = "one")]
+    pub margin_prec_scale: f64,
+    #[serde(default)]
+    pub sigma_floor: f64,
+    #[serde(default = "one")]
+    pub forget: f64,
+    #[serde(default)]
+    pub surprise_z0: f64,
+    #[serde(default = "nine")]
+    pub surprise_max: f64,
+    #[serde(default)]
+    pub surprise_down_only: bool,
+    #[serde(default = "one")]
+    pub k_down: f64,
+    #[serde(default)]
+    pub margin_mean: bool,
+    #[serde(default = "one")]
+    pub margin_slope: f64,
+    #[serde(default)]
+    pub margin_intercept: f64,
+    #[serde(default)]
+    pub margin_sigma: Option<f64>,
+}
+
+fn one() -> f64 {
+    1.0
+}
+
+fn nine() -> f64 {
+    9.0
 }
 
 /// DESIGN-adjacent: the tournament difficulty published alongside the ratings.

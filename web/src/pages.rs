@@ -165,6 +165,23 @@ fn change_cell(v: Option<f64>) -> String {
     }
 }
 
+/// Three cells: rating before, after and the step, or dashes when there is no rating.
+fn step_cells(a: f64, b: f64, before: Option<f64>, after: Option<f64>) -> String {
+    match (before, after) {
+        (Some(x), Some(y)) => {
+            let (x, y) = (a + b * x, a + b * y);
+            format!(
+                "<td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num {}\">{}</td>",
+                disp(x),
+                disp(y),
+                delta_class(y - x),
+                signed(y - x)
+            )
+        }
+        _ => "<td class=\"num\">—</td><td class=\"num\">—</td><td class=\"num\">—</td>".into(),
+    }
+}
+
 fn delta_class(v: f64) -> &'static str {
     match v.round() {
         x if x > 0.0 => "delta-up",
@@ -647,12 +664,15 @@ pub fn player_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
     let mut st = c
         .prepare(
             "select g.tournament_id, t.name, t.date, t.type, g.team_id, m.name, g.position, \
-             g.score, t.n_q from x.player_game g join x.tournament t on t.id = g.tournament_id \
-             left join x.team m on m.id = g.team_id where g.player_id = ?1 \
-             order by t.date desc, t.id desc",
+             g.score, t.n_q, v.theta_before, v.theta_after \
+             from x.player_game g join x.tournament t on t.id = g.tournament_id \
+             left join x.team m on m.id = g.team_id \
+             left join player_events v on v.player_id = g.player_id and v.tournament_id = g.tournament_id \
+             where g.player_id = ?1 order by t.date desc, t.id desc",
         )
         .unwrap();
-    let games: Vec<(i64, String, String, String, i64, String, Option<f64>, Option<i64>, i64)> = st
+    type Game = (i64, String, String, String, i64, String, Option<f64>, Option<i64>, i64, Option<f64>, Option<f64>);
+    let games: Vec<Game> = st
         .query_map([id], |r| {
             Ok((
                 r.get(0)?,
@@ -664,6 +684,8 @@ pub fn player_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
                 r.get(6)?,
                 r.get(7)?,
                 r.get::<_, Option<i64>>(8)?.unwrap_or(0),
+                r.get(9)?,
+                r.get(10)?,
             ))
         })
         .unwrap()
@@ -682,14 +704,15 @@ pub fn player_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
     out.push_str(
         "<div class=\"table-scroll\"><table class=\"data-table\"><thead><tr>\
          <th>Дата</th><th>Турнир</th><th>Тип</th><th>Команда</th>\
-         <th class=\"num\">Место</th><th class=\"num\">Взято</th></tr></thead><tbody>",
+         <th class=\"num\">Место</th><th class=\"num\">Взято</th>\
+         <th class=\"num\">Было</th><th class=\"num\">Стало</th><th class=\"num\">Δ</th></tr></thead><tbody>",
     );
     for g in &games {
         let _ = write!(
             out,
             "<tr><td class=\"nowrap\">{}</td><td><a href=\"/tournaments/{}/\">{}</a></td>\
              <td class=\"muted\">{}</td><td><a href=\"/teams/{}/\">{}</a></td>\
-             <td class=\"num\">{}</td><td class=\"num\">{}</td></tr>",
+             <td class=\"num\">{}</td><td class=\"num\">{}</td>{}</tr>",
             e(&g.2),
             g.0,
             e(if g.1.is_empty() { "без названия" } else { &g.1 }),
@@ -699,6 +722,7 @@ pub fn player_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
             place(g.6),
             g.7.map(|x| if g.8 > 0 { format!("{x}/{}", g.8) } else { x.to_string() })
                 .unwrap_or_else(|| "—".into()),
+            step_cells(s.d.a_player, s.d.b_player, g.9, g.10),
         );
     }
     out.push_str("</tbody></table></div></section>");
@@ -956,15 +980,15 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
              where v.tournament_id = ?1 order by v.actual_place",
         )
         .unwrap();
-    let evs: Vec<(i64, String, Option<f64>, Option<f64>, f64, f64, bool, Option<i64>)> = st
+    let evs: Vec<(i64, String, Option<f64>, Option<f64>, Option<f64>, Option<f64>, bool, Option<i64>)> = st
         .query_map([id], |r| {
             Ok((
                 r.get(0)?,
                 r.get::<_, Option<String>>(1)?.unwrap_or_default(),
                 r.get(2)?,
                 r.get(3)?,
-                r.get::<_, Option<f64>>(4)?.unwrap_or(0.0),
-                r.get::<_, Option<f64>>(5)?.unwrap_or(0.0),
+                r.get(4)?,
+                r.get(5)?,
                 r.get::<_, Option<i64>>(6)?.unwrap_or(1) != 0,
                 r.get(7)?,
             ))
@@ -995,8 +1019,6 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
          <th class=\"num\">Δ</th></tr></thead><tbody>",
     );
     for v in &evs {
-        let before = s.d.a_team + s.d.b_team * v.4;
-        let after = s.d.a_team + s.d.b_team * v.5;
         let beat = match (v.2, v.3) {
             (Some(f), Some(a)) if a < f - 0.5 => " place-better",
             (Some(f), Some(a)) if a > f + 0.5 => " place-worse",
@@ -1005,18 +1027,14 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         let _ = write!(
             out,
             "<tr><td class=\"num{beat}\">{}</td><td class=\"num muted\">{}</td>\
-             <td><a href=\"/teams/{}/\">{}</a>{}</td><td class=\"num\">{}</td>\
-             <td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num {}\">{}</td></tr>",
+             <td><a href=\"/teams/{}/\">{}</a>{}</td><td class=\"num\">{}</td>{}</tr>",
             place(v.3),
             place(v.2),
             v.0,
             e(if v.1.is_empty() { "—" } else { &v.1 }),
             unrated_tag(v.6),
             v.7.map(|x| x.to_string()).unwrap_or_else(|| "—".into()),
-            disp(before),
-            disp(after),
-            delta_class(after - before),
-            signed(after - before)
+            step_cells(s.d.a_team, s.d.b_team, v.4, v.5),
         );
     }
     out.push_str("</tbody></table></div></section>");

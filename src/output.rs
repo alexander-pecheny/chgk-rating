@@ -8,7 +8,8 @@ const SCHEMA: &str = "
 CREATE TABLE releases (id INTEGER PRIMARY KEY, date TEXT, shift REAL, shift_cum REAL, n_players INTEGER);
 CREATE TABLE player_ratings (release_id INTEGER, player_id INTEGER, theta REAL, sigma REAL, games_365 INTEGER, display REAL, change REAL);
 CREATE TABLE team_ratings (release_id INTEGER, team_id INTEGER, mu REAL, sigma REAL, core_strength REAL, evidence REAL, display REAL, listed INTEGER, change REAL);
-CREATE TABLE team_events (tournament_id INTEGER, date TEXT, team_id INTEGER, c REAL, delta_l REAL, x REAL, s_r REAL, forecast REAL, forecast_place REAL, actual_place REAL, s_pair REAL, i_pair REAL, mu_before REAL, mu_after REAL, sigma_before REAL, sigma_after REAL, evidence REAL, gap_days INTEGER, var_diff REAL, lost_prev REAL, rated INTEGER, z REAL);
+CREATE TABLE team_events (tournament_id INTEGER, date TEXT, team_id INTEGER, c REAL, delta_l REAL, x REAL, s_r REAL, forecast REAL, forecast_place REAL, actual_place REAL, s_pair REAL, i_pair REAL, mu_before REAL, mu_after REAL, sigma_before REAL, sigma_after REAL, evidence REAL, gap_days INTEGER, var_diff REAL, lost_prev REAL, rated INTEGER, z REAL, expected_place REAL);
+CREATE TABLE player_events (tournament_id INTEGER, player_id INTEGER, theta_before REAL, theta_after REAL, sigma_after REAL);
 CREATE TABLE question_params (tournament_id INTEGER, q INTEGER, b REAL, a REAL, m REAL);
 CREATE TABLE tournament_metrics (tournament_id INTEGER PRIMARY KEY, date TEXT, type TEXT, weight REAL, n_teams INTEGER, n_q INTEGER, n_obs INTEGER, logloss_insample REAL, logloss_crossfit REAL, spearman_forecast REAL, spearman_old_system REAL, truedl REAL);
 ";
@@ -96,7 +97,7 @@ impl Writer {
         evs: &[crate::team_model::TeamEvent],
     ) -> rusqlite::Result<()> {
         let mut st = self.conn.prepare_cached(
-            "INSERT INTO team_events VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)",
+            "INSERT INTO team_events VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)",
         )?;
         for e in evs {
             st.execute(params![
@@ -121,8 +122,19 @@ impl Writer {
                 e.var_diff,
                 e.lost_prev,
                 e.rated,
-                e.z
+                e.z,
+                e.expected_place
             ])?;
+        }
+        Ok(())
+    }
+
+    pub fn player_events(&self, tid: i64, rows: &[(i64, f64, f64, f64)]) -> rusqlite::Result<()> {
+        let mut st = self
+            .conn
+            .prepare_cached("INSERT INTO player_events VALUES (?1,?2,?3,?4,?5)")?;
+        for (pid, before, after, sigma) in rows {
+            st.execute(params![tid, pid, before, after, sigma])?;
         }
         Ok(())
     }
@@ -184,7 +196,8 @@ impl Writer {
              CREATE INDEX idx_team_events_tid ON team_events(tournament_id);
              CREATE INDEX idx_team_ratings_rel ON team_ratings(release_id);
              CREATE INDEX idx_team_ratings_team ON team_ratings(team_id);
-             CREATE INDEX idx_player_ratings_player ON player_ratings(player_id);",
+             CREATE INDEX idx_player_ratings_player ON player_ratings(player_id);
+             CREATE INDEX idx_player_events_player ON player_events(player_id);",
         )?;
         Ok(())
     }

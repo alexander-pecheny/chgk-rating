@@ -172,10 +172,12 @@ realised s*  = the strength at which one player of that strength would answer
 π_marg = w_t · c / σ_model²        when s* exists, 0 otherwise
 π_T'   = 1/σ_T² + π_pair + π_marg
 μ_T   += w_t · c · (S_A / β_t) / π_T'
-σ_T²   = 1/π_T'
+σ_T²   = max( 1/π_T', σ_floor² )
 ```
 
 The score says how strong the team was but not whom it beat, so it sharpens the posterior without moving it and the winner rule of step 5 stays exact. Without this channel a team that wins nearly every pair has `P(1−P) ≈ 0` and gathers information an order of magnitude more slowly than an ordinary team, and never leaves the provisional list.
+
+The floor `σ_floor` (tunable, 0.2) is a minimum K-factor. Precision without an innovation is a confirmation of the current mean, so without the floor an established team's precision climbs past 100 and a year of poor results moves it by a few display points. With the floor the innovations are white (lag-1 autocorrelation 0.004 against 0.097 without) and test 2 rises from 0.8124 to 0.8224.
 
 The standardised residual of that same observation is stored for the calibration of section 7:
 
@@ -230,13 +232,14 @@ Constants are chosen so that the 50th and 1000th of our listed non-provisional t
 - `releases(id, date, shift, shift_cum, n_players)`
 - `player_ratings(release_id, player_id, theta, sigma, games_365, display, change)`
 - `team_ratings(release_id, team_id, mu, sigma, core_strength, evidence, display, listed, change)` — listed teams only, so `listed` is always 1
-- `team_events(tournament_id, date, team_id, c, delta_l, x, s_r, forecast, forecast_place, actual_place, s_pair, i_pair, mu_before, mu_after, sigma_before, sigma_after, evidence, gap_days, var_diff, lost_prev, rated, z)`
+- `team_events(tournament_id, date, team_id, c, delta_l, x, s_r, forecast, forecast_place, actual_place, s_pair, i_pair, mu_before, mu_after, sigma_before, sigma_after, evidence, gap_days, var_diff, lost_prev, rated, z, expected_place)`
+- `player_events(tournament_id, player_id, theta_before, theta_after, sigma_after)` — one row per player in a lineup, on the published scale as of that tournament, so the difference is the player's own movement including the teammate shrinkage of section 3.3
 - `question_params(tournament_id, q, b, a, m)`
 - `tournament_metrics(tournament_id, date, type, weight, n_teams, n_q, n_obs, logloss_insample, logloss_crossfit, spearman_forecast, spearman_old_system, truedl)`
 
-`change` is the entity's own movement since its previous written release, excluding gauge shifts, and 0 on a first appearance or an idle week. The columns beyond section 4's formulas — `sigma_before`, `sigma_after`, `evidence`, `gap_days`, `var_diff`, `lost_prev`, `z` — are what the uncertainty calibration of section 7 reads; `s_r` and `rated` are what the site shows.
+`change` is the entity's own movement since its previous written release, excluding gauge shifts, and 0 on a first appearance or an idle week. `expected_place` is `1 + Σ_B P_BA` over the field, the place the pairwise model of step 5 expects, against `forecast_place`, the rank of forecast strengths. They differ where the field is tight: a team ranked sixth on strength is beaten by more than five teams in expectation when the six are close. The columns beyond section 4's formulas — `sigma_before`, `sigma_after`, `evidence`, `gap_days`, `var_diff`, `lost_prev`, `z` — are what the uncertainty calibration of section 7 reads; `s_r` and `rated` are what the site shows.
 
-Indexes: `team_events(team_id)`, `team_events(tournament_id)`, `team_ratings(release_id)`, `team_ratings(team_id)`, `player_ratings(player_id)`.
+Indexes: `team_events(team_id)`, `team_events(tournament_id)`, `team_ratings(release_id)`, `team_ratings(team_id)`, `player_ratings(player_id)`, `player_events(player_id)`.
 
 ## 7. Calibration and acceptance tests
 
@@ -249,9 +252,9 @@ Indexes: `team_events(team_id)`, `team_events(tournament_id)`, `team_ratings(rel
 ### 7.2 Acceptance tests
 
 1. **Cross-fitted log-loss** on in-person rated tournaments, per variant. A variant (step count, affinity rank, async weight, teammate shrinkage) stays only if it lowers the number. **Result: 0.4891 over all seasons, 0.5180 in 2025/26.** Passed.
-2. **Forecast rank correlation.** Spearman between forecast places and actual places per tournament, averaged over in-person tournaments of the last two seasons, against the old system's `predictedPosition`. Target: within 0.02 of the best external system. **Result: 0.8124 against 0.8177; sync 0.8073 against 0.7897.** Passed.
+2. **Forecast rank correlation.** Spearman between forecast places and actual places per tournament, averaged over in-person tournaments of the last two seasons, against the old system's `predictedPosition`. Target: within 0.02 of the best external system. **Result: 0.8224 against 0.8177; sync 0.8166 against 0.7897.** Passed.
 3. **Individual top-200 overlap with chgk.quest of at least 70%.** **Result: 126/200 against chgk.quest and 128/200 against rating.chgk.fun. Failed.** For context those two systems agree with each other on 136/200, so the 140 threshold is above what mature external systems reach between themselves; the rank correlation of `θ` over players with at least 50 games is 0.91 against chgk.quest and 0.79 against rating.chgk.fun.
-4. **Inflation:** the display value of the 50th team at each September release from 2015 to 2026 stays within a band of ±10%. A September whose trailing year holds fewer than 200 rated teams is a hole in the data, not inflation, and is excluded from the band; only September 2021 is. **Result: largest deviation 5.4% over 11 Septembers (range 6380 to 7045 around a mean of 6743).** Passed.
+4. **Inflation:** the display value of the 50th team at each September release from 2015 to 2026 stays within a band of ±10%. A September whose trailing year holds fewer than 200 rated teams is a hole in the data, not inflation, and is excluded from the band; only September 2021 is. **Result: largest deviation 5.3% over 11 Septembers (range 6663 to 7388 around a mean of 7037).** Passed.
 5. **Transfer invariance:** swap the strongest player between two top teams in the input at a chosen date and confirm no team rating changes at that date. Forecasts must change. **Result: 0 teams moved, maximum difference exactly 0; the two teams' forecasts at their next tournament move by 0.38 while `mu_before` is bit-identical.** Passed.
 6. **Winner rule:** no team that finished first, sole or shared, has `mu_after < mu_before` anywhere in `team_events`. **Result: 0.** Passed.
 7. The user's read of the resulting tables.
@@ -273,7 +276,7 @@ Rust workspace, one library crate `chgk-rating` with modules `data`, `question_m
 [gauge]    n_est 8, window_days 365
 [team]     sigma_model 0.3669, roster_bias −0.2427, sigma_new_team 0.5, beta 0.3757,
            kappa_m 10, m_max 2, nu 2.6, e_cap 20, rho 0.8, miss_streak 3, gamma 2,
-           tau_t 0.2, v_min 0.05, v_max 0.6, v_eta 0.15
+           tau_t 0.2, v_min 0.05, v_max 0.6, v_eta 0.15, sigma_floor 0.2
 [truedl]   theta_ref 0.2368
 [display]  provisional_sigma 0.3
 [numeric]  newton_iters 12, a ∈ [0.3, 3], m ∈ [0.5, 4], b ∈ [−10, 12],
@@ -282,10 +285,19 @@ Rust workspace, one library crate `chgk-rating` with modules `data`, `question_m
 
 ### 8.2 Reserved extensions
 
-Two extensions are implemented, tested and switched off. Both stay in the code behind their config switch; neither lowered the cross-fitted log-loss of test 1.
+Two question-model extensions are implemented, tested and switched off. Both stay in the code behind their config switch; neither lowered the cross-fitted log-loss of test 1.
 
 - **Free step count** (`question.s_m > 0`), the collaboration term `m_q` of section 3.2. Mean fitted `m` was 1.056; it bought in-sample fit and paid for it out of sample.
 - **Affinity** (`question.aff_rank > 0`), the player-editor interaction `u_i · v_e` of section 3.1. Learned magnitudes reached about 0.01 on the `θ` scale: the Fisher information for `u_i` is smaller than that for `θ_i` by a factor `v̄²`, so a single online pass cannot identify it. A fair test needs a full offline refit.
+
+The team update of section 4.3 carries a second group of switches, tried on 2026-09-05 against the sluggishness of established teams: the margin channel adds precision without an innovation, and the volatility ramp reopens `σ_T` over months. Of the group only `sigma_floor` ships at a live value; the rest stay at the value that leaves the section unchanged. The comparison is `out/variants/comparison.md`.
+
+- `team.margin_prec_scale` (1) multiplies `π_marg`; 0 removes the confirmation channel, and leaves 46% of teams provisional.
+- `team.sigma_floor` (0.2, shipped) is the floor of step 6.
+- `team.forget` (1) divides `σ_T²` by `forget^(w_t·c)` before each rated update, a memory that fades in games rather than in calendar time.
+- `team.surprise_z0` (0, off) with `surprise_max` (9) and `surprise_down_only` (false) multiplies the prior variance by `min((z_raw/z0)², surprise_max)` when `|z_raw| > z0`, where `z_raw = (S_A·β_t/I_A) / sqrt(σ_T² + β_t²/I_raw)` is the innovation against the un-normalised pairwise information: an immediate response to a surprise beside the slow ramp.
+- `team.k_down` (1) multiplies a negative mean step.
+- `team.margin_mean` (false), with `margin_slope`, `margin_intercept` and `margin_sigma`, lets the margin channel move the mean, on the innovation `s*_cal − x_T` with `s*_cal = (s* − intercept)/slope` from an offline regression of `s*` on `x_T`. A team that placed first is then clamped at a non-negative step, because the channel is not placement and principle 2 has to be imposed rather than inherited.
 
 ## 9. Report
 
