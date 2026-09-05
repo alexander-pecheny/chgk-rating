@@ -66,6 +66,20 @@ Live at https://rating2.pecheny.me: `chgk-rating.service` runs the binary on
 port 9684 and Caddy proxies to it. After a refit, `sudo systemctl restart
 chgk-rating` rebuilds the index and picks up the new numbers.
 
+## anomaly
+
+Asks whether the rating catches cheats. Cheating is close to impossible at an
+in-person tournament, awkward at a synchronous one and trivial when the
+synchronous circuit is played at home, as it was in 2020 and 2021, so a cheat's
+strength depends on the format and an honest player's does not.
+
+```
+./target/release/anomaly --top 200      # forecast and residual, split by format
+./target/release/anomaly --masks        # the hard-question test, no ratings used
+./target/release/anomaly --profile 308949   # one player, tournament by tournament
+./target/release/anomaly --who 308949       # one player's mask numbers
+```
+
 ## Report
 
 ```
