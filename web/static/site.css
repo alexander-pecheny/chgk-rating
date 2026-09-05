@@ -231,6 +231,7 @@ a:hover {
 /* Scrolls like a wide table does, and borrows the kit's scroll-fade so the
    affordance is the same one .table-scroll already gives. */
 .chart {
+  position: relative;
   max-width: 900px;
   overflow-x: auto;
   border-radius: var(--radius-md);
@@ -355,4 +356,84 @@ a:hover {
   .stats {
     gap: var(--space-3) var(--space-5);
   }
+}
+
+/* ── the hover crosshair ────────────────────────────────── */
+
+.c-cursor[hidden],
+.c-tip[hidden] {
+  display: none;
+}
+
+.c-rule {
+  stroke: var(--text-strong);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.c-dot {
+  fill: var(--blue);
+  stroke: var(--surface);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Sits beside the point it describes and flips to the other side near the right
+   edge, so it never leaves the figure. */
+.c-tip {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--space-1-5) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-popover);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(12px, -50%);
+}
+
+.c-tip.flip {
+  transform: translate(calc(-100% - 12px), -50%);
+}
+
+.c-tip-date {
+  color: var(--muted);
+}
+
+.c-tip-value {
+  color: var(--text-strong);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── header search ──────────────────────────────────────── */
+
+.site-search input {
+  width: 210px;
+  max-width: 40vw;
+  min-height: var(--control-h);
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--field-bg);
+  color: var(--text);
+  font-size: var(--text-sm);
+  outline: 0;
+}
+
+.site-search input:focus {
+  border-color: var(--blue);
+}
+
+.pager-gap {
+  padding: 3px var(--space-1);
+  color: var(--muted);
 }

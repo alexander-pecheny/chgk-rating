@@ -1,18 +1,18 @@
 [workspace]
 
 [package]
-name = "site-gen"
+name = "web"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "site-gen"
+name = "serve"
 path = "src/main.rs"
 
 [dependencies]
-rayon = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde_json = "1"
+tiny_http = "0.12"
 toml = "0.8"
 
 [profile.release]

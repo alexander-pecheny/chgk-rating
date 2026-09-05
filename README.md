@@ -49,12 +49,22 @@ Recomputes the constants that `config.toml` holds. Both modes print a block to p
 
 ## Site
 
-`site-gen/` is a separate crate that turns `out/ratings.db` into the static site.
+`web/` is a separate crate: an HTTP server that reads `out/ratings.db` and
+`buff.db` directly, so every player, team and tournament has a page, not only
+the ones in the current release.
 
 ```
-cd site-gen && cargo build --release
-./site-gen/target/release/site-gen out/ratings.db --buff buff.db --config config.toml --out site
+cd web && cargo build --release
+./web/target/release/serve out/ratings.db --addr 127.0.0.1:8080
 ```
+
+On start it builds `out/web.db`, the serving index — rosters, names, the two
+ranking tables and a full-text index — and rebuilds it whenever `out/ratings.db`
+is newer. `--rebuild` forces it; the build takes about ten seconds.
+
+Live at https://rating2.pecheny.me: `chgk-rating.service` runs the binary on
+port 9684 and Caddy proxies to it. After a refit, `sudo systemctl restart
+chgk-rating` rebuilds the index and picks up the new numbers.
 
 ## Report
 

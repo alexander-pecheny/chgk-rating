@@ -5,11 +5,7 @@ rating.db
 rsync.log
 out/
 data/external/
-fonts/
+/fonts/
 
 # build artifacts
 target/
-
-# generated site
-site/content/
-site/public/

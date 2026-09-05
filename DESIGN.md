@@ -293,6 +293,25 @@ Once the acceptance tests pass, a PDF describing the system in the register of �
 
 ## 10. Site
 
-A static site built with Zola from `site/`, generated from `out/ratings.db` by the `site-gen` binary that writes Markdown and data files, served by Caddy at rating2.pecheny.me from `/var/www/rating2`. Pages: team table, player table, team page with rating history and events, player page, tournament page with forecast against result, methodology (the report as HTML), and the PDF report.
+A server, not a static build: the `web` crate reads `out/ratings.db` and answers
+every request from SQLite, so any of the 161 194 players who have played since
+2013 has a page, not only the 24 970 in the current release. Pages: team table,
+player table, team page with rating history and events, player page, tournament
+page with forecast against result, releases, search over players and teams,
+methodology, and the PDF report.
 
-Styling follows the user's design system in `~/dopesuite/dopeuikit`: reuse its tokens, type scale and table styles from `assets/core.css` and its fonts from `assets/fonts`, rather than inventing new ones. Run the `design-review` skill from `~/dopesuite/.claude/skills/design-review` on the built pages before calling the site done.
+Two things neither database can answer with an index it already has — one
+player's games, which live behind a JSON blob in `buff.db` with no index, and
+the two ranking tables, which need the last release ordered by rating out of
+18.7 million rows — are precomputed once into `out/web.db` and rebuilt whenever
+`out/ratings.db` is newer.
+
+Rating history is interactive: the chart carries its points in viewBox
+coordinates, and the crosshair is a nearest-x lookup that draws a vertical rule
+and a dated tooltip. Without JavaScript the line and its band still render.
+
+Styling follows the user's design system in `~/dopesuite/dopeuikit`: reuse its
+tokens, type scale and table styles from `assets/core.css` and its fonts from
+`assets/fonts`, rather than inventing new ones. Run the `design-review` skill
+from `~/dopesuite/.claude/skills/design-review` on the built pages before
+calling the site done.
