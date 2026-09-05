@@ -15,9 +15,11 @@ pub fn e(s: &str) -> String {
     out
 }
 
-/// Published numbers live on the 2019 display scale and are whole.
+/// Published numbers live on the 2019 display scale and are whole. A value that
+/// rounds to zero from below prints "-0" otherwise, which reads as a number.
 pub fn disp(v: f64) -> String {
-    format!("{v:.0}")
+    let r = v.round();
+    format!("{:.0}", if r == 0.0 { 0.0 } else { r })
 }
 
 pub fn signed(v: f64) -> String {
@@ -102,23 +104,36 @@ pub fn pager(n: usize, total: usize, url: &dyn Fn(usize) -> String) -> String {
     s
 }
 
-/// One point of a rating history: x on the release axis, the middle and its
-/// uncertainty in display units, and the date the reader sees on hover.
+/// One point of a history: x on the release axis, the value and its uncertainty
+/// in the units of its own series, and what the tooltip says about it.
 #[derive(Clone)]
 pub struct Pt {
     pub x: f64,
     pub mid: f64,
     pub sigma: f64,
     pub date: String,
+    pub text: String,
 }
 
-/// A line inside its uncertainty band, with a hover cursor. The SVG carries the
-/// shape; `data-points` carries the same points in viewBox coordinates, which is
-/// all the crosshair in `site.js` needs to find the nearest one and label it.
-pub fn chart(points: &[Pt], ticks: &[(f64, String)], label: &str) -> String {
-    if points.len() < 2 {
+/// One thing the chart can show. Rating and place have different units and run
+/// in opposite directions, so each carries its own scale and its own geometry.
+pub struct Series {
+    pub name: String,
+    pub pts: Vec<Pt>,
+    /// Place: 1 belongs at the top.
+    pub invert: bool,
+    pub band: bool,
+}
+
+/// A line inside its uncertainty band, with a hover crosshair and — when more
+/// than one series is given — a switch between them. The SVG carries the shape;
+/// each view's `data-points` carries the same points in viewBox coordinates,
+/// which is all the crosshair in `site.js` needs.
+pub fn chart(series: &[Series], ticks: &[(f64, String)], label: &str) -> String {
+    let usable: Vec<&Series> = series.iter().filter(|s| s.pts.len() >= 2).collect();
+    let Some(first) = usable.first() else {
         return format!("<p class=\"empty\">{}</p>", e("Точек для графика пока нет."));
-    }
+    };
     const W: f64 = 760.0;
     const H: f64 = 210.0;
     const L: f64 = 46.0;
@@ -126,51 +141,122 @@ pub fn chart(points: &[Pt], ticks: &[(f64, String)], label: &str) -> String {
     const T: f64 = 10.0;
     const B: f64 = 24.0;
 
-    let (x0, x1) = (points[0].x, points[points.len() - 1].x);
+    let (x0, x1) = (first.pts[0].x, first.pts[first.pts.len() - 1].x);
     let xs = if x1 > x0 { x1 - x0 } else { 1.0 };
-    let mut lo = f64::MAX;
-    let mut hi = f64::MIN;
-    for p in points {
-        lo = lo.min(p.mid - p.sigma);
-        hi = hi.max(p.mid + p.sigma);
-    }
-    if !(hi > lo) {
-        hi = lo + 1.0;
-    }
-    let pad = (hi - lo) * 0.08;
-    let (lo, hi) = (lo - pad, hi + pad);
-
     let px = |x: f64| L + (x - x0) / xs * (W - L - R);
-    let py = |y: f64| T + (hi - y) / (hi - lo) * (H - T - B);
 
-    let mut band = String::new();
-    for p in points {
-        let _ = write!(band, "{:.1},{:.1} ", px(p.x), py(p.mid + p.sigma));
-    }
-    for p in points.iter().rev() {
-        let _ = write!(band, "{:.1},{:.1} ", px(p.x), py(p.mid - p.sigma));
-    }
-    let mut line = String::new();
-    for p in points {
-        let _ = write!(line, "{:.1},{:.1} ", px(p.x), py(p.mid));
-    }
+    let mut views = String::new();
+    let mut tabs = String::new();
+    for (i, sr) in usable.iter().enumerate() {
+        let mut lo = f64::MAX;
+        let mut hi = f64::MIN;
+        for p in &sr.pts {
+            let d = if sr.band { p.sigma } else { 0.0 };
+            lo = lo.min(p.mid - d);
+            hi = hi.max(p.mid + d);
+        }
+        if !(hi > lo) {
+            hi = lo + 1.0;
+        }
+        let pad = (hi - lo) * 0.08;
+        let (lo, hi) = (lo - pad, hi + pad);
+        // Place counts downwards, so the axis does too.
+        let py = |y: f64| {
+            let f = if sr.invert { (y - lo) / (hi - lo) } else { (hi - y) / (hi - lo) };
+            T + f * (H - T - B)
+        };
 
-    let mut grid = String::new();
-    let step = nice_step(hi - lo, 4);
-    let mut v = (lo / step).ceil() * step;
-    while v <= hi {
-        let y = py(v);
+        let mut grid = String::new();
+        let step = nice_step(hi - lo, 4);
+        let mut v = (lo / step).ceil() * step;
+        while v <= hi {
+            if !sr.invert || v >= 1.0 {
+                let y = py(v);
+                let _ = write!(
+                    grid,
+                    "<line x1=\"{L}\" y1=\"{y:.1}\" x2=\"{:.1}\" y2=\"{y:.1}\" class=\"c-grid\"/>\
+                     <text x=\"{:.1}\" y=\"{:.1}\" class=\"c-axis\" text-anchor=\"end\">{}</text>",
+                    W - R,
+                    L - 6.0,
+                    y + 4.0,
+                    e(&disp(v))
+                );
+            }
+            v += step;
+        }
+
+        // A team or player leaves the table when it stops playing and comes back
+        // later; joining those two releases with a straight line would draw a
+        // rating for weeks that never had one. Break the run instead.
+        let gap = {
+            let mut d: Vec<f64> = sr.pts.windows(2).map(|w| w[1].x - w[0].x).collect();
+            d.sort_by(f64::total_cmp);
+            let med = d.get(d.len() / 2).copied().unwrap_or(1.0);
+            (med * 3.0).max(4.0)
+        };
+        let runs: Vec<&[Pt]> = {
+            let mut out = Vec::new();
+            let mut start = 0;
+            for i in 1..sr.pts.len() {
+                if sr.pts[i].x - sr.pts[i - 1].x > gap {
+                    out.push(&sr.pts[start..i]);
+                    start = i;
+                }
+            }
+            out.push(&sr.pts[start..]);
+            out
+        };
+
+        let mut band = String::new();
+        let mut line = String::new();
+        for run in &runs {
+            if sr.band && run.len() > 1 {
+                let mut poly = String::new();
+                for p in run.iter() {
+                    let _ = write!(poly, "{:.1},{:.1} ", px(p.x), py(p.mid + p.sigma));
+                }
+                for p in run.iter().rev() {
+                    let _ = write!(poly, "{:.1},{:.1} ", px(p.x), py(p.mid - p.sigma));
+                }
+                let _ = write!(band, "<polygon points=\"{}\" class=\"c-band\"/>", poly.trim_end());
+            }
+            let mut pl = String::new();
+            for p in run.iter() {
+                let _ = write!(pl, "{:.1},{:.1} ", px(p.x), py(p.mid));
+            }
+            let _ = write!(line, "<polyline points=\"{}\" class=\"c-line\"/>", pl.trim_end());
+        }
+
+        let data: Vec<serde_json::Value> = sr
+            .pts
+            .iter()
+            .map(|p| {
+                serde_json::json!([
+                    (px(p.x) * 10.0).round() / 10.0,
+                    (py(p.mid) * 10.0).round() / 10.0,
+                    p.date,
+                    p.text
+                ])
+            })
+            .collect();
+
         let _ = write!(
-            grid,
-            "<line x1=\"{L}\" y1=\"{y:.1}\" x2=\"{:.1}\" y2=\"{y:.1}\" class=\"c-grid\"/>\
-             <text x=\"{:.1}\" y=\"{:.1}\" class=\"c-axis\" text-anchor=\"end\">{}</text>",
-            W - R,
-            L - 6.0,
-            y + 4.0,
-            e(&disp(v))
+            views,
+            "<g class=\"c-view\" data-points=\"{}\"{}>{grid}{band}{line}</g>",
+            e(&serde_json::to_string(&data).unwrap()),
+            if i == 0 { "" } else { " hidden" },
         );
-        v += step;
+        if usable.len() > 1 {
+            let _ = write!(
+                tabs,
+                "<button type=\"button\" class=\"c-tab{}\" aria-pressed=\"{}\">{}</button>",
+                if i == 0 { " on" } else { "" },
+                i == 0,
+                e(&sr.name)
+            );
+        }
     }
+
     let mut xa = String::new();
     for (i, (x, t)) in ticks.iter().enumerate() {
         let anchor = if i == 0 {
@@ -189,33 +275,18 @@ pub fn chart(points: &[Pt], ticks: &[(f64, String)], label: &str) -> String {
         );
     }
 
-    let data: Vec<serde_json::Value> = points
-        .iter()
-        .map(|p| {
-            serde_json::json!([
-                (px(p.x) * 10.0).round() / 10.0,
-                (py(p.mid) * 10.0).round() / 10.0,
-                p.date,
-                disp(p.mid),
-                disp(p.sigma)
-            ])
-        })
-        .collect();
-
     format!(
-        "<figure class=\"chart scroll-fade-xy\" data-points=\"{}\" data-top=\"{T}\" \
-         data-bottom=\"{:.1}\">\
-         <svg viewBox=\"0 0 {W:.0} {H:.0}\" role=\"img\" aria-label=\"{}\">{grid}\
-         <polygon points=\"{}\" class=\"c-band\"/>\
-         <polyline points=\"{}\" class=\"c-line\"/>{xa}\
+        "<figure class=\"chart scroll-fade-xy\">{}\
+         <svg viewBox=\"0 0 {W:.0} {H:.0}\" role=\"img\" aria-label=\"{}\">{views}{xa}\
          <g class=\"c-cursor\" aria-hidden=\"true\" hidden>\
          <line class=\"c-rule\" y1=\"{T}\" y2=\"{:.1}\"/><circle class=\"c-dot\" r=\"3.5\"/></g>\
          </svg><div class=\"c-tip\" hidden></div></figure>",
-        e(&serde_json::to_string(&data).unwrap()),
-        H - B,
+        if tabs.is_empty() {
+            String::new()
+        } else {
+            format!("<div class=\"c-tabs\" role=\"group\">{tabs}</div>")
+        },
         e(label),
-        band.trim_end(),
-        line.trim_end(),
         H - B
     )
 }

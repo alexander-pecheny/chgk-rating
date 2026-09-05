@@ -20,6 +20,9 @@ pub struct Site {
     pub release_date: String,
     pub n_teams: usize,
     pub n_players: usize,
+    /// Stamped onto the stylesheet and script URLs. Assets are served with an
+    /// hour of cache, so without it a deploy leaves readers on the old CSS.
+    pub assets_version: String,
 }
 
 impl Site {
@@ -48,6 +51,7 @@ impl Site {
             release_date: s,
             n_teams: meta(c, "n_team_rank") as usize,
             n_players: meta(c, "n_player_rank") as usize,
+            assets_version: String::new(),
         }
     }
 
@@ -74,7 +78,8 @@ fn meta(c: &Connection, key: &str) -> f64 {
 
 // ── chrome ───────────────────────────────────────────────────────────────────
 
-pub fn layout(title: &str, body: &str) -> String {
+pub fn layout(s: &Site, title: &str, body: &str) -> String {
+    let v = &s.assets_version;
     format!(
         r##"<!DOCTYPE html>
 <html lang="ru">
@@ -83,8 +88,8 @@ pub fn layout(title: &str, body: &str) -> String {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{}</title>
 <link rel="preload" href="/fonts/noto-sans-var.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/core.css">
-<link rel="stylesheet" href="/site.css">
+<link rel="stylesheet" href="/core.css?v={v}">
+<link rel="stylesheet" href="/site.css?v={v}">
 <script>if(matchMedia("(prefers-color-scheme: dark)").matches)document.documentElement.dataset.theme="dark";</script>
 </head>
 <body>
@@ -108,7 +113,7 @@ pub fn layout(title: &str, body: &str) -> String {
   <span>Экспериментальный рейтинг спортивного ЧГК. Данные — зеркало rating.chgk.info.</span>
   <a href="/report.pdf">Отчёт (PDF)</a>
 </footer>
-<script src="/site.js"></script>
+<script src="/site.js?v={v}"></script>
 </body>
 </html>
 "##,
@@ -441,44 +446,93 @@ pub fn tournament_table(c: &Connection, page: usize) -> String {
 
 // ── entity pages ─────────────────────────────────────────────────────────────
 
-/// The rating history of one entity, as chart points on the release axis.
-fn history(s: &Site, c: &Connection, sql: &str, id: i64, a: f64, b: f64) -> Vec<Pt> {
+/// The rating history of one entity: the release it belongs to, the published
+/// value and its uncertainty, in release order.
+fn history(s: &Site, c: &Connection, sql: &str, id: i64, a: f64, b: f64) -> Vec<(usize, f64, f64)> {
     let mut st = c.prepare(sql).unwrap();
-    let raw: Vec<(i64, f64, f64)> = st
+    let mut v: Vec<(usize, f64, f64)> = st
         .query_map([id], |r| {
             Ok((
-                r.get(0)?,
+                r.get::<_, i64>(0)?,
                 r.get::<_, Option<f64>>(1)?.unwrap_or(0.0),
                 r.get::<_, Option<f64>>(2)?.unwrap_or(0.0),
             ))
         })
         .unwrap()
-        .map(|r| r.unwrap())
-        .collect();
-    let mut pts: Vec<Pt> = raw
-        .into_iter()
+        .filter_map(|r| r.ok())
         .filter_map(|(rel, value, sigma)| {
-            let i = *s.rel_idx.get(&rel)?;
-            Some(Pt {
-                x: i as f64,
-                mid: a + b * value,
-                sigma: b.abs() * sigma,
-                date: s.rels[i].date.clone(),
-            })
+            Some((*s.rel_idx.get(&rel)?, a + b * value, b.abs() * sigma))
         })
         .collect();
-    pts.sort_by(|p, q| p.x.partial_cmp(&q.x).unwrap());
-    pts
+    v.sort_by_key(|p| p.0);
+    v
 }
 
-fn chart_section(s: &Site, pts: &[Pt], label: &str) -> String {
-    let pts = thin(pts, CHART_POINTS);
-    let (Some(f), Some(l)) = (pts.first(), pts.last()) else {
+/// Where the entity stood in the published table at each of those releases,
+/// stored as one blob per entity in the same order.
+fn places(c: &Connection, kind: i64, id: i64) -> Vec<u32> {
+    let blob: Option<Vec<u8>> = c
+        .query_row(
+            "select places from x.place_hist where kind = ?1 and id = ?2",
+            params![kind, id],
+            |r| r.get(0),
+        )
+        .ok();
+    blob.map(|b| b.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect())
+        .unwrap_or_default()
+}
+
+/// The rating history and, beside it, the same weeks as a place in the table.
+fn chart_section(s: &Site, c: &Connection, kind: i64, id: i64, sql: &str, a: f64, b: f64) -> String {
+    let hist = history(s, c, sql, id, a, b);
+    if hist.len() < 2 {
         return String::new();
-    };
+    }
+    let pl = places(c, kind, id);
+    let date = |i: usize| s.rels[i].date.clone();
+
+    let rating: Vec<Pt> = hist
+        .iter()
+        .map(|&(rel, mid, sigma)| Pt {
+            x: rel as f64,
+            mid,
+            sigma,
+            date: date(rel),
+            text: format!("{} ± {}", disp(mid), disp(sigma)),
+        })
+        .collect();
+    // Lengths differ only if the index was built against another ratings file;
+    // taking the shorter of the two keeps the weeks lined up either way.
+    let place_pts: Vec<Pt> = hist
+        .iter()
+        .zip(pl.iter())
+        .map(|(&(rel, _, _), &n)| Pt {
+            x: rel as f64,
+            mid: n as f64,
+            sigma: 0.0,
+            date: date(rel),
+            text: format!("№{n}"),
+        })
+        .collect();
+
+    let (from, to) = (rating[0].x as usize, rating[rating.len() - 1].x as usize);
+    let series = vec![
+        Series {
+            name: "Рейтинг".into(),
+            pts: thin(&rating, CHART_POINTS),
+            invert: false,
+            band: true,
+        },
+        Series {
+            name: "Место".into(),
+            pts: thin(&place_pts, CHART_POINTS),
+            invert: true,
+            band: false,
+        },
+    ];
     format!(
         "<section class=\"section\"><h2 class=\"subhead\">История рейтинга</h2>{}</section>",
-        chart(&pts, &s.ticks(f.x as usize, l.x as usize), label)
+        chart(&series, &s.ticks(from, to), "История рейтинга")
     )
 }
 
@@ -546,15 +600,15 @@ pub fn player_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
     ));
     out.push_str("</dl>");
 
-    let pts = history(
+    out.push_str(&chart_section(
         s,
         c,
-        "select release_id, theta, sigma from player_ratings where player_id = ?1",
+        0,
         id,
+        "select release_id, theta, sigma from player_ratings where player_id = ?1",
         s.d.a_player,
         s.d.b_player,
-    );
-    out.push_str(&chart_section(s, &pts, "История рейтинга игрока"));
+    ));
 
     let mut st = c
         .prepare(
@@ -678,15 +732,15 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
     ));
     out.push_str("</dl>");
 
-    let pts = history(
+    out.push_str(&chart_section(
         s,
         c,
-        "select release_id, mu, sigma from team_ratings where team_id = ?1",
+        1,
         id,
+        "select release_id, mu, sigma from team_ratings where team_id = ?1",
         s.d.a_team,
         s.d.b_team,
-    );
-    out.push_str(&chart_section(s, &pts, "История рейтинга команды"));
+    ));
 
     let mut st = c
         .prepare(

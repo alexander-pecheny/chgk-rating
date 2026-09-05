@@ -49,6 +49,24 @@ fn args() -> Args {
     v
 }
 
+/// The newest mtime under the asset directory, as a cache key.
+fn assets_version(dir: &Path) -> String {
+    fn newest(dir: &Path, best: &mut u64) {
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                newest(&p, best);
+            } else if let Ok(t) = modified(&p).duration_since(std::time::UNIX_EPOCH) {
+                *best = (*best).max(t.as_secs());
+            }
+        }
+    }
+    let mut best = 0;
+    newest(dir, &mut best);
+    best.to_string()
+}
+
 fn modified(p: &Path) -> std::time::SystemTime {
     std::fs::metadata(p)
         .and_then(|m| m.modified())
@@ -75,7 +93,9 @@ fn main() {
         index::build(&a.ratings, &a.buff, &a.web, &d);
     }
 
-    let site = Arc::new(Site::load(&connect(&a.ratings, &a.web)));
+    let mut site = Site::load(&connect(&a.ratings, &a.web));
+    site.assets_version = assets_version(&a.assets);
+    let site = Arc::new(site);
     let server = Arc::new(Server::http(&a.addr).unwrap_or_else(|e| panic!("bind {}: {e}", a.addr)));
     eprintln!(
         "serving {} teams and {} players from release {} on http://{}",
@@ -126,7 +146,7 @@ fn mime(path: &Path) -> &'static str {
     }
 }
 
-fn send_asset(req: Request, dir: &Path, rel: &str) {
+fn send_asset(req: Request, dir: &Path, rel: &str, s: &Site) {
     // Anything with a parent segment is a traversal attempt, not a typo.
     let safe = !rel.is_empty() && !rel.split('/').any(|s| s == ".." || s == ".");
     let path = dir.join(rel);
@@ -137,7 +157,7 @@ fn send_asset(req: Request, dir: &Path, rel: &str) {
                 .with_header(header("Cache-Control", "public, max-age=3600"));
             let _ = req.respond(r);
         }
-        None => not_found(req),
+        None => not_found(req, s),
     }
 }
 
@@ -209,19 +229,19 @@ fn handle(req: Request, s: &Site, c: &Connection, assets: &Path) {
         }
         ["players", _] => match id(1).and_then(|i| pages::player_page(s, c, i)) {
             Some(b) => (title_of(&b), b),
-            None => return not_found(req),
+            None => return not_found(req, s),
         },
         ["teams", _] => match id(1).and_then(|i| pages::team_page(s, c, i)) {
             Some(b) => (title_of(&b), b),
-            None => return not_found(req),
+            None => return not_found(req, s),
         },
         ["tournaments", _] => match id(1).and_then(|i| pages::tournament_page(s, c, i)) {
             Some(b) => (title_of(&b), b),
-            None => return not_found(req),
+            None => return not_found(req, s),
         },
-        _ => return send_asset(req, assets, &segs.join("/")),
+        _ => return send_asset(req, assets, &segs.join("/"), s),
     };
-    send_html(req, 200, layout(&format!("{title} — Рейтинг ЧГК"), &body));
+    send_html(req, 200, layout(s, &format!("{title} — Рейтинг ЧГК"), &body));
 }
 
 /// The <h1> a page just rendered, reused as the browser title rather than
@@ -243,8 +263,8 @@ fn title_of(body: &str) -> String {
     out.trim().to_string()
 }
 
-fn not_found(req: Request) {
+fn not_found(req: Request, s: &Site) {
     let body = "<header class=\"page-head\"><h1>Не найдено</h1>\
                 <p class=\"lede\">Такой страницы нет. Попробуйте поиск в шапке.</p></header>";
-    send_html(req, 404, layout("Не найдено — Рейтинг ЧГК", body));
+    send_html(req, 404, layout(s, "Не найдено — Рейтинг ЧГК", body));
 }

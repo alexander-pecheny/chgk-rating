@@ -28,6 +28,7 @@ CREATE TABLE player_rank (rank INTEGER PRIMARY KEY, player_id INTEGER, display R
                           games INTEGER, change REAL, provisional INTEGER);
 CREATE TABLE team_rank (rank INTEGER PRIMARY KEY, team_id INTEGER, display REAL, sigma REAL,
                         evidence REAL, change REAL, provisional INTEGER);
+CREATE TABLE place_hist (kind INTEGER, id INTEGER, places BLOB, PRIMARY KEY (kind, id)) WITHOUT ROWID;
 CREATE VIRTUAL TABLE player_fts USING fts5(name, tokenize='unicode61 remove_diacritics 0');
 CREATE VIRTUAL TABLE team_fts USING fts5(name, town, tokenize='unicode61 remove_diacritics 0');
 ";
@@ -298,6 +299,9 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
         w.execute("insert into meta values (?1,?2)", params![k, v]).unwrap();
     }
 
+    place_history(&r, &w, "player_ratings", "player_id", "theta", 0, d.a_player, d.b_player, d);
+    place_history(&r, &w, "team_ratings", "team_id", "mu", 1, d.a_team, d.b_team, d);
+
     w.execute_batch("COMMIT").unwrap();
     w.execute_batch(INDEXES).unwrap();
     eprintln!(
@@ -329,4 +333,66 @@ fn change_factor(db: &Connection, table: &str, release: i64, b: f64) -> f64 {
         Some(x) if x > 1.0 => 1.0,
         _ => b,
     }
+}
+
+/// Where each entity stood in the published table at every release it appeared
+/// in, stored as one blob per entity in release order — the same order the
+/// chart reads its rating history in, so the two series line up by index.
+///
+/// The rows come back in insertion order, which is release order, because `fit`
+/// writes one release at a time and never revisits one. That is what makes this
+/// a single streaming pass over 18.7 million rows instead of a sort over them.
+#[allow(clippy::too_many_arguments)]
+fn place_history(
+    r: &Connection,
+    w: &Connection,
+    table: &str,
+    id_col: &str,
+    value: &str,
+    kind: i64,
+    a: f64,
+    b: f64,
+    d: &Display,
+) {
+    let have = columns(r, table);
+    let sql = format!(
+        "select release_id, {id_col}, {value}, sigma, {} from {table}",
+        col(&have, "display")
+    );
+    let mut st = r.prepare(&sql).unwrap();
+    let mut rows = st.query([]).unwrap();
+
+    let mut out: HashMap<i64, Vec<u8>> = HashMap::new();
+    let mut cur = i64::MIN;
+    let mut batch: Vec<(i64, f64, bool)> = Vec::new();
+    let mut done: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    // Settled ratings first, then by rating: the order the published table uses.
+    let flush = |batch: &mut Vec<(i64, f64, bool)>, out: &mut HashMap<i64, Vec<u8>>| {
+        batch.sort_by(|x, y| x.2.cmp(&y.2).then(y.1.partial_cmp(&x.1).unwrap()));
+        for (i, (id, _, _)) in batch.iter().enumerate() {
+            out.entry(*id).or_default().extend_from_slice(&(i as u32 + 1).to_le_bytes());
+        }
+        batch.clear();
+    };
+    while let Some(x) = rows.next().unwrap() {
+        let rel: i64 = x.get(0).unwrap();
+        if rel != cur {
+            flush(&mut batch, &mut out);
+            if !done.insert(cur) && cur != i64::MIN {
+                eprintln!("warning: release {cur} is not contiguous; places may be wrong");
+            }
+            cur = rel;
+        }
+        let raw: f64 = x.get::<_, Option<f64>>(2).unwrap().unwrap_or(0.0);
+        let sigma: f64 = x.get::<_, Option<f64>>(3).unwrap().unwrap_or(0.0);
+        let display: f64 = x.get::<_, Option<f64>>(4).unwrap().unwrap_or(a + b * raw);
+        batch.push((x.get(1).unwrap(), display, sigma > d.provisional_sigma));
+    }
+    flush(&mut batch, &mut out);
+
+    let mut ins = w.prepare("insert into place_hist values (?1,?2,?3)").unwrap();
+    for (id, blob) in &out {
+        ins.execute(params![kind, id, blob]).unwrap();
+    }
+    eprintln!("index: place history for {} entries of {table}", out.len());
 }

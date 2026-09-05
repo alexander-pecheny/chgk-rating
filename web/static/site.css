@@ -437,3 +437,42 @@ a:hover {
   padding: 3px var(--space-1);
   color: var(--muted);
 }
+
+/* ── the rating / place switch ──────────────────────────── */
+
+.c-view[hidden] {
+  display: none;
+}
+
+.c-tabs {
+  position: absolute;
+  z-index: 1;
+  top: var(--space-2);
+  right: var(--space-2);
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--structure);
+}
+
+.c-tab {
+  padding: 2px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.c-tab:hover {
+  color: var(--text);
+}
+
+.c-tab.on {
+  background: var(--surface);
+  color: var(--text-strong);
+  font-weight: var(--fw-semibold);
+}
