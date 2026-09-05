@@ -31,6 +31,11 @@ use std::collections::HashMap;
 const MIN_ONLINE: f64 = 8.0;
 /// Fewer in-person results than this and the comparison is against zero.
 const MIN_IN_PERSON: f64 = 5.0;
+/// Effective sample size ceiling. A player's results are not independent draws:
+/// they are the same handful of teammates against the same circuit, week after
+/// week, so the four hundredth result adds almost nothing the fiftieth did not.
+/// DESIGN §4.3 caps the pairwise stage the same way and for the same reason.
+const NU: f64 = 30.0;
 
 #[derive(Default, Clone, Copy)]
 struct Acc {
@@ -58,28 +63,38 @@ impl Acc {
         }
         (self.sum2 / self.n - self.mean() * self.mean()).max(0.0).sqrt()
     }
-    /// Squared standard error of the mean, with the spread floored at half the
-    /// population's so a player with three results cannot look certain.
-    fn var_mean(&self, pop_sd: f64) -> f64 {
+    /// Squared standard error of the mean. Results are standardised before they
+    /// reach here, so a single one has unit variance and the spread is floored
+    /// at half of that: a player with three results cannot look certain.
+    fn var_mean(&self) -> f64 {
         if self.n < 1.0 {
-            return pop_sd * pop_sd;
+            return 1.0;
         }
-        let sd = if self.n < 4.0 { pop_sd } else { self.sd().max(pop_sd * 0.5) };
-        sd * sd / self.n
+        let sd = if self.n < 4.0 { 1.0 } else { self.sd().max(0.5) };
+        sd * sd / self.n.min(NU)
     }
 }
 
+/// Per player, each statistic twice: in its own units, which is what the table
+/// shows, and standardised, which is what the score is computed from.
 #[derive(Default)]
 struct Player {
     f_on: Acc,
     f_ip: Acc,
     m_on: Acc,
     m_ip: Acc,
+    zf_on: Acc,
+    zf_ip: Acc,
+    zm_on: Acc,
+    zm_ip: Acc,
 }
 
 pub struct Row {
     pub player_id: i64,
     pub k: f64,
+    /// The two halves of `k`, kept so the table can say which way a row leans.
+    pub k_f: f64,
+    pub k_m: f64,
     pub f_gap: f64,
     pub f_on: i64,
     pub f_ip: i64,
@@ -108,37 +123,37 @@ pub fn build(
 ) -> Vec<Row> {
     let roster = roster(w);
     let mut players: HashMap<i64, Player> = HashMap::with_capacity(60_000);
-    let f_sd = attribute(&forecast(r, online), &roster, &mut players, |p, on| {
-        if on { &mut p.f_on } else { &mut p.f_ip }
+    attribute(&forecast(r, online), &roster, &mut players, |p, on| {
+        if on { (&mut p.f_on, &mut p.zf_on) } else { (&mut p.f_ip, &mut p.zf_ip) }
     });
-    let m_sd = attribute(&masks(b, online), &roster, &mut players, |p, on| {
-        if on { &mut p.m_on } else { &mut p.m_ip }
+    attribute(&masks(b, online), &roster, &mut players, |p, on| {
+        if on { (&mut p.m_on, &mut p.zm_on) } else { (&mut p.m_ip, &mut p.zm_ip) }
     });
 
     // How far players' true in-person means spread. A player with no in-person
     // record is compared against zero, and that unknown baseline is worth this
     // much uncertainty — without it, having never played in person would make a
     // player look more certain than one who has.
-    let prior = |pick: fn(&Player) -> (&Acc, &Acc), pop: f64| -> f64 {
+    let baseline = |pick: fn(&Player) -> &Acc| -> f64 {
         let mut obs = Acc::default();
         let mut noise = 0.0;
         for p in players.values() {
-            let (_, ip) = pick(p);
+            let ip = pick(p);
             if ip.n >= 10.0 {
                 obs.push(ip.mean());
-                noise += ip.var_mean(pop);
+                noise += ip.var_mean();
             }
         }
         (obs.sd().powi(2) - noise / obs.n.max(1.0)).max(1e-9).sqrt()
     };
-    let prior_f = prior(|p| (&p.f_on, &p.f_ip), f_sd);
-    let prior_m = prior(|p| (&p.m_on, &p.m_ip), m_sd);
+    let baseline_f = baseline(|p| &p.zf_ip);
+    let baseline_m = baseline(|p| &p.zm_ip);
 
-    let gap = |a: &Acc, b: &Acc, pop: f64, prior: f64| -> (f64, f64) {
+    let gap = |a: &Acc, b: &Acc, prior: f64| -> (f64, f64) {
         let compare = b.n >= MIN_IN_PERSON;
         (
             a.mean() - if compare { b.mean() } else { 0.0 },
-            a.var_mean(pop) + if compare { b.var_mean(pop) } else { prior * prior },
+            a.var_mean() + if compare { b.var_mean() } else { prior * prior },
         )
     };
     let scored: Vec<(i64, (f64, f64), (f64, f64))> = players
@@ -147,42 +162,31 @@ pub fn build(
         .map(|(id, p)| {
             (
                 *id,
-                gap(&p.f_on, &p.f_ip, f_sd, prior_f),
-                gap(&p.m_on, &p.m_ip, m_sd, prior_m),
+                gap(&p.zf_on, &p.zf_ip, baseline_f),
+                gap(&p.zm_on, &p.zm_ip, baseline_m),
             )
         })
         .collect();
 
-    // The spread of true gaps across players, backed out of the observed spread
-    // by removing the measurement noise. The shrinkage pulls towards zero
-    // against it, and dividing by it puts the two components on one scale.
-    let tau = |pick: fn(&(i64, (f64, f64), (f64, f64))) -> (f64, f64)| -> f64 {
-        let mut obs = Acc::default();
-        let mut noise = 0.0;
-        for s in &scored {
-            obs.push(pick(s).0);
-            noise += pick(s).1;
-        }
-        (obs.sd().powi(2) - noise / obs.n.max(1.0)).max(1e-9).sqrt()
-    };
-    let (tau_f, tau_m) = (tau(|s| s.1), tau(|s| s.2));
-    eprintln!(
-        "anomaly: {} players scored, tau {tau_f:.3} / {tau_m:.3}, prior {prior_f:.3} / {prior_m:.3}",
-        scored.len()
-    );
+    let prior_f = Prior::fit(&scored.iter().map(|s| s.1).collect::<Vec<_>>());
+    let prior_m = Prior::fit(&scored.iter().map(|s| s.2).collect::<Vec<_>>());
+    eprintln!("anomaly: {} players scored, {prior_f:?} / {prior_m:?}", scored.len());
 
-    let shrink = |(g, v): (f64, f64), tau: f64| g * tau / (tau * tau + v);
     let mut out: Vec<Row> = scored
         .iter()
         .map(|(id, f, m)| {
             let p = &players[id];
             Row {
                 player_id: *id,
-                k: shrink(*f, tau_f) + shrink(*m, tau_m),
-                f_gap: f.0,
+                k: prior_f.score(*f) + prior_m.score(*m),
+                k_f: prior_f.score(*f),
+                k_m: prior_m.score(*m),
+                f_gap: p.f_on.mean()
+                    - if p.f_ip.n >= MIN_IN_PERSON { p.f_ip.mean() } else { 0.0 },
                 f_on: p.f_on.n as i64,
                 f_ip: p.f_ip.n as i64,
-                m_gap: m.0,
+                m_gap: p.m_on.mean()
+                    - if p.m_ip.n >= MIN_IN_PERSON { p.m_ip.mean() } else { 0.0 },
                 m_on: p.m_on.n as i64,
                 m_ip: p.m_ip.n as i64,
             }
@@ -314,47 +318,58 @@ fn masks(b: &Connection, online: &HashMap<i64, bool>) -> Vec<Marked> {
         }
     }
 
-    let bin = |t: f64| ((t * 50.0).round() as i64).clamp(-35, 15);
-    let mut curve: HashMap<i64, Acc> = HashMap::new();
-    for p in &pairs {
-        curve.entry(bin(p.2)).or_default().push(p.3);
-    }
     pairs
         .iter()
-        .filter_map(|p| {
-            let c = curve.get(&bin(p.2)).filter(|a| a.n >= 30.0)?;
-            Some(Marked { key: p.0, online: p.1, cell: 0, value: p.3 - c.mean() })
+        .map(|p| Marked {
+            key: p.0,
+            online: p.1,
+            cell: (((p.2 * 50.0).round() as i64).clamp(-35, 15) + 35) as u8,
+            value: p.3,
         })
         .collect()
 }
 
-/// Centres each result on the mean of results of the same kind, hands them to
-/// the players who sat at the table, and returns the population's spread.
+/// Centres each result on the mean of results of its own kind and divides by
+/// their spread, then hands both the centred and the standardised value to the
+/// players who sat at the table.
+///
+/// The scale matters as much as the centre. Beating a forecast by a factor of
+/// two means one thing in a field of thirty and another in a field of two
+/// hundred, and without dividing it out the noisy cells drown the rest.
 fn attribute(
     marked: &[Marked],
     roster: &[(i64, i64, i64)],
     players: &mut HashMap<i64, Player>,
-    pick: fn(&mut Player, bool) -> &mut Acc,
-) -> f64 {
+    pick: fn(&mut Player, bool) -> (&mut Acc, &mut Acc),
+) {
     let mut cells: HashMap<(bool, u8), Acc> = HashMap::new();
     for m in marked {
         cells.entry((m.online, m.cell)).or_default().push(m.value);
     }
-    let mut spread = Acc::default();
-    let by_result: HashMap<(i64, i64), (bool, f64)> = marked
+    let overall = {
+        let mut a = Acc::default();
+        for m in marked {
+            a.push(m.value - cells[&(m.online, m.cell)].mean());
+        }
+        a.sd()
+    };
+    let by_result: HashMap<(i64, i64), (bool, f64, f64)> = marked
         .iter()
         .map(|m| {
-            let v = m.value - cells[&(m.online, m.cell)].mean();
-            spread.push(v);
-            (m.key, (m.online, v))
+            let c = &cells[&(m.online, m.cell)];
+            // A thin cell cannot estimate its own spread; use everyone's.
+            let sd = if c.n >= 50.0 { c.sd().max(overall * 0.2) } else { overall };
+            let v = m.value - c.mean();
+            (m.key, (m.online, v, v / sd))
         })
         .collect();
     for (pid, tid, team) in roster {
-        if let Some(&(online, v)) = by_result.get(&(*tid, *team)) {
-            pick(players.entry(*pid).or_default(), online).push(v);
+        if let Some(&(online, v, z)) = by_result.get(&(*tid, *team)) {
+            let (raw, std) = pick(players.entry(*pid).or_default(), online);
+            raw.push(v);
+            std.push(z);
         }
     }
-    spread.sd()
 }
 
 /// Five million (player, tournament, team) rows, read from SQLite once and used
@@ -370,12 +385,14 @@ fn roster(w: &Connection) -> Vec<(i64, i64, i64)> {
 }
 
 pub fn write(w: &Connection, rows: &[Row]) {
-    let mut ins = w.prepare("insert into anomaly values (?1,?2,?3,?4,?5,?6,?7,?8,?9)").unwrap();
+    let mut ins = w.prepare("insert into anomaly values (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)").unwrap();
     for (i, x) in rows.iter().enumerate() {
         ins.execute(params![
             i as i64 + 1,
             x.player_id,
             x.k,
+            x.k_f,
+            x.k_m,
             x.f_gap,
             x.f_on,
             x.f_ip,
@@ -384,5 +401,78 @@ pub fn write(w: &Connection, rows: &[Row]) {
             x.m_ip
         ])
         .unwrap();
+    }
+}
+
+/// What the population of true gaps looks like: a bulk sitting close to zero
+/// and a small share genuinely far from it.
+///
+/// One normal will not do. Fitted to everybody it takes a spread of about 0.07
+/// on the log-place scale, under which a gap of 1.03 is a fourteen-sigma event —
+/// so a player with fifteen tournaments and an enormous gap is written off as
+/// noise, while a player with seven hundred tournaments and a fifth of the gap
+/// is believed. Two components fix that: a result far outside the bulk is
+/// evidence of belonging to the small component, not of bad luck, and is barely
+/// shrunk at all.
+#[derive(Debug)]
+struct Prior {
+    /// Spread of the bulk.
+    spike: f64,
+    /// Spread of the rest.
+    slab: f64,
+    /// Share of players in the second component.
+    share: f64,
+}
+
+impl Prior {
+    /// EM over the observed gaps and their variances.
+    fn fit(obs: &[(f64, f64)]) -> Prior {
+        let n = obs.len() as f64;
+        let excess = {
+            let g2: f64 = obs.iter().map(|(g, _)| g * g).sum::<f64>() / n;
+            let v: f64 = obs.iter().map(|(_, v)| v).sum::<f64>() / n;
+            (g2 - v).max(1e-12)
+        };
+        let mut p = Prior { spike: (excess * 0.25).sqrt(), slab: (excess * 9.0).sqrt(), share: 0.05 };
+        for _ in 0..200 {
+            let (mut w_sum, mut w0_sum, mut t2_sum, mut s2_sum) = (0.0, 0.0, 0.0, 0.0);
+            let (s2, t2) = (p.spike * p.spike, p.slab * p.slab);
+            for &(g, v) in obs {
+                let w = p.weight(g, v);
+                // E[theta^2] under a component of prior variance p2.
+                let m = |p2: f64| p2 * v / (p2 + v) + (g * p2 / (p2 + v)).powi(2);
+                w_sum += w;
+                w0_sum += 1.0 - w;
+                t2_sum += w * m(t2);
+                s2_sum += (1.0 - w) * m(s2);
+            }
+            p.share = (w_sum / n).clamp(1e-4, 0.5);
+            p.slab = (t2_sum / w_sum.max(1e-9)).max(1e-12).sqrt();
+            p.spike = (s2_sum / w0_sum.max(1e-9)).max(1e-12).sqrt();
+            if p.slab < p.spike {
+                std::mem::swap(&mut p.slab, &mut p.spike);
+                p.share = 1.0 - p.share;
+            }
+        }
+        p
+    }
+
+    /// Posterior probability that this gap belongs to the second component.
+    fn weight(&self, g: f64, v: f64) -> f64 {
+        let log_dens = |p2: f64, w: f64| {
+            let var = p2 + v;
+            w.ln() - 0.5 * var.ln() - 0.5 * g * g / var
+        };
+        let a = log_dens(self.slab * self.slab, self.share);
+        let b = log_dens(self.spike * self.spike, 1.0 - self.share);
+        1.0 / (1.0 + (b - a).exp())
+    }
+
+    /// The posterior mean of the true gap, in units of the second component's
+    /// spread so the two statistics can be added.
+    fn score(&self, (g, v): (f64, f64)) -> f64 {
+        let (s2, t2) = (self.spike * self.spike, self.slab * self.slab);
+        let w = self.weight(g, v);
+        (w * g * t2 / (t2 + v) + (1.0 - w) * g * s2 / (s2 + v)) / self.slab
     }
 }
