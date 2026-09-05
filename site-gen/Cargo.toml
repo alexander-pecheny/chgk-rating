@@ -1,0 +1,19 @@
+[workspace]
+
+[package]
+name = "site-gen"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "site-gen"
+path = "src/main.rs"
+
+[dependencies]
+rayon = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde_json = "1"
+toml = "0.8"
+
+[profile.release]
+opt-level = 2

@@ -1,0 +1,87 @@
+[data]
+db_path = "buff.db"
+out_path = "out/ratings.db"
+from = "2013-01-01"
+to = "2026-09-05"
+w_in_person = 1.0
+w_strict_sync = 0.6666666666666666
+w_sync = 0.5
+w_async = 0.0
+# Per-player and per-team rows are written every Nth weekly release (plus the last one);
+# releases and their listed counts stay weekly. 1 is every release.
+rows_every = 1
+passes = 2
+
+[question]
+b_bar = 1.5
+s_b = 2.0
+s_a = 0.5
+# s_m = 0 fixes m at 1, the nested noisy-OR baseline.
+s_m = 0.0
+s_aff = 0.3
+aff_rank = 0
+eta_v = 0.2
+
+[player]
+mu_new = -1.0
+sigma_new = 1.0
+# Restart width for --passes 2; see the report.
+warm_sigma = 0.5
+warm_until = "2016-01-01"
+info_scale = 0.46
+teammate_shrink = 0.005
+tau_p = 0.25
+v_min = 0.05
+v_max = 0.6
+v_eta = 0.15
+tau_aff = 0.05
+
+[gauge]
+n_est = 8
+window_days = 365
+
+[team]
+# beta and sigma_model come from `calibrate`; see the report.
+sigma_model = 0.3669
+roster_bias = -0.2427
+sigma_new_team = 0.5
+beta = 0.3757
+kappa_m = 10.0
+m_max = 2.0
+nu = 2.6
+e_cap = 20.0
+rho = 0.8
+miss_streak = 3
+gamma = 2.0
+tau_t = 0.2
+v_min = 0.05
+v_max = 0.6
+v_eta = 0.15
+
+[truedl]
+# Six equal players at the strength of a balanced 251-500 team; fixed at launch.
+theta_ref = 0.2368
+
+[display]
+# Fitted by `calibrate --display` to the old 2019 releases; see the report.
+a_team = -209.5770
+b_team = 2454.8828
+a_player = 5555.5362
+b_player = 4797.4901
+provisional_sigma = 0.3
+
+[numeric]
+newton_iters = 12
+newton_tol = 1e-4
+a_min = 0.3
+a_max = 3.0
+m_min = 0.5
+m_max = 4.0
+b_min = -10.0
+b_max = 12.0
+exp_lo = -60.0
+exp_hi = 30.0
+info_floor = 1e-3
+theta_max_step = 1.5
+u_max = 15.0
+crossfit_seed = 20250829

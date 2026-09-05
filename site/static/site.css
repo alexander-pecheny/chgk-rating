@@ -1,0 +1,358 @@
+/* Site layer over dopeuikit core.css. Everything structural — .data-table,
+   .table-scroll, .section, .subhead, .hint, .empty, .muted — comes from core;
+   this file adds the page frame, the table cell roles core has no opinion on,
+   and the three things that are genuinely new here: the rating chart, the
+   question-difficulty strip and the pager. */
+
+body {
+  background: var(--page);
+  font-size: var(--text-base);
+}
+
+/* :visited too — the UA's purple is not in the palette, and in a table of
+   thousands of names a link that changes colour once read reads as a different
+   kind of row. */
+a,
+a:visited {
+  color: var(--blue);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* ── page frame ─────────────────────────────────────────── */
+
+.host-top {
+  border-bottom: 1px solid var(--grid);
+}
+
+.site-brand {
+  font-size: var(--text-md);
+  font-weight: var(--fw-bold);
+  color: var(--text-strong);
+}
+
+.site-brand:hover {
+  text-decoration: none;
+}
+
+.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.site-nav a {
+  color: var(--muted);
+}
+
+.site-nav a:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--page-pad-x) var(--space-8);
+}
+
+/* The container owns the rhythm; nothing inside spaces itself. Headings and
+   paragraphs at any depth, not just direct children — a lone default <p>
+   margin inside .page-head is exactly the uneven gap this rule prevents. */
+.wrap h1,
+.wrap h2,
+.wrap h3,
+.wrap p,
+.wrap dl,
+.wrap dd,
+.wrap figure,
+.wrap nav,
+.wrap label {
+  margin: 0;
+}
+
+.page-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.page-head h1 {
+  margin: 0;
+  font-size: var(--text-xl-plus);
+  line-height: var(--leading-snug);
+  color: var(--text-strong);
+}
+
+.wrap p {
+  max-width: 74ch;
+  line-height: var(--leading-relaxed);
+}
+
+/* the standing explanation at the top of a listing */
+.lede {
+  max-width: 74ch;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.site-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: space-between;
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--page-pad-x) var(--space-6);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* ── table cell roles ───────────────────────────────────── */
+
+.data-table th,
+.data-table td {
+  vertical-align: baseline;
+}
+
+.data-table th.num,
+.data-table td.num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.data-table td.strong {
+  font-weight: var(--fw-semibold);
+  color: var(--text-strong);
+}
+
+.data-table td.nowrap {
+  white-space: nowrap;
+}
+
+.data-table tbody tr:hover {
+  background: var(--hover-bg);
+}
+
+/* Provisional rows are off until the reader asks for them, so a browser with
+   no JS shows the settled table and nothing else. */
+.prov-row {
+  display: none;
+}
+
+.section:has(.prov-toggle input:checked) .prov-row {
+  display: table-row;
+}
+
+.section:has(.prov-toggle input:checked) .prov-count {
+  display: none;
+}
+
+.prov-toggle {
+  align-self: flex-start;
+  color: var(--text);
+}
+
+.prov-count {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* the band that separates settled ratings from provisional ones */
+.row-split td {
+  background: var(--structure);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+/* ── meaning marks ──────────────────────────────────────── */
+
+.prov {
+  margin-left: var(--space-2);
+  padding: 1px var(--space-1-5);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+
+/* a result the model saw but did not count */
+.unrated {
+  margin-left: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+}
+
+.delta-up,
+.place-better {
+  color: var(--green-dark);
+}
+
+.delta-down,
+.place-worse {
+  color: var(--red-dark);
+}
+
+/* ── the header stat block ──────────────────────────────── */
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+}
+
+.stat dt {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.stat dd {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--text-lg);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── rating history: a line inside its uncertainty band ─── */
+
+/* Scrolls like a wide table does, and borrows the kit's scroll-fade so the
+   affordance is the same one .table-scroll already gives. */
+.chart {
+  max-width: 900px;
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.chart svg {
+  display: block;
+  width: 100%;
+  min-width: 560px;
+  height: auto;
+}
+
+.c-band {
+  fill: var(--blue);
+  fill-opacity: 0.15;
+}
+
+.c-line {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.c-grid {
+  stroke: var(--grid);
+  vector-effect: non-scaling-stroke;
+}
+
+.c-axis {
+  fill: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+/* ── question difficulty strip ──────────────────────────── */
+
+.qbars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  max-width: 900px;
+  height: 88px;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.qbars i {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  background: var(--blue);
+  opacity: 0.55;
+}
+
+.qbars i:hover {
+  opacity: 1;
+}
+
+/* ── pager ──────────────────────────────────────────────── */
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.pager a,
+.pager-cur {
+  min-width: 30px;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
+.pager a {
+  background: var(--action-ghost-bg);
+  color: var(--text);
+}
+
+.pager a:hover {
+  background: var(--action-hover-bg);
+  text-decoration: none;
+}
+
+.pager-cur {
+  background: var(--text-strong);
+  color: var(--paper);
+  font-weight: var(--fw-semibold);
+}
+
+@media (max-width: 760px) {
+  /* the bar is two rows on a phone: brand, then the nav it cannot fit beside */
+  .host-top {
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    height: auto;
+    padding: var(--space-2) var(--page-pad-x-tight);
+  }
+
+  .host-brand {
+    flex: 0 0 auto;
+  }
+
+  .site-nav {
+    gap: var(--space-3);
+  }
+
+  .wrap {
+    padding: var(--space-4) var(--page-pad-x-tight) var(--space-6);
+    gap: var(--space-4);
+  }
+
+  .site-foot {
+    padding: var(--space-3) var(--page-pad-x-tight) var(--space-5);
+  }
+
+  .stats {
+    gap: var(--space-3) var(--space-5);
+  }
+}

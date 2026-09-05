@@ -1,0 +1,15 @@
+# data mirrors and outputs, all rebuildable or fetched
+buff.db
+rating.db
+*.db
+rsync.log
+out/
+data/external/
+fonts/
+
+# build artifacts
+target/
+
+# generated site
+site/content/
+site/public/

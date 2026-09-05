@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ config.title }}{% endblock %}</title>
+<link rel="preload" href="/fonts/noto-sans-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/core.css">
+<link rel="stylesheet" href="/site.css">
+<script>if(matchMedia("(prefers-color-scheme: dark)").matches)document.documentElement.dataset.theme="dark";</script>
+</head>
+<body>
+<header class="host-top">
+  <div class="host-brand"><a class="site-brand" href="/">Рейтинг ЧГК</a></div>
+  <nav class="site-nav">
+    <a href="/">Команды</a>
+    <a href="/players/">Игроки</a>
+    <a href="/tournaments/">Турниры</a>
+    <a href="/releases/">Релизы</a>
+    <a href="/method/">Методика</a>
+  </nav>
+</header>
+<main class="wrap">
+{% block content %}{% endblock %}
+</main>
+<footer class="site-foot">
+  <span>Экспериментальный рейтинг спортивного ЧГК. Данные — зеркало rating.chgk.info.</span>
+  <a href="/report.pdf">Отчёт (PDF)</a>
+</footer>
+<script>
+(function () {
+  var cb = document.querySelector(".prov-toggle input");
+  if (!cb) return;
+  try { cb.checked = localStorage.getItem("showprov") === "1"; } catch (e) {}
+  cb.addEventListener("change", function () {
+    try { localStorage.setItem("showprov", cb.checked ? "1" : "0"); } catch (e) {}
+  });
+})();
+</script>
+</body>
+</html>

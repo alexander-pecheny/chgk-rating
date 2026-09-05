@@ -1,0 +1,31 @@
+[workspace]
+members = ["."]
+
+[package]
+name = "chgk-rating"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "chgk_rating"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fit"
+path = "src/bin/fit.rs"
+
+[[bin]]
+name = "eval"
+path = "src/bin/eval.rs"
+
+[dependencies]
+rayon = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
