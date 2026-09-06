@@ -241,6 +241,8 @@
 ]
 #p[The model in #rf(<qmodel>) is the «noisy OR» model: a question counts as answered if at least one player of the lineup answers it, and the players' contributions are independent.]
 
+#p(tag: <intensity>)[The intensity $lambda_(i,q)$ is the rate at which player $i$ finds the answer to question $q$. It depends only on the player's strength and the question's parameters: it equals 1 when the strength equals the difficulty, and every unit of strength above the difficulty multiplies it by $e^(a_q)$, every unit below divides it by the same. A player alone answers with probability $1 - exp(-lambda_(i,q))$, so intensity 1 means a 63% chance and intensity 0.1 about 10%. Intensities of a lineup add because the players search independently, and this sum is what makes the lineup's chance $1 - exp(-u_q)$. Uncertainty and volatility take no part in the answer probability; they govern only how far a player's estimate moves after a tournament (#rf(<update>), #rf(<diffusion>)).]
+
 #p[Saturation is the clamping of $u_q$ to the interval $[exp(-u_"max"), u_"max"]$ before it enters the probability, with $u_"max"$~= #k_u_max. Without saturation a maximally confident prediction against the observed outcome makes the log loss infinite.]
 
 #p(tag: <priors>)[The prior distributions of the question parameters are $ln a_q ~ N(0, s_a^2)$ and $b_q ~ N(overline(b), s_b^2)$, with $s_a$~= #k_s_a, $overline(b)$~= #k_b_bar, $s_b$~= #k_s_b.]
@@ -249,7 +251,7 @@
 #pp[questions marked in the mask as withdrawn or unknown are excluded;]
 #pp[results with no mask take no part in the question model.]
 
-#p[The update after a tournament is a sequence of three steps.]
+#p(tag: <update>)[The update after a tournament is a sequence of three steps.]
 #pp(tag: <qfit>)[Question fit. With player strengths fixed, each question $q$ independently takes $a_q = 1$, and the difficulty $b_q$ is set in closed form so that the model predicts exactly the observed answer rate for a lineup of average reach:]
 #eq[$ b_q = 1/(|cal(L)_q|) sum_(L in cal(L)_q) ln R_L - ln(-ln(1 - hat(r)_q)), quad R_L = sum_(i in L) exp(th_i), $]
 #whr(lead: [where:])[
