@@ -1,110 +1,112 @@
 // =============================================================================
-//  Приложение Б. Правила формирования Рейтинг-листа (новая система)
-//  Сборка:  typst compile --font-path fonts report/report.typ report/report.pdf
+//  Appendix B. Rules for compiling the rating list (new system)
+//  Build:  typst compile --font-path fonts report/report.typ report/report.pdf
 // =============================================================================
 //
-//  НАСТРАИВАЕМЫЕ ВЕЛИЧИНЫ И ЧИСЛА ИСПЫТАНИЙ.
+//  TUNABLE QUANTITIES AND TEST FIGURES.
 //
-//  Все значения ниже заполнены и соответствуют config.toml и разделам 7 и 8.1
-//  спецификации на дату выпуска. Заглушек не осталось. При изменении константы
-//  правится только эта таблица; в тексте величины подставляются по имени.
+//  Every value below is filled in and matches config.toml and sections 7 and
+//  8.1 of the specification on the release date. When a constant changes,
+//  only this table is edited; the text pulls values by name.
+//
+//  Written in English; the owner translates into Russian by hand.
 //
 // -----------------------------------------------------------------------------
 
-// -- Раздел Б.1: охват и веса ------------------------------------------------
-#let k_start      = [1 января 2013 года]
-#let k_to         = [5 сентября 2026 года]
+// -- Section B.1: coverage and weights ---------------------------------------
+#let k_start      = [1 January 2013]
+#let k_to         = [5 September 2026]
 #let k_window     = [365]
 #let k_w_in       = [1]
 #let k_w_ssync    = [2/3]
 #let k_w_sync     = [1/2]
 
-// -- Раздел Б.2: вопросная модель и индивидуальный рейтинг -------------------
-#let k_b_bar      = [1,5]
-#let k_s_b        = [2,0]
-#let k_s_a        = [0,5]
-#let k_a_min      = [0,3]
-#let k_a_max      = [3,0]
+// -- Section B.2: question model and individual rating -----------------------
+#let k_b_bar      = [1.5]
+#let k_s_b        = [2.0]
+#let k_s_a        = [0.5]
+#let k_a_min      = [0.3]
+#let k_a_max      = [3.0]
 #let k_b_min      = [−10]
 #let k_b_max      = [12]
 #let k_u_max      = [15]
 #let k_newton     = [12]
-#let k_info_scale = [0,46]
-#let k_info_floor = [0,001]
-#let k_theta_step = [1,5]
-#let k_shrink     = [0,005]
-#let k_mu_new     = [−1,0]
-#let k_sigma_new  = [1,0]
-#let k_tau_p      = [0,25]
-#let k_v_min      = [0,05]
-#let k_v_max      = [0,6]
-#let k_v_eta      = [0,15]
+#let k_info_scale = [0.46]
+#let k_info_floor = [0.001]
+#let k_theta_step = [1.5]
+#let k_shrink     = [0.005]
+#let k_mu_new     = [−1.0]
+#let k_sigma_new  = [1.0]
+#let k_tau_p      = [0.25]
+#let k_v_min      = [0.05]
+#let k_v_max      = [0.6]
+#let k_v_eta      = [0.15]
 #let k_n_est      = [8]
-#let k_m_mean     = [1,056]
-#let k_aff_mag    = [0,01]
+#let k_m_mean     = [1.056]
+#let k_aff_mag    = [0.01]
 
-// -- Раздел Б.3: командная модель (Модель S2) --------------------------------
+// -- Section B.3: team model (Model S2) --------------------------------------
 #let k_D           = [1200]
-#let k_K           = [0,4]
-#let k_Kq          = [0,01]
-#let k_scale       = [2454,8828]
+#let k_K           = [0.4]
+#let k_Kq          = [0.01]
+#let k_scale       = [2454.8828]
 #let k_zero        = [6000]
-#let k_roster_bias = [−0,2427]
-#let k_min_games   = [пяти]
-#let k_tune_from   = [1 сентября 2018 года]
-#let k_tune_to     = [29 августа 2024 года]
+#let k_roster_bias = [−0.2427]
+#let k_min_games   = [five]
+#let k_tune_from   = [1 September 2018]
+#let k_tune_to     = [29 August 2024]
 
-// -- Раздел Б.5: сложность турнира -------------------------------------------
-#let k_theta_ref  = [0,2368]
-#let k_ref_size   = [шести]
+// -- Section B.5: tournament difficulty --------------------------------------
+#let k_theta_ref  = [0.2368]
+#let k_ref_size   = [six]
 #let k_band       = [251–500]
 
-// -- Раздел Б.6: публикуемые величины ----------------------------------------
-#let k_A_T        = [−7295,3562]
-#let k_B_T        = [1,1904]
-#let k_A_P        = [5543,6775]
-#let k_B_P        = [4723,7898]
-#let k_anchor_t   = [5 сентября 2019 года]
-#let k_anchor_p   = [3 октября 2019 года]
+// -- Section B.6: published quantities ---------------------------------------
+#let k_A_T        = [−7295.3562]
+#let k_B_T        = [1.1904]
+#let k_A_P        = [5543.6775]
+#let k_B_P        = [4723.7898]
+#let k_anchor_t   = [5 September 2019]
+#let k_anchor_p   = [3 October 2019]
 #let k_pos_hi     = [50]
 #let k_pos_lo     = [1000]
 #let k_ref_t_50   = [7028]
 #let k_ref_t_1000 = [2992]
 #let k_ref_p_50   = [12 865]
 #let k_ref_p_1000 = [9778]
-#let k_prov_sigma = [0,3]
+#let k_prov_sigma = [0.3]
 
-// -- Раздел Б.7: результаты испытаний ----------------------------------------
-#let k_ll_cross   = [0,4900]
-#let k_ll_2526    = [0,5161]
-#let k_ll_quest   = [0,501]
-#let k_sp_new     = [0,8363]
-#let k_sp_old     = [0,8177]
-#let k_sp_new_s   = [0,8194]
-#let k_sp_old_s   = [0,7897]
+// -- Section B.7: test results -----------------------------------------------
+#let k_ll_cross   = [0.4900]
+#let k_ll_2526    = [0.5161]
+#let k_ll_quest   = [0.501]
+#let k_sp_new     = [0.8363]
+#let k_sp_old     = [0.8177]
+#let k_sp_new_s   = [0.8194]
+#let k_sp_old_s   = [0.7897]
 #let k_ov_n       = [200]
 #let k_ov_quest   = [117]
 #let k_ov_fun     = [122]
 #let k_ov_mutual  = [136]
 #let k_ov_need    = [140]
-#let k_corr_quest = [0,90]
-#let k_corr_fun   = [0,79]
+#let k_corr_quest = [0.90]
+#let k_corr_fun   = [0.79]
 #let k_corr_games = [50]
-#let k_infl       = [6,3 %]
-#let k_infl_band  = [±10 %]
+#let k_infl       = [6.3%]
+#let k_infl_band  = [±10%]
 #let k_infl_from  = [2015]
 #let k_infl_to    = [2026]
 #let k_infl_n     = [11]
-#let k_infl_skip  = [сентябрь 2021 года]
+#let k_infl_skip  = [September 2021]
 #let k_swap_n     = [286 139]
 
-// -- Раздел Б.8: переходные положения ----------------------------------------
+// -- Section B.8: transitional provisions ------------------------------------
 #let k_passes     = [2]
-#let k_warm_until = [1 января 2016 года]
-#let k_warm_sigma = [0,5]
+#let k_warm_until = [1 January 2016]
+#let k_warm_sigma = [0.5]
 
 // =============================================================================
-//  Оформление
+//  Layout
 // =============================================================================
 
 #set page(
@@ -113,17 +115,16 @@
   numbering: "1",
   number-align: center,
 )
-#set text(font: "Literata Fix", lang: "ru", size: 10.5pt, hyphenate: true)
+#set text(font: "Literata Fix", lang: "en", size: 10.5pt, hyphenate: true)
 #set par(justify: true, leading: 0.62em, first-line-indent: 0pt, spacing: 0.75em)
 #show math.equation: set text(font: "Literata Math")
 #set math.equation(numbering: none)
 
-// В Literata Math курсивная тета нарисована в варианте «ϑ»; берём прямое
-// начертание «θ», совпадающее по цвету и ширине с прочими греческими буквами
-// этой гарнитуры. В формулах писать th, а не theta.
+// Literata Math draws the italic theta as «ϑ»; use the upright «θ», which
+// matches the colour and width of the other Greek letters. Write th, not theta.
 #let th = math.upright(sym.theta)
 
-#set heading(numbering: (..n) => "Б." + n.pos().map(str).join(".") + ".")
+#set heading(numbering: (..n) => "B." + n.pos().map(str).join(".") + ".")
 #show heading: it => block(above: 1.5em, below: 0.9em)[
   #set text(size: 11pt, weight: "bold")
   #counter(heading).display(it.numbering) #h(0.4em) #it.body
@@ -140,7 +141,7 @@
 #let mark(extra) = context {
   let s = counter(heading).get().at(0)
   let n = parno.get().at(0)
-  let parts = ("Б.", str(s), ".", str(n), ".")
+  let parts = ("B.", str(s), ".", str(n), ".")
   if extra != none { parts += (str(extra), ".") }
   strong(parts.join(""))
 }
@@ -161,13 +162,13 @@
   }
 }
 
-// Ссылка на пункт по метке: #rf(<tag>) печатает «Б.3.12.3».
+// Clause reference by label: #rf(<tag>) prints «B.3.12.3».
 #let rf(tag) = context {
   let loc = query(tag).first().location()
   let s = counter(heading).at(loc).at(0)
   let n = parno.at(loc).at(0)
   let k = subno.at(loc).at(0)
-  let out = "Б." + str(s) + "." + str(n)
+  let out = "B." + str(s) + "." + str(n)
   if k > 0 { out += "." + str(k) }
   out
 }
@@ -180,222 +181,222 @@
 #let eq(body) = block(above: 0.7em, below: 0.7em, width: 100%, align(center, body))
 
 // =============================================================================
-//  Текст
+//  Text
 // =============================================================================
 
 #align(center)[
   #block(width: 85%)[
     #set text(size: 13pt, weight: "bold")
-    Приложение Б. Правила формирования Рейтинг-листа \ (новая система)
+    Appendix B. Rules for compiling the rating list \ (new system)
   ]
 ]
 
 #v(1.2em)
 
-#sect[Общие положения]
+#sect[General provisions]
 
-#p[Рейтингом называется система числовых оценок силы команд и игроков спортивного «Что? Где? Когда?», формируемая по результатам турниров, включённых в Рейтинг, и публикуемая в виде Релизов.]
+#p[The Rating is a system of numerical estimates of the strength of teams and players in competitive «What? Where? When?». It is built from the results of tournaments included in the Rating and published as Releases.]
 
-#p[Релизом Рейтинга называется список команд, отсортированный по убыванию значения рейтинга команды, составленный по состоянию на четверг соответствующей недели. Одновременно с Релизом публикуется список игроков, отсортированный по убыванию значения индивидуального рейтинга.]
+#p[A Release is the list of teams sorted by team rating in descending order, as of the Thursday of the week in question. A list of players sorted by individual rating in descending order is published together with each Release.]
 
-#p[Идентификаторами команды и игрока называются их идентификаторы в базе данных рейтинга (`team_id` и `player_id` соответственно). Команда сохраняет идентификатор при любых изменениях состава.]
+#p[The identifiers of a team and a player are their identifiers in the rating database (`team_id` and `player_id`). A team keeps its identifier through any change of lineup.]
 
-#p[В Рейтинг включаются турниры, отмеченные в базе данных как рейтинговые, с датой начала не ранее #k_start и ранее #k_to#[;] верхняя граница отсекает турниры объявленные, но не сыгранные. Марафоны, асинхронные турниры и турниры нераспознанного типа в Рейтинг не включаются.]
+#p[The Rating includes tournaments marked as rated in the database with a start date on or after #k_start and before #k_to#[;] the upper bound excludes tournaments announced but not yet played. Marathons, asynchronous tournaments and tournaments of unrecognised type are not included.]
 
-#p[Весом турнира $w_t$ называется множитель доказательности результата, определяемый форматом турнира:]
+#p[The weight $w_t$ of a tournament is a multiplier on the evidence its results carry, set by the format:]
 #whr[
-  очный турнир (обычный или региональный)~– #k_w_in#[;] \
-  строго синхронный турнир~– #k_w_ssync#[;] \
-  синхронный турнир~– #k_w_sync.
+  in-person tournament (regular or regional)~– #k_w_in#[;] \
+  strictly synchronous tournament~– #k_w_ssync#[;] \
+  synchronous tournament~– #k_w_sync.
 ]
 
-#p[Зачётным называется результат команды, отмеченный в базе данных признаком `inRating`. Незачётный результат принадлежит сборной, не имеющей базового состава. Он не даёт команде ни обновления рейтинга, ни зачётного турнира, ни права на включение в Релиз и не открывает состояния команды. При этом команда остаётся в поле соперников для всех прочих и входит в попарное сравнение (#rf(<pairwise>)) со своей турнирной силой, а её игроки обновляются в вопросной модели обычным порядком.]
+#p[A rated result is a team result marked `inRating` in the database. An unrated result belongs to a composite team with no base lineup. It gives the team no rating update, no rated tournament and no right to appear in a Release, and it does not open a team state. The team still stands in the field as an opponent for all others and enters the pairwise comparison (#rf(<pairwise>)) with its tournament strength, and its players are updated in the question model in the usual way.]
 
-#p[Числом вопросов $n_q$ турнира называется наибольшая длина маски среди его результатов. Если маски отсутствуют, $n_q$ есть сумма чисел вопросов по турам. Рейтинг команды числа вопросов не читает.]
+#p[The number of questions $n_q$ in a tournament is the longest mask among its results. If no masks exist, $n_q$ is the sum of question counts over rounds. The team rating does not read the number of questions.]
 
-#p[События обрабатываются в порядке возрастания даты начала турнира, а при совпадении дат~– в порядке возрастания идентификатора турнира. Обработка производится однократно и в прямом хронологическом порядке; опубликованное значение рейтинга не пересматривается.]
+#p[Events are processed in ascending order of tournament start date, and among equal dates in ascending order of tournament identifier. Processing is done once, in forward chronological order; a published rating value is never revised.]
 
-#p[Рейтингуемыми величинами называются:]
+#p[The rated quantities are:]
 #whr[
-  рейтинг команды и её обычный состав~– для каждой команды; \
-  сила игрока, её неопределённость и волатильность~– для каждого игрока.
+  the team rating and its usual lineup~– for every team; \
+  the player strength, its uncertainty and its volatility~– for every player.
 ]
 
-#p[Рейтинг команды и рейтинг игрока изменяются только по результатам сыгранного рейтингового турнира. Бездействие рейтинг команды не изменяет; неопределённость оценки игрока оно увеличивает, но самой оценки не уменьшает.]
+#p[A team rating and a player rating change only through the results of a rated tournament played. Inactivity does not change a team rating; it widens the uncertainty of a player estimate but does not lower the estimate.]
 
-#p[В Релиз включаются только те команды и игроки, которые сыграли хотя бы один рейтинговый турнир в течение #k_window дней, предшествующих дате Релиза. Для команды при этом учитываются только зачётные результаты. Невключение в Релиз не изменяет состояния команды или игрока.]
+#p[A Release includes only the teams and players that played at least one rated tournament in the #k_window days before the Release date. For a team only rated results count. Being left out of a Release does not change the state of a team or a player.]
 
-#sect[Индивидуальный рейтинг]
+#sect[Individual rating]
 
-#p[Состоянием игрока $i$ называется совокупность величин: сила $th_i$, неопределённость $sigma_i^2$ и волатильность $v_i$.]
+#p[The state of player $i$ is the set of quantities: strength $th_i$, uncertainty $sigma_i^2$ and volatility $v_i$.]
 
-#p(tag: <qmodel>)[Вопросной моделью называется вероятностная модель взятия вопроса составом команды. Вопрос $q$ характеризуется трудностью $b_q$ и логарифмом различающей способности $ln a_q$. Вероятность взятия вопроса $q$ составом $L$ равна]
+#p(tag: <qmodel>)[The question model is a probabilistic model of a lineup answering a question. Question $q$ has a difficulty $b_q$ and a log discrimination $ln a_q$. The probability that lineup $L$ answers question $q$ is]
 #eq[$ P_(L,q) = 1 - exp(-u_q), quad u_q = sum_(i in L) lambda_(i,q), quad lambda_(i,q) = exp(a_q (th_i - b_q)). $]
-#whr(lead: [где:])[
-  $lambda_(i,q)$~– интенсивность игрока $i$ на вопросе $q$; \
-  $u_q$~– суммарная интенсивность состава на вопросе $q$; \
-  $a_q$~– различающая способность вопроса $q$; \
-  $b_q$~– трудность вопроса $q$; \
-  $L$~– состав команды, сыгравшей турнир.
+#whr(lead: [where:])[
+  $lambda_(i,q)$~– the intensity of player $i$ on question $q$; \
+  $u_q$~– the total intensity of the lineup on question $q$; \
+  $a_q$~– the discrimination of question $q$; \
+  $b_q$~– the difficulty of question $q$; \
+  $L$~– the lineup that played the tournament.
 ]
-#p[Модель, описанная в #rf(<qmodel>), называется моделью «шумного ИЛИ»: вопрос считается взятым, если его взял хотя бы один игрок состава, а вклады игроков независимы.]
+#p[The model in #rf(<qmodel>) is the «noisy OR» model: a question counts as answered if at least one player of the lineup answers it, and the players' contributions are independent.]
 
-#p[Насыщением называется приведение величины $u_q$ к отрезку $[exp(-u_"max"), u_"max"]$ перед подстановкой в вероятность, где $u_"max"$~= #k_u_max. Без насыщения предельно уверенный прогноз против наблюдённого исхода делает логарифмический убыток бесконечным.]
+#p[Saturation is the clamping of $u_q$ to the interval $[exp(-u_"max"), u_"max"]$ before it enters the probability, with $u_"max"$~= #k_u_max. Without saturation a maximally confident prediction against the observed outcome makes the log loss infinite.]
 
-#p(tag: <priors>)[Априорными распределениями параметров вопроса называются $ln a_q ~ N(0, s_a^2)$ и $b_q ~ N(overline(b), s_b^2)$, где $s_a$~= #k_s_a, $overline(b)$~= #k_b_bar, $s_b$~= #k_s_b.]
+#p(tag: <priors>)[The prior distributions of the question parameters are $ln a_q ~ N(0, s_a^2)$ and $b_q ~ N(overline(b), s_b^2)$, with $s_a$~= #k_s_a, $overline(b)$~= #k_b_bar, $s_b$~= #k_s_b.]
 
-#p[Логарифмическое правдоподобие турнира есть сумма логарифмов вероятностей по всем вопросам и всем командам турнира, взятая с весом $w_t$; априорные слагаемые весом не умножаются. При этом:]
-#pp[вопросы, отмеченные в маске символом снятия или неизвестности, исключаются;]
-#pp[результаты с отсутствующей маской в вопросной модели не участвуют.]
+#p[The log likelihood of a tournament is the sum of log probabilities over all questions and all teams of the tournament, multiplied by $w_t$; the prior terms are not multiplied by the weight. In addition:]
+#pp[questions marked in the mask as withdrawn or unknown are excluded;]
+#pp[results with no mask take no part in the question model.]
 
-#p[Обновлением по итогам турнира называется последовательность трёх шагов.]
-#pp(tag: <qfit>)[Настройка вопросов. При зафиксированных силах игроков для каждого вопроса $q$ независимо принимается $a_q = 1$, а трудность $b_q$ берётся в замкнутом виде, при котором модель предсказывает для состава среднего охвата в точности наблюдённую долю взятия:]
+#p[The update after a tournament is a sequence of three steps.]
+#pp(tag: <qfit>)[Question fit. With player strengths fixed, each question $q$ independently takes $a_q = 1$, and the difficulty $b_q$ is set in closed form so that the model predicts exactly the observed answer rate for a lineup of average reach:]
 #eq[$ b_q = 1/(|cal(L)_q|) sum_(L in cal(L)_q) ln R_L - ln(-ln(1 - hat(r)_q)), quad R_L = sum_(i in L) exp(th_i), $]
-#whr(lead: [где:])[
-  $cal(L)_q$~– составы, сыгравшие вопрос $q$;   $R_L$~– охват состава $L$;   $hat(r)_q$~– доля составов из $cal(L)_q$, взявших вопрос, ограниченная снизу величиной 0,02 и сверху величиной 0,98, что удерживает на шкале вопрос, взятый всеми или никем.
+#whr(lead: [where:])[
+  $cal(L)_q$~– the lineups that played question $q$;   $R_L$~– the reach of lineup $L$;   $hat(r)_q$~– the share of lineups in $cal(L)_q$ that answered, clamped to no less than 0.02 and no more than 0.98, which keeps a question answered by everyone or by no one on the scale.
 ]
-#pp[Обновление игроков. При зафиксированных параметрах вопросов для каждого игрока $i$, сыгравшего турнир, вычисляются градиент $g_i$ и наблюдённая информация Фишера $I_i$ логарифмического правдоподобия турнира по $th_i$, после чего]
+#pp[Player update. With question parameters fixed, for every player $i$ who played the tournament the gradient $g_i$ and the observed Fisher information $I_i$ of the tournament log likelihood with respect to $th_i$ are computed, and then]
 #eq[$ I_"eff" = w_t I_i d_"info", quad pi'_i = 1 \/ sigma_i^2 + max(I_"eff", I_"min"), quad Delta th_i = (w_t d_"info" g_i) / pi'_i, quad sigma_i^2 <- 1 \/ pi'_i. $]
-#whr(lead: [где:])[
-  $d_"info"$~– коэффициент дисконтирования информации, #k_info_scale#[;] \
-  $I_"min"$~– нижняя граница информации, #k_info_floor#[;] \
-  $sigma_i^2$~– неопределённость после приращения по #rf(<diffusion>), взятая до обновления.
+#whr(lead: [where:])[
+  $d_"info"$~– the information discount, #k_info_scale#[;] \
+  $I_"min"$~– the information floor, #k_info_floor#[;] \
+  $sigma_i^2$~– the uncertainty after the increment of #rf(<diffusion>), taken before the update.
 ]
-#p[Приращение силы ограничивается по модулю величиной #k_theta_step.]
-#pp[Стягивание к составу. После обновления каждый игрок состава притягивается к средней силе состава:]
+#p[The strength increment is capped in absolute value at #k_theta_step.]
+#pp[Shrinkage to the lineup. After the update every player of the lineup is pulled towards the mean strength of the lineup:]
 #eq[$ th_i <- th_i + f dot (1/(|L|) sum_(j in L) th_j - th_i), quad f = #k_shrink. $]
 
-#p[Коэффициент $d_"info"$ введён потому, что ответы одной команды не независимы при заданных силах игроков: один турнир несёт меньше сведений, чем утверждает кривизна правдоподобия. Значение $d_"info"$ определяется требованием честности публикуемой неопределённости (#rf(<honest>)).]
+#p[The discount $d_"info"$ exists because the answers of one team are not independent given the player strengths: one tournament carries less evidence than the curvature of the likelihood claims. Its value is set by the honesty requirement on the published uncertainty (#rf(<honest>)).]
 
-#p[Стягивание к составу введено потому, что правдоподобие «шумного ИЛИ» приписывает взятие тому, кто уже сильнее, и разводит партнёров, играющих одни и те же вопросы, на тысячи мест. Значение $f = 0$ отключает стягивание.]
+#p[Shrinkage to the lineup exists because the «noisy OR» likelihood credits an answer to whoever is already stronger and drives partners who play the same questions thousands of places apart. The value $f = 0$ switches shrinkage off.]
 
-#p(tag: <diffusion>)[Между турнирами неопределённость оценки игрока увеличивается на $v_i^2 Delta t$, где $Delta t$~– интервал в годах, а $v_i$~– волатильность игрока. Волатильность своя у каждого игрока и обновляется после каждого турнира, на котором $I_"eff" > I_"min"$, по стандартизованной неожиданности]
+#p(tag: <diffusion>)[Between tournaments the uncertainty of a player estimate grows by $v_i^2 Delta t$, where $Delta t$ is the interval in years and $v_i$ the player's volatility. Volatility is individual and is updated after every tournament with $I_"eff" > I_"min"$ from the standardised surprise]
 #eq[$ z_i = (g_i \/ I_i) / sqrt(sigma_i^2 + 1 \/ I_"eff"), quad ln v_i <- ln v_i + eta_v (ln v_* - ln v_i), $]
-#whr(lead: [где:])[
-  $sigma_i^2$~– неопределённость до обновления; \
-  $eta_v$~– скорость обучения волатильности, #k_v_eta#[;] \
-  $v_*$~= $v_"max"$~= #k_v_max, если $|z_i| > 1$, и $v_*$~= $v_"min"$~= #k_v_min иначе.
+#whr(lead: [where:])[
+  $sigma_i^2$~– the uncertainty before the update; \
+  $eta_v$~– the volatility learning rate, #k_v_eta#[;] \
+  $v_*$~= $v_"max"$~= #k_v_max if $|z_i| > 1$, and $v_*$~= $v_"min"$~= #k_v_min otherwise.
 ]
-#p[Тем самым долгая и ровная история сводит неопределённость к нижней границе независимо от календаря, и только череда результатов, непохожих на прошлые, открывает её вновь. Волатильность нового игрока равна #k_tau_p.]
+#p[A long, steady history therefore drives the uncertainty to its floor regardless of the calendar, and only a run of results unlike the past opens it again. A new player's volatility is #k_tau_p.]
 
-#p[Новичком называется игрок, не имеющий сыгранных рейтинговых турниров. Новичок входит в Рейтинг со значениями $th$~= #k_mu_new и $sigma$~= #k_sigma_new. Для каждого игрока хранятся число сыгранных рейтинговых турниров и дата последнего из них.]
+#p[A newcomer is a player with no rated tournaments played. A newcomer enters the Rating with $th$~= #k_mu_new and $sigma$~= #k_sigma_new. For every player the number of rated tournaments played and the date of the last one are stored.]
 
-#p[Параметры вопросов сыгранного турнира сохраняются для отчётности и в дальнейших обновлениях не используются: вопрос не задаётся повторно.]
+#p[The question parameters of a played tournament are stored for reporting and are not used in later updates: a question is never asked again.]
 
-#p[Калибровкой шкалы называется операция, выполняемая при формировании каждого Релиза. Пусть]
+#p[Scale calibration is an operation performed when each Release is compiled. Let]
 #eq[$ Delta = 1/(|E|) sum_(i in E) th_i, $]
-#whr(lead: [где:])[
-  $E$~– множество игроков, сыгравших не менее #k_n_est рейтинговых турниров за предшествующие #k_window дней; \
-  $Delta$~– сдвиг шкалы данного Релиза.
+#whr(lead: [where:])[
+  $E$~– the set of players who played at least #k_n_est rated tournaments in the preceding #k_window days; \
+  $Delta$~– the scale shift of this Release.
 ]
-#p[Величина $Delta$ вычитается из силы каждого игрока. Тем самым средняя сила состоявшихся игроков в каждом Релизе равна нулю. Трудности вопросов поправке не подлежат, поскольку вопросы не задаются повторно. Рейтинг команды поправке также не подлежит: он не является величиной шкалы $th$, и калибровка доходит до него только через силы игроков, по которым читаются составная оценка и первый рейтинг новой команды.]
+#p[$Delta$ is subtracted from every player's strength. The mean strength of established players in every Release is therefore zero. Question difficulties are not corrected, since questions are never asked again. The team rating is not corrected either: it is not a quantity on the $th$ scale, and calibration reaches it only through player strengths, from which the lineup estimate and a new team's first rating are read.]
 
-#p[Состояния игроков хранятся до вычета сдвига, а накопленный сдвиг вычитается при чтении. Поэтому публикуемое изменение величины с предыдущего Релиза, в который она была включена, есть её собственное движение, свободное от калибровки шкалы.]
+#p[Player states are stored before the shift is subtracted, and the accumulated shift is subtracted on reading. The published change of a quantity since the previous Release that included it is therefore its own movement, free of scale calibration.]
 
-#p[Индивидуальный рейтинг является прямой оценкой вопросной модели. Он публикуется вместе со своей неопределённостью; никаких правил перехода между разрядами, порогов и ограничений на изменение к нему не применяется.]
+#p[The individual rating is a direct estimate of the question model. It is published together with its uncertainty; no grade transition rules, thresholds or limits on change apply to it.]
 
-#p(tag: <reserved>)[Зарезервировано. Правилами предусмотрены два расширения вопросной модели, реализованные и испытанные, но отключённые в настоящей редакции; ни одно из них не понизило кросс-проверочный логарифмический убыток испытания #rf(<t_ll>). Первое~– свободное число шагов: вопрос наделяется параметром $m_q$, вероятность взятия принимает вид $P_(L,q)^(m_q)$, что штрафует составы с резко неравной силой игроков относительно ровных составов; среднее настроенное значение $m_q$ составило #k_m_mean, выигрыш достигался только внутри выборки. Второе~– сродство с редакторами: игрок наделяется вектором $u_i$, редактор~– вектором $v_e$, и сила игрока на турнире увеличивается на среднее скалярное произведение $u_i dot v_e$ по редакторам турнира; выученные величины не превысили #k_aff_mag по шкале силы, так как информация Фишера для $u_i$ меньше информации для $th_i$ и одного прямого прохода для её выделения недостаточно. Третье~– ньютоновская настройка вопроса: вместо замкнутого вида #rf(<qfit>) величины $(b_q, ln a_q)$ подбираются ньютоновскими итерациями с демпфированием и половинным шагом по штрафованному логарифмическому правдоподобию, не более #k_newton итераций, со срезкой $a_q in [#k_a_min, #k_a_max]$ и $b_q in [#k_b_min, #k_b_max]$; именно этой настройке служат априорные распределения #rf(<priors>). Она понижает кросс-проверочный логарифмический убыток на 0,0009 и внутривыборочный на 0,018, что в пределах допуска испытаний, и заменена замкнутым видом ради простоты изложения. Все три расширения сохранены в реализации за своими переключателями и зарезервированы для будущей редакции настоящих Правил.]
+#p(tag: <reserved>)[Reserved. The Rules provide for three extensions of the question model that are implemented and tested but switched off in this edition; none of them lowered the cross-validated log loss of test #rf(<t_ll>). The first is a free number of steps: a question gets a parameter $m_q$ and the answer probability becomes $P_(L,q)^(m_q)$, which penalises lineups of sharply unequal strength relative to even ones; the mean fitted $m_q$ was #k_m_mean and the gain was in-sample only. The second is editor affinity: a player gets a vector $u_i$, an editor a vector $v_e$, and the player's strength in a tournament grows by the mean dot product $u_i dot v_e$ over the tournament's editors; the learned values did not exceed #k_aff_mag on the strength scale, since the Fisher information for $u_i$ is smaller than for $th_i$ and one forward pass is not enough to extract it. The third is the Newton question fit: instead of the closed form of #rf(<qfit>), $(b_q, ln a_q)$ are fitted by damped Newton iterations with step halving on the penalised log likelihood, at most #k_newton iterations, clamped to $a_q in [#k_a_min, #k_a_max]$ and $b_q in [#k_b_min, #k_b_max]$; the priors of #rf(<priors>) serve this fit. It lowers the cross-validated log loss by 0.0009 and the in-sample log loss by 0.018, within the test tolerance, and was replaced by the closed form for simplicity of exposition. All three extensions remain in the implementation behind their switches and are reserved for a future edition of these Rules.]
 
-#sect[Рейтинг команды]
+#sect[Team rating]
 
-#p(tag: <pscale>)[Силой игрока $i$ на командной шкале называется величина]
+#p(tag: <pscale>)[The strength of player $i$ on the team scale is]
 #eq[$ r_i = r_0 + s dot (th_i + ln 6 + delta_0), $]
-#whr(lead: [где:])[
-  $r_0$~– нуль командной шкалы, #k_zero#[;] \
-  $s$~– наклон командной шкалы, #k_scale#[;] \
-  $delta_0$~– поправка составной оценки, #k_roster_bias.
+#whr(lead: [where:])[
+  $r_0$~– the zero of the team scale, #k_zero#[;] \
+  $s$~– the slope of the team scale, #k_scale#[;] \
+  $delta_0$~– the lineup estimate correction, #k_roster_bias.
 ]
-#p[Отображение #rf(<pscale>) подобрано так, что шесть одинаковых игроков силы $r$ образуют состав силы $r$ (#rf(<lineup>)). Нуль $r_0$ является свободным: Правила не читают абсолютного уровня рейтинга, и общий сдвиг всех величин не изменяет ни одного прогноза и ни одного места. Наклон $s$ свободным не является: он входит в размер шага обновления относительно постоянной $D$.]
+#p[The map #rf(<pscale>) is chosen so that six equal players of strength $r$ form a lineup of strength $r$ (#rf(<lineup>)). The zero $r_0$ is free: the Rules never read the absolute level of a rating, and a common shift of every quantity changes no forecast and no place. The slope $s$ is not free: it enters the update step relative to the constant $D$.]
 
-#p(tag: <lineup>)[Составной оценкой $Q(L)$ состава $L$ называется величина]
+#p(tag: <lineup>)[The lineup estimate $Q(L)$ of lineup $L$ is]
 #eq[$ Q(L) = s dot (ln sum_(i in L) exp(r_i \/ s) - ln 6). $]
-#p[Величина $Q(L)$ есть сила, с которой один игрок такой силы взял бы столько же, сколько весь состав вместе, выраженная на командной шкале. Неполный состав слабее полного, а сильный игрок в неровном составе входит в оценку с большим весом, чем в среднее арифметическое,~– и то и другое по построению, без отдельных штрафов. Поправка $delta_0$ и нуль $r_0$ из #rf(<pscale>) сокращаются, поэтому в составную оценку входит только наклон.]
+#p[$Q(L)$ is the strength of a single player who would answer as many questions as the whole lineup together, expressed on the team scale. A short lineup is weaker than a full one, and a strong player in an uneven lineup enters the estimate with more weight than in the arithmetic mean; both follow from the construction, with no separate penalties. The correction $delta_0$ and the zero $r_0$ of #rf(<pscale>) cancel, so only the slope enters the lineup estimate.]
 
-#p[Состоянием команды $T$ называется совокупность величин:]
+#p[The state of team $T$ is the set of quantities:]
 #whr[
-  $R_T$~– рейтинг команды на публикуемой шкале; \
-  $overline(Q)_T$~– обычный состав команды: составная оценка тех составов, которыми заработан рейтинг; \
-  $n_T$~– число зачётных турниров команды; \
-  дата последнего зачётного турнира команды.
+  $R_T$~– the team rating on the published scale; \
+  $overline(Q)_T$~– the usual lineup of the team: the lineup estimate of the lineups that earned the rating; \
+  $n_T$~– the number of rated tournaments of the team; \
+  the date of the team's last rated tournament.
 ]
 
-#p[Новой называется команда, не имеющая состояния. Состояние открывается первым зачётным результатом со значениями $R_T = overline(Q)_T = Q(L)$, где $L$~– состав на этом турнире. Незачётный результат состояния команды не открывает.]
+#p[A new team is one with no state. The state is opened by the first rated result with $R_T = overline(Q)_T = Q(L)$, where $L$ is the lineup in that tournament. An unrated result does not open a team state.]
 
-#p[Полем турнира называется совокупность его результатов, имеющих непустой состав либо ранее открытое состояние; результат, не имеющий ни того, ни другого, пропускается. Величины #rf(<field>)–#rf(<pairwise>) читают состояния игроков в том виде, в каком они были до турнира, и вычисляются для всего поля прежде, чем записано хотя бы одно новое состояние.]
+#p[The field of a tournament is the set of its results that have a non-empty lineup or a previously opened state; a result with neither is skipped. The quantities of #rf(<field>)–#rf(<pairwise>) read player states as they were before the tournament and are computed for the whole field before any new state is written.]
 
-#p(tag: <field>)[Турнирной силой команды называется величина]
+#p(tag: <field>)[The tournament strength of a team is]
 #eq[$ F_T = R_T + (Q(L) - overline(Q)_T). $]
-#p[Рейтинг команды оценивается относительно её собственного обычного состава: приглашённые игроки повышают турнирную силу, отсутствующие~– понижают, и ни то, ни другое не изменяет $R_T$. Команда, открывающая состояние, входит в поле с $F_T = Q(L)$; результат, не перечисляющий состава, входит с $F_T = R_T$.]
+#p[A team rating is judged against the team's own usual lineup: guest players raise the tournament strength, absent players lower it, and neither changes $R_T$. A team opening its state enters the field with $F_T = Q(L)$; a result that lists no lineup enters with $F_T = R_T$.]
 
-#p(tag: <pairwise>)[Попарным сравнением называется следующая процедура. Для каждой пары команд $A$ и $B$ поля]
-#eq[$ P_(A B) = 1 / (1 + 10^((F_B - F_A) \/ D)), quad S_A = (sum_(B != A) y_(A B) - sum_(B "не делит место с" A) P_(A B)) / (N - 1). $]
-#whr(lead: [где:])[
-  $P_(A B)$~– ожидаемая доля побед команды $A$ над командой $B$; \
-  $y_(A B)$~– исход пары: 1, если $A$ заняла место выше $B$, и 0, если ниже; \
-  $D$~– постоянная шкалы, #k_D#[;] \
-  $N$~– число команд поля; \
-  $S_A$~– неожиданность результата команды $A$.
+#p(tag: <pairwise>)[The pairwise comparison is the following procedure. For every pair of teams $A$ and $B$ in the field]
+#eq[$ P_(A B) = 1 / (1 + 10^((F_B - F_A) \/ D)), quad S_A = (sum_(B != A) y_(A B) - sum_(B "not tied with" A) P_(A B)) / (N - 1). $]
+#whr(lead: [where:])[
+  $P_(A B)$~– the expected share of wins of team $A$ over team $B$; \
+  $y_(A B)$~– the outcome of the pair: 1 if $A$ placed above $B$, 0 if below; \
+  $D$~– the scale constant, #k_D#[;] \
+  $N$~– the number of teams in the field; \
+  $S_A$~– the surprise of team $A$'s result.
 ]
-#p[Пара команд, разделивших место, пропускается в обеих суммах: такая пара ничего не сообщает о том, которая из двух команд сильнее. Разрыв в счёте в попарное сравнение не входит.]
+#p[A pair of teams that shared a place is skipped in both sums: such a pair says nothing about which of the two is stronger. The score margin does not enter the pairwise comparison.]
 
-#p(tag: <winner>)[Поскольку для каждой пары, в которой команда $A$ оказалась выше, выполняется $y_(A B) - P_(A B) >= 0$, для команды, занявшей первое место, $S_A >= 0$. Тем самым такая команда ни при каких обстоятельствах не теряет рейтинговых очков~– как при единоличном первом месте, так и при делённом. Правилом победителя называется это свойство; оно следует из устройства обновления, а не из отдельного правила.]
+#p(tag: <winner>)[Since $y_(A B) - P_(A B) >= 0$ for every pair in which team $A$ placed higher, a team that took first place has $S_A >= 0$. Such a team therefore never loses rating points, whether its first place is sole or shared. This property is the winner rule; it follows from the construction of the update, not from a separate rule.]
 
-#p(tag: <apply>)[Обновлением по итогам турнира называются следующие действия, производимые только по зачётному результату:]
+#p(tag: <apply>)[The update after a tournament is the following, performed only on a rated result:]
 #eq[$ R_T <- R_T + K w_t D S_T, quad overline(Q)_T <- overline(Q)_T + K_q (Q(L) - overline(Q)_T), quad n_T <- n_T + 1, $]
-#whr(lead: [где:])[
-  $K$~– шаг рейтинга, #k_K#[;] \
-  $K_q$~– шаг обычного состава, #k_Kq#[;] \
-  $w_t$~– вес турнира.
+#whr(lead: [where:])[
+  $K$~– the rating step, #k_K#[;] \
+  $K_q$~– the usual-lineup step, #k_Kq#[;] \
+  $w_t$~– the tournament weight.
 ]
-#p[Обычный состав пересчитывается только при непустом составе. Незачётный результат стоит в поле соперником для всех прочих и не даёт команде ни обновления, ни зачётного турнира, ни права на включение в Релиз; дата последнего зачётного турнира продвигается только по зачётному результату.]
+#p[The usual lineup is updated only when the lineup is non-empty. An unrated result stands in the field as an opponent for all others and gives the team no update, no rated tournament and no right to appear in a Release; the date of the last rated tournament advances only on a rated result.]
 
-#p[Бездействие рейтинг команды не изменяет: между турнирами с состоянием команды не происходит ничего. Изменение состава само по себе также не изменяет рейтинг ни одной команды: сегодняшний состав изменяет турнирную силу #rf(<field>), а обычный состав следует за действительной переменой в течение последующих турниров.]
+#p[Inactivity does not change a team rating: nothing happens to a team state between tournaments. A change of lineup by itself does not change any team's rating either: today's lineup changes the tournament strength of #rf(<field>), and the usual lineup follows a real change over subsequent tournaments.]
 
-#p[Постоянные $D$, $K$ и $K_q$ определены вне публикуемого контура (#rf(<offline>)).]
+#p[The constants $D$, $K$ and $K_q$ are set outside the publication loop (#rf(<offline>)).]
 
-#sect[Прогноз]
+#sect[Forecast]
 
-#p[Прогнозом называется отдельный от рейтинга объект: оценка силы, с которой команда выступит на данном турнире данным составом. Прогноз не участвует в обновлении рейтинга и не влияет на него.]
+#p[The forecast is an object separate from the rating: an estimate of the strength with which a team will play a given tournament with a given lineup. The forecast takes no part in the rating update and has no effect on it.]
 
-#p(tag: <forecast>)[Прогнозной силой команды называется составная оценка её состава $Q(L)$ (#rf(<lineup>)); при отсутствии состава~– турнирная сила $F_T$ (#rf(<field>)).]
+#p(tag: <forecast>)[The forecast strength of a team is the lineup estimate of its lineup, $Q(L)$ (#rf(<lineup>)); with no lineup, its tournament strength $F_T$ (#rf(<field>)).]
 
-#p[Прогнозным местом команды называется её место в упорядочении команд поля по убыванию прогнозной силы; первое место соответствует наибольшей прогнозной силе, разделённые значения получают среднее из своих мест.]
+#p[The forecast place of a team is its place in the ordering of the field by forecast strength in descending order; first place is the largest forecast strength, and equal values share the mean of their places.]
 
-#p[Прогноз состояния команды не читает вовсе. Это не упрощение, а итог испытания #rf(<t_sp>): на очных турнирах двух последних сезонов состав предсказывает результат точнее, чем рейтинг команды, чем рейтинг со смещением состава и чем прогноз старой системы. Команды устойчивы; неустойчив состав, и именно на этот вопрос состав и отвечает.]
+#p[The forecast does not read the team state at all. This is not a simplification but the outcome of test #rf(<t_sp>): on in-person tournaments of the last two seasons the lineup predicts the result better than the team rating, better than the rating with the lineup offset, and better than the forecast of the old system. Teams are stable; the lineup is not, and the lineup is what answers that question.]
 
-#sect[Сложность турнира]
+#sect[Tournament difficulty]
 
-#p[Сложностью турнира $D_t$ называется величина, вычисляемая по настроенным параметрам его вопросов относительно неизменного эталонного состава из #k_ref_size одинаковых игроков силы $th^*$:]
+#p[The difficulty $D_t$ of a tournament is computed from the fitted parameters of its questions against a fixed reference lineup of #k_ref_size equal players of strength $th^*$:]
 #eq[$ p_q = (1 - exp(-6 exp(a_q (th^* - b_q))))^(m_q), quad D_t = 10 (1 - 1/(|Q|) sum_(q in Q) p_q), $]
-#whr(lead: [где:])[
-  $Q$~– множество вопросов турнира, взятых хотя бы одной командой; \
-  $p_q$~– вероятность взятия вопроса $q$ эталонным составом; \
-  $th^*$~– эталонная сила, #k_theta_ref.
+#whr(lead: [where:])[
+  $Q$~– the set of questions of the tournament answered by at least one team; \
+  $p_q$~– the probability that the reference lineup answers question $q$; \
+  $th^*$~– the reference strength, #k_theta_ref.
 ]
-#p[Сложность не определяется, если ни один вопрос турнира не был взят.]
+#p[Difficulty is undefined if no question of the tournament was answered.]
 
-#p[Эталонная сила $th^*$ есть сила сбалансированной команды мест #k_band, выраженная как #k_ref_size равных игроков. Она соответствует полосе, принятой за опорную в публикуемом показателе TrueDL, поэтому величина $D_t$ означает именно то, что этот показатель обещает: удесятерённую долю пакета, которую такая команда не возьмёт,~– но вычисляется по настроенным трудностям, а не по таблице отношений между полосами. Величина $th^*$ фиксируется при запуске и пересчёту не подлежит.]
+#p[The reference strength $th^*$ is the strength of a balanced team of places #k_band, expressed as #k_ref_size equal players. It matches the band taken as reference in the published TrueDL index, so $D_t$ means what that index promises: ten times the share of the package such a team would not answer, computed from fitted difficulties rather than from a table of ratios between bands. $th^*$ is fixed at launch and is not recomputed.]
 
-#sect[Публикуемые величины]
+#sect[Published quantities]
 
-#p(tag: <display>)[Публикуемым рейтингом называется аффинное отображение внутреннего значения:]
+#p(tag: <display>)[The published rating is an affine map of the internal value:]
 #eq[$ R_"team" = A_T + B_T R_T, quad R_"player" = A_P + B_P th_i. $]
-#whr(lead: [где:])[
-  $A_T$~= #k_A_T, $B_T$~= #k_B_T~– постоянные командной шкалы; \
-  $A_P$~= #k_A_P, $B_P$~= #k_B_P~– постоянные индивидуальной шкалы.
+#whr(lead: [where:])[
+  $A_T$~= #k_A_T, $B_T$~= #k_B_T~– the constants of the team scale; \
+  $A_P$~= #k_A_P, $B_P$~= #k_B_P~– the constants of the individual scale.
 ]
 
-#p[Постоянные обеих шкал определены однократно из условия совпадения публикуемых значений на #{k_pos_hi}-м и #{k_pos_lo}-м местах со значениями старой системы для тех же мест: для команд~– #k_ref_t_50 и #k_ref_t_1000 в Релизе, ближайшем к #k_anchor_t, для игроков~– #k_ref_p_50 и #k_ref_p_1000 в Релизе, ближайшем к #k_anchor_p. Внутреннюю командную шкалу задают постоянные $r_0$ и $s$ отображения #rf(<pscale>); публикуемое отображение лишь переносит её на привычный уровень. Верхняя часть таблицы располагается там, куда её помещает внутренняя шкала. После утверждения постоянные не пересматриваются.]
+#p[The constants of both scales were set once from the condition that the published values at places #k_pos_hi and #k_pos_lo match the old system's values at the same places: for teams #k_ref_t_50 and #k_ref_t_1000 in the Release nearest #k_anchor_t, for players #k_ref_p_50 and #k_ref_p_1000 in the Release nearest #k_anchor_p. The internal team scale is set by the constants $r_0$ and $s$ of the map #rf(<pscale>); the published map only carries it to the familiar level. The top of the table sits where the internal scale puts it. Once adopted, the constants are not revised.]
 
-#p[Предварительным называется рейтинг команды, сыгравшей менее #k_min_games зачётных турниров, и рейтинг игрока, неопределённость которого превышает #k_prov_sigma по внутренней шкале. Предварительные оценки публикуются с соответствующей отметкой и в ранжированные таблицы не включаются.]
+#p[A team rating is provisional when the team has played fewer than #k_min_games rated tournaments, and a player rating is provisional when its uncertainty exceeds #k_prov_sigma on the internal scale. Provisional estimates are published with a mark and are left out of the ranked tables.]
 
-#p[Вместе с публикуемым рейтингом команды публикуются число её зачётных турниров, обычный состав, дата последнего зачётного турнира и изменение рейтинга с предыдущего Релиза, в который команда была включена. Вместе с публикуемым рейтингом игрока публикуются неопределённость оценки, число рейтинговых турниров за предшествующие #k_window дней, дата последнего из них и такое же изменение. Изменение свободно от калибровки шкалы и равно нулю при первом появлении и при неделе без игр. Неопределённость рейтинга команды не публикуется: Модель S2 её не оценивает.]
+#p[Together with a team's published rating the Release shows its number of rated tournaments, its usual lineup, the date of its last rated tournament and the change of rating since the previous Release that included the team. Together with a player's published rating the Release shows the uncertainty of the estimate, the number of rated tournaments in the preceding #k_window days, the date of the last one and the same change. The change is free of scale calibration and is zero on first appearance and in a week without games. The uncertainty of a team rating is not published: Model S2 does not estimate it.]
 
-#p[По каждому турниру публикуются его сложность, а для каждой команды~– прогнозная сила, прогнозное и фактическое места, значения рейтинга до и после турнира, турнирная сила, смещение состава, составная оценка, неожиданность результата и признак зачётности результата.]
+#p[For every tournament its difficulty is published, and for every team its forecast strength, forecast and actual places, rating before and after the tournament, tournament strength, lineup offset, lineup estimate, surprise of the result and whether the result is rated.]
 
-#sect[Проверка]
+#sect[Verification]
 
-#p[Настоящие Правила приняты по результатам испытаний, проведённых на данных за весь охваченный период. Итоги испытаний:]
+#p[These Rules were adopted on the results of tests run on the data of the whole covered period. The test results:]
 
 #block(above: 0.8em, below: 0.9em, width: 100%)[
   #set text(size: 9.5pt)
@@ -406,65 +407,65 @@
     stroke: 0.4pt,
     align: (left, left, left, center),
     table.header(
-      [*Испытание*], [*Требование*], [*Результат*], [*Итог*],
+      [*Test*], [*Requirement*], [*Result*], [*Outcome*],
     ),
-    [Кросс-проверочный логарифмический убыток на очных рейтинговых турнирах],
-    [снижение относительно вложенной базовой модели],
-    [#k_ll_cross по всем сезонам, #k_ll_2526 в сезоне 2025/26],
-    [пройдено],
+    [Cross-validated log loss on in-person rated tournaments],
+    [lower than the nested baseline model],
+    [#k_ll_cross over all seasons, #k_ll_2526 in season 2025/26],
+    [passed],
 
-    [Ранговая корреляция прогноза со Спирменом на очных турнирах двух последних сезонов],
-    [в пределах 0,02 от лучшей внешней системы],
-    [#k_sp_new против #k_sp_old у старой системы; на синхронных #k_sp_new_s против #k_sp_old_s],
-    [пройдено],
+    [Spearman rank correlation of the forecast on in-person tournaments of the last two seasons],
+    [within 0.02 of the best external system],
+    [#k_sp_new against #k_sp_old for the old system; on synchronous tournaments #k_sp_new_s against #k_sp_old_s],
+    [passed],
 
-    [Пересечение первых #k_ov_n индивидуального списка с внешними системами],
-    [не менее #k_ov_need из #k_ov_n],
-    [#k_ov_quest из #k_ov_n с chgk.quest, #k_ov_fun из #k_ov_n с rating.chgk.fun],
-    [не пройдено],
+    [Overlap of the top #k_ov_n of the individual list with external systems],
+    [at least #k_ov_need of #k_ov_n],
+    [#k_ov_quest of #k_ov_n with chgk.quest, #k_ov_fun of #k_ov_n with rating.chgk.fun],
+    [failed],
 
-    [Инфляция: публикуемое значение #{k_pos_hi}-й команды на сентябрьских Релизах #k_infl_from–#k_infl_to],
-    [в полосе #k_infl_band],
-    [наибольшее отклонение #k_infl на #k_infl_n Релизах],
-    [пройдено],
+    [Inflation: published value of the #{k_pos_hi}th team on September Releases #k_infl_from–#k_infl_to],
+    [within the band #k_infl_band],
+    [largest deviation #k_infl over #k_infl_n Releases],
+    [passed],
 
-    [Инвариантность к переходам: обмен сильнейшими игроками между двумя командами],
-    [ни один рейтинг команды не изменяется, прогнозы изменяются],
-    [изменилось 0 команд, наибольшая разность в точности 0; прогноз изменился у #k_swap_n результатов],
-    [пройдено],
+    [Transfer invariance: swapping the strongest players between two teams],
+    [no team rating changes, forecasts change],
+    [0 teams changed, largest difference exactly 0; the forecast changed for #k_swap_n results],
+    [passed],
 
-    [Правило победителя],
-    [у команды, занявшей первое место, рейтинг после турнира не ниже, чем до него],
-    [0 нарушений],
-    [пройдено],
+    [Winner rule],
+    [the first-placed team's rating after the tournament is not below its rating before],
+    [0 violations],
+    [passed],
   )
 ]
 
-#p(tag: <t_sp>)[Испытание на ранговую корреляцию прогноза пройдено с запасом, а не в пределах допуска: прогноз по составу точнее прогноза старой системы на #k_sp_new против #k_sp_old на очных турнирах и на #k_sp_new_s против #k_sp_old_s на синхронных. На тех же турнирах рейтинг команды сам по себе даёт 0,66, а рейтинг со смещением состава~– 0,83, то есть состав предсказывает результат лучше накопленного рейтинга.]
+#p(tag: <t_sp>)[The forecast rank correlation test is passed with a margin, not within tolerance: the lineup forecast beats the old system's forecast by #k_sp_new against #k_sp_old on in-person tournaments and by #k_sp_new_s against #k_sp_old_s on synchronous ones. On the same tournaments the team rating alone gives 0.66 and the rating with the lineup offset 0.83, so the lineup predicts the result better than the accumulated rating.]
 
-#p(tag: <t_ll>)[Испытание на логарифмический убыток является решающим при выборе состава модели: расширение остаётся в Правилах только тогда, когда оно понижает этот показатель. Для сопоставления: внешняя система chgk.quest публикует значение #k_ll_quest, измеренное внутри выборки.]
+#p(tag: <t_ll>)[The log loss test decides the composition of the model: an extension stays in the Rules only if it lowers this figure. For comparison, the external system chgk.quest publishes #k_ll_quest, measured in-sample.]
 
-#p[Из сентябрьских Релизов исключён #k_infl_skip: в предшествующем ему году сыграли менее двухсот рейтинговых команд, что является пробелом в данных, а не инфляцией.]
+#p[#k_infl_skip is excluded from the September Releases: fewer than two hundred rated teams played in the year before it, which is a gap in the data, not inflation.]
 
-#p[Испытание на пересечение первых #k_ov_n не пройдено. Порог #k_ov_need из #k_ov_n выше того, чего достигают между собой зрелые внешние системы: chgk.quest и rating.chgk.fun согласны друг с другом на #k_ov_mutual из #k_ov_n. Ранговая корреляция силы игроков, сыгравших не менее #k_corr_games турниров, составляет #k_corr_quest с chgk.quest и #k_corr_fun с rating.chgk.fun.]
+#p[The top-#k_ov_n overlap test is failed. The threshold of #k_ov_need of #k_ov_n is above what mature external systems reach with each other: chgk.quest and rating.chgk.fun agree on #k_ov_mutual of #k_ov_n. The rank correlation of the strength of players with at least #k_corr_games tournaments is #k_corr_quest with chgk.quest and #k_corr_fun with rating.chgk.fun.]
 
-#p(tag: <offline>)[Вне публикуемого контура определяются: поправка $delta_0$~– как среднее разности реализованной силы команды и непоправленной суммы сил её игроков по полным составам из шести игроков на очных турнирах 2015–2024 годов; постоянная $D$~– как значение максимального правдоподобия попарных исходов, причём правдоподобие остаётся плоским на отрезке от 900 до 2400; шаги $K$ и $K_q$~– как максимум средней ранговой корреляции прогноза со Спирменом на очных турнирах с #k_tune_from по #k_tune_to, по сетке значений 0,2; 0,3; 0,4 и 0,6 для $K$ и 0,01; 0,03 и 0,1 для $K_q$#[;] постоянные индивидуальной шкалы~– по Релизу 2019 года (#rf(<display>)).]
+#p(tag: <offline>)[Outside the publication loop the following are set: the correction $delta_0$~– as the mean difference between a team's realised strength and the uncorrected sum of its players' strengths over full six-player lineups on in-person tournaments of 2015–2024; the constant $D$~– as the maximum-likelihood value for the pairwise outcomes, the likelihood being flat from 900 to 2400; the steps $K$ and $K_q$~– as the maximum of the mean Spearman rank correlation of the forecast on in-person tournaments from #k_tune_from to #k_tune_to over the grid 0.2, 0.3, 0.4 and 0.6 for $K$ and 0.01, 0.03 and 0.1 for $K_q$#[;] the constants of the individual scale~– from the 2019 Release (#rf(<display>)).]
 
-#p(tag: <honest>)[Требованием честности неопределённости называется условие единичной дисперсии стандартизованных остатков $z_i$ на очных турнирах начиная с 2018 года. Этим требованием определён коэффициент $d_"info"$. К рейтингу команды требование не применяется: Модель S2 неопределённости не оценивает и не публикует.]
+#p(tag: <honest>)[The honesty requirement on uncertainty is the condition that the standardised residuals $z_i$ have unit variance on in-person tournaments from 2018 onwards. This requirement sets the discount $d_"info"$. It does not apply to the team rating: Model S2 neither estimates nor publishes an uncertainty.]
 
-#sect[Переходные положения]
+#sect[Transitional provisions]
 
-#p[Начальным пересчётом называется обработка всех рейтинговых турниров, начиная с #k_start, по правилам разделов Б.2 и Б.3 в хронологическом порядке.]
+#p[The initial recomputation is the processing of all rated tournaments from #k_start under the rules of sections B.2 and B.3 in chronological order.]
 
-#p[В первом сезоне история отсутствует: все игроки входят с приоритетом новичка одновременно, трудности вопросов сильного поля 2013 года оказываются заниженными, а его игроки~– переоценёнными. Поэтому начальный пересчёт выполняется в #k_passes прохода, и выходные данные записываются только на последнем.]
-#pp[Первый проход выполняется по общим правилам. Дойдя впервые до турнира с датой не ранее #k_warm_until, он сохраняет силу каждого игрока, успевшего появиться.]
-#pp[Каждый следующий проход начинается заново с #k_start: сохранённые игроки входят со своей сохранённой силой, неопределённостью #k_warm_sigma и волатильностью #k_tau_p, а все прочие считаются не появлявшимися и входят с приоритетом новичка при первом своём турнире. Состояния команд в каждом проходе строятся заново.]
+#p[In the first season there is no history: every player enters with the newcomer prior at once, the question difficulties of the strong 2013 field come out too low, and its players too high. The initial recomputation is therefore run in #k_passes passes, and the outputs are written only on the last.]
+#pp[The first pass follows the general rules. On first reaching a tournament dated on or after #k_warm_until it stores the strength of every player who has appeared so far.]
+#pp[Every later pass starts again from #k_start: stored players enter with their stored strength, uncertainty #k_warm_sigma and volatility #k_tau_p, and all others count as never seen and enter with the newcomer prior at their first tournament. Team states are rebuilt from scratch in every pass.]
 
-#p[Поскольку сохранение произведено на дату #k_warm_until и ни один игрок, дебютировавший позже неё, не получает начального приближения, ни одно значение после этой даты не опирается на собственное будущее.]
+#p[Since the store is taken on #k_warm_until and no player who debuted after that date gets an initial estimate, no value after that date rests on its own future.]
 
-#p[После начального пересчёта публикация ведётся одним прямым проходом. Полные пересчёты производятся только вне публикуемого контура~– для настройки постоянных и для начального пересчёта. Опубликованный Релиз не переписывается.]
+#p[After the initial recomputation publication proceeds in a single forward pass. Full recomputations happen only outside the publication loop, to tune constants and for the initial recomputation. A published Release is never rewritten.]
 
-#p[Величины, помеченные в настоящих Правилах как настраиваемые, определены однократно и заморожены на дату вступления Правил в силу. Их последующее изменение является изменением настоящих Правил.]
+#p[The quantities marked tunable in these Rules were set once and frozen on the date the Rules came into force. Any later change to them is a change to these Rules.]
 
 #v(1.6em)
 #align(center)[\* \* \*]
