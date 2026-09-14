@@ -1,0 +1,17 @@
+# Lever 1: order the field by the relevance the metric pays instead of by the
+# mean strength. The residual check says the spread buys first places only in a
+# tight field (0.241 against 0.203 among the four highest forecasts), so the
+# quantile matters: at sigma_c 1.5 the mean is already pushed down for the wide
+# lineups and the draws would push them back up twice.
+erel            team.s2.rank_rule="erel"
+erel_sc075      team.s2.rank_rule="erel" team.s2.sigma_c=0.75
+erel_sc0        team.s2.rank_rule="erel" team.s2.sigma_c=0.0
+pfirst          team.s2.rank_rule="p_first"
+pfirst_sc075    team.s2.rank_rule="p_first" team.s2.sigma_c=0.75
+pfirst_sc0      team.s2.rank_rule="p_first" team.s2.sigma_c=0.0
+ereld           team.s2.rank_rule="erel_d"
+ereld_sc075     team.s2.rank_rule="erel_d" team.s2.sigma_c=0.75
+ereld_sc0       team.s2.rank_rule="erel_d" team.s2.sigma_c=0.0
+# The quantiles on their own, so the draws are read against the right column.
+sc075           team.s2.sigma_c=0.75
+sc0             team.s2.sigma_c=0.0

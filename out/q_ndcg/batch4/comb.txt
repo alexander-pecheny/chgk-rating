@@ -1,0 +1,10 @@
+# The three best rows of the round, together, and two more cells of the ridge
+# the editor memory shows on the tune window at a gate of 0.1 to 0.15.
+comb_ed_tg    team.s2.editor_memory=1500.0 team.s2.ed_gate=0.15 team.s2.tight_gap=1500.0 team.s2.sigma_c_tight=1.5 team.s2.sigma_c_loose=2.0
+comb_ed_erel  team.s2.editor_memory=1500.0 team.s2.ed_gate=0.15 team.s2.rank_rule="erel" team.s2.rank_gap=300.0
+comb_tg_erel  team.s2.tight_gap=700.0 team.s2.sigma_c_tight=1.5 team.s2.sigma_c_loose=2.0 team.s2.rank_rule="erel" team.s2.rank_gap=300.0
+comb_all      team.s2.editor_memory=1500.0 team.s2.ed_gate=0.15 team.s2.tight_gap=700.0 team.s2.sigma_c_tight=1.5 team.s2.sigma_c_loose=2.0 team.s2.rank_rule="erel" team.s2.rank_gap=300.0
+ed_1500_g012  team.s2.editor_memory=1500.0 team.s2.ed_gate=0.12
+ed_1550_g015  team.s2.editor_memory=1550.0 team.s2.ed_gate=0.15
+ed_1450_g015  team.s2.editor_memory=1450.0 team.s2.ed_gate=0.15
+ed_1250_g015  team.s2.ed_gate=0.15

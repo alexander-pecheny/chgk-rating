@@ -1,0 +1,6 @@
+# The offline re-ranking says +0.0002 at half the sd and the fit says -0.0006.
+# The difference can only be the feedback: in a fit the sampled order is also
+# what the editor memory's residuals are measured against. These two rows turn
+# the memory off on both sides, so the ordering is read on its own.
+nomem         team.s2.editor_memory=0.0
+nomem_erel    team.s2.editor_memory=0.0 team.s2.rank_rule="erel" team.s2.rank_sd=0.5 team.s2.rank_draws=1000

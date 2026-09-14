@@ -1,0 +1,21 @@
+# Lever 2: home and away. The residual check says the plan's sign is backwards
+# -- a team at home is -0.0054 of a field against a visitor's +0.0047, and the
+# gap holds among the four highest forecasts -- so the negative bonuses are the
+# ones the mechanism asks for and the positive ones are the control.
+home_m50     team.s2.home_bonus=-50.0
+home_m100    team.s2.home_bonus=-100.0
+home_m200    team.s2.home_bonus=-200.0
+home_m400    team.s2.home_bonus=-400.0
+home_p100    team.s2.home_bonus=100.0
+home_p200    team.s2.home_bonus=200.0
+# Only a lineup every one of whose players is local, which is the cell the
+# residual table separates most cleanly from "none".
+home_all_m100 team.s2.home_bonus=-100.0 team.s2.home_min=0.999
+home_all_m200 team.s2.home_bonus=-200.0 team.s2.home_min=0.999
+home_all_m400 team.s2.home_bonus=-400.0 team.s2.home_min=0.999
+# The town the team itself is registered in, which is what the mirror says
+# directly and what the strongest cell of the check is about.
+tt_m100      team.s2.home_team_bonus=-100.0
+tt_m200      team.s2.home_team_bonus=-200.0
+tt_m400      team.s2.home_team_bonus=-400.0
+tt_p200      team.s2.home_team_bonus=200.0

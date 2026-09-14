@@ -1,0 +1,12 @@
+# Lever 3: how much the players have already played. The residual check finds
+# +0.007 over the trailing week and +0.023 over the trailing month, both the
+# wrong sign for fatigue and both under the 0.10 the round-3 diagnosis calls a
+# signal, so the negative rows are the plan's hypothesis and the positive ones
+# are what the residual actually points at.
+load7_m50    team.s2.load_7=-50.0
+load7_m100   team.s2.load_7=-100.0
+load7_m200   team.s2.load_7=-200.0
+load7_p100   team.s2.load_7=100.0
+load30_m25   team.s2.load_30=-25.0
+load30_m50   team.s2.load_30=-50.0
+load30_p50   team.s2.load_30=50.0

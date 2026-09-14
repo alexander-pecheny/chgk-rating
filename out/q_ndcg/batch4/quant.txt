@@ -1,0 +1,15 @@
+# Lever 6: a quantile that depends on the field. Among the four highest
+# forecasts the mean sigma of a lineup predicts the residual at +0.026 in the
+# tightest third of fields and -0.077 in the middle third, so a bunched field
+# wants a *smaller* discount and a spread one a larger. The last two rows are
+# the same rule with the sign reversed, as the control.
+tg600_t10    team.s2.tight_gap=600.0 team.s2.sigma_c_tight=1.0 team.s2.sigma_c_loose=1.5
+tg600_t075   team.s2.tight_gap=600.0 team.s2.sigma_c_tight=0.75 team.s2.sigma_c_loose=1.5
+tg600_l20    team.s2.tight_gap=600.0 team.s2.sigma_c_tight=1.5 team.s2.sigma_c_loose=2.0
+tg600_t10l20 team.s2.tight_gap=600.0 team.s2.sigma_c_tight=1.0 team.s2.sigma_c_loose=2.0
+tg1000_t10   team.s2.tight_gap=1000.0 team.s2.sigma_c_tight=1.0 team.s2.sigma_c_loose=1.5
+tg1000_t075  team.s2.tight_gap=1000.0 team.s2.sigma_c_tight=0.75 team.s2.sigma_c_loose=1.5
+tg1000_l20   team.s2.tight_gap=1000.0 team.s2.sigma_c_tight=1.5 team.s2.sigma_c_loose=2.0
+tg1000_t10l20 team.s2.tight_gap=1000.0 team.s2.sigma_c_tight=1.0 team.s2.sigma_c_loose=2.0
+tg600_t20    team.s2.tight_gap=600.0 team.s2.sigma_c_tight=2.0 team.s2.sigma_c_loose=1.5
+tg1000_t20l10 team.s2.tight_gap=1000.0 team.s2.sigma_c_tight=2.0 team.s2.sigma_c_loose=1.0
