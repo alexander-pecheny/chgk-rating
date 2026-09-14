@@ -179,7 +179,8 @@ before the tournament.
 1. **Field strength.** `F_T = R + (Q(L) − Q̄)`: the rating, shifted by how much
    stronger or weaker today's lineup is than the lineups that earned it. A team
    opening its state stands at `Q(L)`; a result with no lineup listed stands at
-   `R`. Guests raise the expectation, absences lower it, and neither moves `R`.
+   `R`. Guests raise the expectation and absences lower it; neither moves `R` on
+   its own, but a lineup that keeps turning up pulls `R` after it in step 3.
 
 2. **Pairwise.** Against every other team `B` of the field,
 
@@ -192,8 +193,9 @@ S_A  = ( Σ_B y_AB  −  Σ_{B not tied with A} P_AB ) / (N − 1)
 A shared place says nothing about which of the two teams is better, so its
 expectation is left out along with its outcome. Because `y − P ≥ 0` for every
 pair a first-placed team is in, `S_A ≥ 0` for a team that finished first, sole
-or shared: principle 2 holds by construction. The margin of the score does not
-enter at all.
+or shared, so this step alone never lowers a winner; the floor of step 3 keeps
+that true of the whole update, which is principle 2. The margin of the score
+does not enter at all.
 
 3. **Update**, on a rated result only, in this order:
 
