@@ -1,0 +1,15 @@
+# Second pass on the levers that moved, and the paired SE for the ones the
+# first pass scored before the driver computed it.
+phi_030     question.format_effect="in_person"
+shrink_zero player.teammate_shrink=0.0
+vmin_010b   player.v_min=0.10
+vmin_015    player.v_min=0.15
+vmin_020    player.v_min=0.20
+ss_100      data.w_strict_sync=1.0
+sigc_150    team.s2.sigma_c=1.5
+sigc_200    team.s2.sigma_c=2.0
+sigc_300    team.s2.sigma_c=3.0
+temper_060  team.s2.lineup="tempered" team.s2.tau=0.6
+temper_080  team.s2.lineup="tempered" team.s2.tau=0.8
+temper_090  team.s2.lineup="tempered" team.s2.tau=0.9
+newton_m10  question.fit="newton" question.s_m=1.0

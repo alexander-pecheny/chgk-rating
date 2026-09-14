@@ -42,6 +42,10 @@
 #let k_v_max      = [0.6]
 #let k_v_eta      = [0.15]
 #let k_n_est      = [8]
+#let k_s_phi      = [0.3]
+#let k_tau_phi    = [0.05]
+#let k_phi_p10    = [−0.059]
+#let k_phi_p90    = [0.100]
 #let k_m_mean     = [1.056]
 #let k_aff_mag    = [0.01]
 
@@ -50,6 +54,8 @@
 #let k_K           = [0.4]
 #let k_Kq          = [0.1]
 #let k_Kr          = [0.3]
+#let k_tau         = [0.7]
+#let k_sigma_c     = [1.5]
 #let k_scale       = [2454.8828]
 #let k_zero        = [6000]
 #let k_roster_bias = [−0.2427]
@@ -63,10 +69,10 @@
 #let k_band       = [251–500]
 
 // -- Section B.6: published quantities ---------------------------------------
-#let k_A_T        = [−7295.3562]
-#let k_B_T        = [1.1904]
-#let k_A_P        = [5543.6775]
-#let k_B_P        = [4723.7898]
+#let k_A_T        = [−4394.7095]
+#let k_B_T        = [1.0678]
+#let k_A_P        = [5461.6007]
+#let k_B_P        = [4832.6752]
 #let k_anchor_t   = [5 September 2019]
 #let k_anchor_p   = [3 October 2019]
 #let k_pos_hi     = [50]
@@ -78,22 +84,22 @@
 #let k_prov_sigma = [0.3]
 
 // -- Section B.7: test results -----------------------------------------------
-#let k_ll_cross   = [0.4900]
-#let k_ll_2526    = [0.5161]
+#let k_ll_cross   = [0.4899]
+#let k_ll_2526    = [0.5160]
 #let k_ll_quest   = [0.501]
-#let k_sp_new     = [0.8363]
+#let k_sp_new     = [0.8531]
 #let k_sp_old     = [0.8177]
-#let k_sp_new_s   = [0.8194]
+#let k_sp_new_s   = [0.8186]
 #let k_sp_old_s   = [0.7897]
 #let k_ov_n       = [200]
-#let k_ov_quest   = [117]
-#let k_ov_fun     = [122]
+#let k_ov_quest   = [112]
+#let k_ov_fun     = [115]
 #let k_ov_mutual  = [136]
 #let k_ov_need    = [140]
-#let k_corr_quest = [0.90]
-#let k_corr_fun   = [0.79]
+#let k_corr_quest = [0.89]
+#let k_corr_fun   = [0.78]
 #let k_corr_games = [50]
-#let k_infl       = [6.3%]
+#let k_infl       = [1.7%]
 #let k_infl_band  = [±10%]
 #let k_infl_from  = [2015]
 #let k_infl_to    = [2026]
@@ -229,7 +235,7 @@
 
 #sect[Individual rating]
 
-#p[The state of player $i$ is the set of quantities: strength $th_i$, uncertainty $sigma_i^2$ and volatility $v_i$.]
+#p[The state of player $i$ is the set of quantities: strength $th_i$, uncertainty $sigma_i^2$, volatility $v_i$, and the format effect $phi_i$ with its own uncertainty $sigma_(phi,i)^2$.]
 
 #p(tag: <qmodel>)[The question model is a probabilistic model of a lineup answering a question. Question $q$ has a difficulty $b_q$ and a log discrimination $ln a_q$. The probability that lineup $L$ answers question $q$ is]
 #eq[$ P_(L,q) = 1 - exp(-u_q), quad u_q = sum_(i in L) lambda_(i,q), quad lambda_(i,q) = exp(a_q (th_i - b_q)). $]
@@ -241,6 +247,10 @@
   $L$~– the lineup that played the tournament.
 ]
 #p[The model in #rf(<qmodel>) is the «noisy OR» model: a question counts as answered if at least one player of the lineup answers it, and the players' contributions are independent.]
+
+#p(tag: <format>)[The strength that enters #rf(<qmodel>) is not $th_i$ alone but $th_i + s_t phi_i$, where $s_t$~= 1 at an in-person tournament and $s_t$~= 0 at any other. The format effect $phi_i$ is a per-player quantity: how much stronger the player is at a table that meets face to face than at a package played elsewhere. Its prior is $N(0, s_phi^2)$ with $s_phi$~= #k_s_phi, and between a player's tournaments $sigma_(phi,i)^2$ grows by $tau_phi^2$ a year with $tau_phi$~= #k_tau_phi. It is updated by the same rule as the strength, from the same gradient and the same information, and only at tournaments where $s_t != 0$:]
+#eq[$ pi'_phi = 1 \/ sigma_(phi,i)^2 + max(I_"eff", I_"min"), quad Delta phi_i = (s_t w_t d_"info" g_i) / pi'_phi, quad sigma_(phi,i)^2 <- 1 \/ pi'_phi, $]
+#p[with the increment capped at #k_theta_step in absolute value and $phi_i$ itself held to $plus.minus 5 s_phi$. The published individual rating is $th_i$, the strength away from an in-person table; $phi_i$ is a deviation from it and is not published. For most listed players $phi_i$ is zero, because most have never played in person; among the rest the tenth and ninetieth percentiles are #k_phi_p10 and #k_phi_p90.]
 
 #p(tag: <intensity>)[The intensity $lambda_(i,q)$ is the rate at which player $i$ finds the answer to question $q$. It depends only on the player's strength and the question's parameters: it equals 1 when the strength equals the difficulty, and every unit of strength above the difficulty multiplies it by $e^(a_q)$, every unit below divides it by the same. A player alone answers with probability $1 - exp(-lambda_(i,q))$, so intensity 1 means a 63% chance and intensity 0.1 about 10%. Intensities of a lineup add because the players search independently, and this sum is what makes the lineup's chance $1 - exp(-u_q)$. Uncertainty and volatility take no part in the answer probability; they govern only how far a player's estimate moves after a tournament (#rf(<update>), #rf(<diffusion>)).]
 
@@ -298,22 +308,26 @@
 
 #p[The individual rating is a direct estimate of the question model. It is published together with its uncertainty; no grade transition rules, thresholds or limits on change apply to it.]
 
-#p(tag: <reserved>)[Reserved. The Rules provide for three extensions of the question model that are implemented and tested but switched off in this edition; none of them lowered the cross-validated log loss of test #rf(<t_ll>). The first is a free number of steps: a question gets a parameter $m_q$ and the answer probability becomes $P_(L,q)^(m_q)$, which penalises lineups of sharply unequal strength relative to even ones; the mean fitted $m_q$ was #k_m_mean and the gain was in-sample only. The second is editor affinity: a player gets a vector $u_i$, an editor a vector $v_e$, and the player's strength in a tournament grows by the mean dot product $u_i dot v_e$ over the tournament's editors; the learned values did not exceed #k_aff_mag on the strength scale, since the Fisher information for $u_i$ is smaller than for $th_i$ and one forward pass is not enough to extract it. The third is the Newton question fit: instead of the closed form of #rf(<qfit>), $(b_q, ln a_q)$ are fitted by damped Newton iterations with step halving on the penalised log likelihood, at most #k_newton iterations, clamped to $a_q in [#k_a_min, #k_a_max]$ and $b_q in [#k_b_min, #k_b_max]$; the priors of #rf(<priors>) serve this fit. It lowers the cross-validated log loss by 0.0009 and the in-sample log loss by 0.018, within the test tolerance, and was replaced by the closed form for simplicity of exposition. All three extensions remain in the implementation behind their switches and are reserved for a future edition of these Rules.]
+#p(tag: <reserved>)[Reserved. The Rules provide for three extensions of the question model that are implemented and tested but switched off in this edition; none of them lowered the cross-validated log loss of test #rf(<t_ll>). The first is a free number of steps: a question gets a parameter $m_q$ and the answer probability becomes $P_(L,q)^(m_q)$, which penalises lineups of sharply unequal strength relative to even ones; the mean fitted $m_q$ was #k_m_mean and the gain was in-sample only. The second is editor affinity: a player gets a vector $u_i$, an editor a vector $v_e$, and the player's strength in a tournament grows by the mean dot product $u_i dot v_e$ over the tournament's editors; the learned values did not exceed #k_aff_mag on the strength scale, since the Fisher information for $u_i$ is smaller than for $th_i$ and one forward pass is not enough to extract it. Affinity and the format effect of #rf(<format>) are the same mechanism and share the same slot, so this edition, which carries the format effect, cannot carry affinity as well. The third is the Newton question fit: instead of the closed form of #rf(<qfit>), $(b_q, ln a_q)$ are fitted by damped Newton iterations with step halving on the penalised log likelihood, at most #k_newton iterations, clamped to $a_q in [#k_a_min, #k_a_max]$ and $b_q in [#k_b_min, #k_b_max]$; the priors of #rf(<priors>) serve this fit. It lowers the cross-validated log loss by 0.0009 and the in-sample log loss by 0.018, within the test tolerance, and was replaced by the closed form for simplicity of exposition. All three extensions remain in the implementation behind their switches and are reserved for a future edition of these Rules.]
 
 #sect[Team rating]
 
 #p(tag: <pscale>)[The strength of player $i$ on the team scale is]
-#eq[$ r_i = r_0 + s dot (th_i + ln 6 + delta_0), $]
+#eq[$ r_i = r_0 + s dot (th_i + s_t phi_i - c sigma_i + ln 6 + delta_0), $]
 #whr(lead: [where:])[
   $r_0$~– the zero of the team scale, #k_zero#[;] \
   $s$~– the slope of the team scale, #k_scale#[;] \
-  $delta_0$~– the lineup estimate correction, #k_roster_bias.
+  $delta_0$~– the lineup estimate correction, #k_roster_bias#[;] \
+  $s_t phi_i$~– the format effect of #rf(<format>), added only at an in-person tournament; \
+  $c$~– the pessimism of the lineup estimate, #k_sigma_c#[;] \
+  $sigma_i$~– the uncertainty of player $i$ on the day of the tournament, diffusion included.
 ]
+#p[The term $-c sigma_i$ reads every player at a pessimistic quantile of their own estimate rather than at the estimate itself. For an established player it is a nearly constant shift; for a newcomer, entering at $sigma$~= #k_sigma_new, it is #k_sigma_c units of strength, so a lineup with an unknown at the table is not credited with an average player's strength.]
 #p[The map #rf(<pscale>) is chosen so that six equal players of strength $r$ form a lineup of strength $r$ (#rf(<lineup>)). The zero $r_0$ is free: the Rules never read the absolute level of a rating, and a common shift of every quantity changes no forecast and no place. The slope $s$ is not free: it enters the update step relative to the constant $D$.]
 
 #p(tag: <lineup>)[The lineup estimate $Q(L)$ of lineup $L$ is]
-#eq[$ Q(L) = s dot (ln sum_(i in L) exp(r_i \/ s) - ln 6). $]
-#p[$Q(L)$ is the strength of a single player who would answer as many questions as the whole lineup together, expressed on the team scale. A short lineup is weaker than a full one, and a strong player in an uneven lineup enters the estimate with more weight than in the arithmetic mean; both follow from the construction, with no separate penalties. The correction $delta_0$ and the zero $r_0$ of #rf(<pscale>) cancel, so only the slope enters the lineup estimate.]
+#eq[$ Q(L) = tau s dot (ln sum_(i in L) exp(r_i \/ (tau s)) - ln 6), quad tau = #k_tau. $]
+#p[$Q(L)$ is the strength of a single player who would answer as many questions as the whole lineup together, expressed on the team scale and sharpened towards the strongest player at the table by the temperature $tau$. A short lineup is weaker than a full one, and a strong player in an uneven lineup enters the estimate with more weight than in the arithmetic mean; both follow from the construction, with no separate penalties. The correction $delta_0$ and the zero $r_0$ of #rf(<pscale>) cancel, so only the slope enters the lineup estimate. At $tau$~= 1 the estimate is the plain sum of intensities of #rf(<qmodel>); every value of $tau$ gives six equal players of strength $r$ a lineup of strength $r$.]
 
 #p[The state of team $T$ is the set of quantities:]
 #whr[

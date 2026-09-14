@@ -4,11 +4,10 @@ rating.db
 *.db
 rsync.log
 out/
-data/external/
+data/external
 /fonts/
 fonts
 
 # build artifacts
 target/
 __pycache__/
-data/external

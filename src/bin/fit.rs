@@ -422,6 +422,24 @@ fn emit_release(
             med(&band[..200.min(band.len())]),
             med(&band[2000.min(band.len())..5000.min(band.len())])
         );
+        if cfg.question.format_effect != chgk_rating::config::FormatEffect::None {
+            let mut phi: Vec<f64> = (0..arena.n_players())
+                .filter(|&i| activity.count[i] > 0)
+                .map(|i| players.state[i].aff[0])
+                .collect();
+            phi.sort_by(f64::total_cmp);
+            let q = |f: f64| phi[((phi.len() - 1) as f64 * f) as usize];
+            println!(
+                "phi over {} listed players: mean {:.3}, deciles {:.3} {:.3}, median {:.3}, {:.3} {:.3}",
+                phi.len(),
+                phi.iter().sum::<f64>() / phi.len() as f64,
+                q(0.0),
+                q(0.1),
+                q(0.5),
+                q(0.9),
+                q(1.0)
+            );
+        }
         let (n, s1, s2) = players.zstat;
         if n > 0.0 {
             println!(

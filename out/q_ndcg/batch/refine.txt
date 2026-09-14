@@ -1,0 +1,13 @@
+# Around the leader: phi + the pessimistic quantile + the tempered lineup.
+r_sig_100   question.format_effect="in_person" team.s2.sigma_c=1.0 team.s2.lineup="tempered" team.s2.tau=0.7
+r_sig_125   question.format_effect="in_person" team.s2.sigma_c=1.25 team.s2.lineup="tempered" team.s2.tau=0.7
+r_sig_200   question.format_effect="in_person" team.s2.sigma_c=2.0 team.s2.lineup="tempered" team.s2.tau=0.7
+r_tau_060   question.format_effect="in_person" team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.6
+r_tau_075   question.format_effect="in_person" team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.75
+r_tau_080   question.format_effect="in_person" team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.8
+r_shrink0   question.format_effect="in_person" team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.7 player.teammate_shrink=0.0
+r_vmin010   question.format_effect="in_person" team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.7 player.v_min=0.10
+r_sphi025   question.format_effect="in_person" question.s_phi=0.25 team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.7
+r_sphi020   question.format_effect="in_person" question.s_phi=0.2 team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.7
+r_newton    question.format_effect="in_person" team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.7 question.fit="newton" question.s_m=0.5
+r_ss100     question.format_effect="in_person" team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.7 data.w_strict_sync=1.0

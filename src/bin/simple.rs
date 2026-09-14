@@ -707,7 +707,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         p.lineup = match v.as_str() {
             "mean" => S2Lineup::Mean,
             "roster" => S2Lineup::Roster,
-            _ => return Err("--lineup: mean or roster".into()),
+            "tempered" => S2Lineup::Tempered,
+            "best6" => S2Lineup::Best6,
+            _ => return Err("--lineup: mean, roster, tempered or best6".into()),
         };
     }
     if let Some(v) = arg("--k-r") {

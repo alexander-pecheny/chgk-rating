@@ -1,0 +1,11 @@
+# The last coordinate pass: the Newton fit with a free step count on top of the leader.
+f_n_ss      question.format_effect="in_person" team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.7 question.fit="newton" question.s_m=0.5 data.w_strict_sync=1.0
+f_n_t075    question.format_effect="in_person" team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.75 question.fit="newton" question.s_m=0.5
+f_n_ss_t075 question.format_effect="in_person" team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.75 question.fit="newton" question.s_m=0.5 data.w_strict_sync=1.0
+f_n_m03     question.format_effect="in_person" team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.7 question.fit="newton" question.s_m=0.3
+f_n_m07     question.format_effect="in_person" team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.7 question.fit="newton" question.s_m=0.7
+f_n_m00     question.format_effect="in_person" team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.7 question.fit="newton"
+f_n_sig125  question.format_effect="in_person" team.s2.sigma_c=1.25 team.s2.lineup="tempered" team.s2.tau=0.7 question.fit="newton" question.s_m=0.5
+f_n_sig200  question.format_effect="in_person" team.s2.sigma_c=2.0 team.s2.lineup="tempered" team.s2.tau=0.7 question.fit="newton" question.s_m=0.5
+f_n_sphi025 question.format_effect="in_person" question.s_phi=0.25 team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.7 question.fit="newton" question.s_m=0.5
+f_n_shr0    question.format_effect="in_person" team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.7 question.fit="newton" question.s_m=0.5 player.teammate_shrink=0.0

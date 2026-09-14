@@ -1,5 +1,5 @@
-use crate::config::{Config, PUpdate, QFit, QGradient};
-use crate::data::{Tournament, CORRECT, SKIP};
+use crate::config::{Config, FormatEffect, PUpdate, QFit, QGradient};
+use crate::data::{Format, Tournament, CORRECT, SKIP};
 use rayon::prelude::*;
 
 #[derive(Debug, Clone, Copy)]
@@ -50,24 +50,49 @@ pub struct Players {
     pub shift_cum: f64,
     pub editors: Vec<f64>,
     pub rank: usize,
+    /// Which per-player format effect is in force; `None` is the shipped model.
+    /// Under it the one affinity slot holds `phi` and the editor vectors are unused.
+    pub fmt: FormatEffect,
     /// Count, sum and sum of squares of the standardised surprise.
     pub zstat: (f64, f64, f64),
 }
 
+/// The format indicator `phi` is multiplied by: DESIGN 3.7.
+fn format_sign(f: Format, mode: FormatEffect) -> f64 {
+    match (mode, f) {
+        (FormatEffect::None, _) => 0.0,
+        (_, Format::InPerson) => 1.0,
+        (FormatEffect::InPerson, _) => 0.0,
+        (FormatEffect::Signed, _) => -1.0,
+    }
+}
+
 impl Players {
     pub fn new(n_players: usize, n_editors: usize, cfg: &Config) -> Players {
-        let rank = cfg.question.aff_rank;
+        let fmt = cfg.question.format_effect;
+        // The format effect is affinity of rank 1 against a fixed indicator, so
+        // it reuses the affinity slot and leaves the editor vectors empty.
+        let (rank, prior) = match fmt {
+            FormatEffect::None => (
+                cfg.question.aff_rank,
+                cfg.question.s_aff * cfg.question.s_aff,
+            ),
+            _ => (1, cfg.question.s_phi * cfg.question.s_phi),
+        };
         let mut rng = crate::util::Rng::new(cfg.numeric.crossfit_seed ^ 0x5eed);
-        let editors = (0..n_editors * rank)
-            .map(|_| rng.normal() * cfg.question.s_aff)
-            .collect();
+        let editors = match fmt {
+            FormatEffect::None => (0..n_editors * rank)
+                .map(|_| rng.normal() * cfg.question.s_aff)
+                .collect(),
+            _ => Vec::new(),
+        };
         let state = (0..n_players)
             .map(|_| PlayerState {
                 theta_raw: cfg.player.mu_new,
                 var: cfg.player.sigma_new * cfg.player.sigma_new,
                 vol: cfg.player.tau_p,
                 aff: vec![0.0; rank],
-                aff_var: vec![cfg.question.s_aff * cfg.question.s_aff; rank],
+                aff_var: vec![prior; rank],
                 games: 0,
                 last_day: 0,
                 seen: false,
@@ -78,6 +103,7 @@ impl Players {
             shift_cum: 0.0,
             editors,
             rank,
+            fmt,
             zstat: (0.0, 0.0, 0.0),
         }
     }
@@ -96,7 +122,13 @@ impl Players {
         (s.var + s.vol * s.vol * dt).sqrt()
     }
 
+    /// The vector a player's affinity is read against. Under a format effect it
+    /// is the format indicator, so `affinity` returns `phi_i` at an in-person
+    /// tournament and zero or `-phi_i` elsewhere.
     pub fn editor_mean(&self, t: &Tournament) -> Vec<f64> {
+        if self.fmt != FormatEffect::None {
+            return vec![format_sign(t.format, self.fmt)];
+        }
         let mut v = vec![0.0; self.rank];
         if self.rank == 0 || t.editors.is_empty() {
             return v;
@@ -124,9 +156,17 @@ impl Players {
     /// snapshot date has seen the future.
     pub fn warm_restart(&mut self, snap: &[Option<f64>], day: i32, cfg: &Config) {
         let var = cfg.player.warm_sigma * cfg.player.warm_sigma;
+        let aff_prior = match self.fmt {
+            FormatEffect::None => cfg.question.s_aff * cfg.question.s_aff,
+            _ => cfg.question.s_phi * cfg.question.s_phi,
+        };
         for (s, warm) in self.state.iter_mut().zip(snap) {
             s.games = 0;
             s.last_day = day;
+            // Nothing snapshots the affinity, so a later pass must not inherit
+            // the value the first pass ended on: that is the future.
+            s.aff.iter_mut().for_each(|a| *a = 0.0);
+            s.aff_var.iter_mut().for_each(|v| *v = aff_prior);
             match warm {
                 Some(theta) => {
                     s.theta_raw = *theta;
@@ -200,7 +240,10 @@ impl Players {
         collect: bool,
         cfg: &Config,
     ) {
-        let free_aff = self.rank > 0;
+        let free_aff = self.rank > 0 && self.fmt == FormatEffect::None;
+        let sign = format_sign(t.format, self.fmt);
+        let phi_clamp = 5.0 * cfg.question.s_phi;
+        let tau_phi2 = cfg.player.tau_phi * cfg.player.tau_phi;
         let clamp = 5.0 * cfg.question.s_aff;
         let tau_aff2 = cfg.player.tau_aff * cfg.player.tau_aff;
         let (lo, hi, eta) = (
@@ -235,6 +278,20 @@ impl Players {
                         self.zstat.2 += z * z;
                     }
                 }
+            }
+            // `phi` enters the likelihood exactly as `theta` does, times the
+            // format indicator, so it takes the same Kalman step against the
+            // same gradient — and only where the indicator is not zero.
+            if sign != 0.0 {
+                let av = &mut s.aff_var[0];
+                *av += tau_phi2 * dt;
+                let ieff = t.weight * info * cfg.player.info_scale;
+                let prec = 1.0 / *av + ieff.max(cfg.numeric.info_floor);
+                let step = sign * t.weight * cfg.player.info_scale * g / prec;
+                s.aff[0] = (s.aff[0]
+                    + step.clamp(-cfg.numeric.theta_max_step, cfg.numeric.theta_max_step))
+                .clamp(-phi_clamp, phi_clamp);
+                *av = 1.0 / prec;
             }
             s.games += 1;
             s.last_day = t.day;

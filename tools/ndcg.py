@@ -1,16 +1,53 @@
 """Top-weighted forecast quality: NDCG of the forecast order against actual places.
 
 Relevance of a team is 1/actual_place, so the first three places carry most of
-the weight and a swap at places 27 and 30 is nearly free.  Usage:
+the weight and a swap at places 27 and 30 is nearly free.
+
+Tournaments are averaged with the frozen weights of `data/tournament_weights.csv`
+-- how strong the ten best lineups of the field were under the shipped model,
+less the 10th percentile of that, clipped at zero -- so the high-profile events
+count and a school event where no forecast can work does not.  The weights never
+move with the model under test.  `--unweighted` is the plain mean.  Usage:
 
     uv run tools/ndcg.py out/ratings.db [more.db ...] [--from 2024-08-30 --to 2026-08-27] [--k 10]
+    uv run tools/ndcg.py --paired a.db b.db          # difference and bootstrap SE
 """
 
+import csv
 import json
 import math
 import random
 import sqlite3
 import sys
+
+WEIGHTS = "data/tournament_weights.csv"
+
+
+M64 = (1 << 64) - 1
+GOLDEN = 0x9E3779B97F4A7C15
+
+
+class Rng:
+    """`util::Rng` of the Rust side, so both implementations break ties alike.
+
+    Forecasts do tie -- two teams with the same lineup strength -- and the rows
+    are stored in finishing order, so the tie must not be broken by row order.
+    """
+
+    def __init__(self, seed):
+        self.s = (seed * GOLDEN | 1) & M64
+
+    def next_u64(self):
+        self.s = (self.s + GOLDEN) & M64
+        z = self.s
+        z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & M64
+        z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & M64
+        return z ^ (z >> 31)
+
+    def shuffle(self, v):
+        for i in range(len(v) - 1, 0, -1):
+            j = self.next_u64() % (i + 1)
+            v[i], v[j] = v[j], v[i]
 
 
 def ndcg(order, places, k=None, values=None):
@@ -79,8 +116,7 @@ def run(db, pred, frm, to, k, metric=ndcg):
         if len(ts) < 5:
             continue
         places = {t[0]: t[2] for t in ts}
-        # Rows are stored in finishing order, so ties must not be broken by row order.
-        rng = random.Random(tid)
+        rng = Rng(tid)
         for key, col in (("forecast", 1), ("x", 3), ("mu", 4), ("s_r", 5)):
             if any(t[col] is None for t in ts):
                 continue
@@ -99,19 +135,58 @@ def run(db, pred, frm, to, k, metric=ndcg):
     return acc
 
 
-def mean_over(d, tids):
-    v = [d[t] for t in tids if t in d and d[t] is not None]
-    return (sum(v) / len(v) if v else float("nan"), len(v))
+def load_weights(path):
+    """tournament_id -> weight. A tournament the table does not name weighs nothing."""
+    with open(path, newline="", encoding="utf-8") as f:
+        return {int(r["tournament_id"]): float(r["weight"]) for r in csv.DictReader(f)}
+
+
+def mean_over(d, tids, w=None):
+    v = [(t, d[t]) for t in tids if t in d and d[t] is not None]
+    if not v:
+        return (float("nan"), 0)
+    if w is None:
+        return (sum(x for _, x in v) / len(v), len(v))
+    den = sum(w.get(t, 0.0) for t, _ in v)
+    num = sum(w.get(t, 0.0) * x for t, x in v)
+    return (num / den if den > 0 else float("nan"), len(v))
+
+
+def paired(a, b, w, tids, key="forecast", n=2000):
+    """Difference of the weighted means and its bootstrap standard error over tournaments."""
+    pairs = [(t, a[key][t], b[key][t]) for t in sorted(tids)]
+    rng = random.Random(20260914)
+
+    def diff(sample):
+        den = sum(w.get(t, 0.0) if w else 1.0 for t, _, _ in sample)
+        num = sum((w.get(t, 0.0) if w else 1.0) * (x - y) for t, x, y in sample)
+        return num / den if den > 0 else float("nan")
+
+    point = diff(pairs)
+    draws = [diff([pairs[rng.randrange(len(pairs))] for _ in pairs]) for _ in range(n)]
+    m = sum(draws) / len(draws)
+    se = (sum((d - m) ** 2 for d in draws) / len(draws)) ** 0.5
+    return point, se
 
 
 def main():
     args = sys.argv[1:]
     frm, to, k, dbs, common, metric = "2024-08-30", "2026-08-27", None, [], False, ndcg
+    wpath, weighted, do_paired = WEIGHTS, True, False
     i = 0
     while i < len(args):
         if args[i] == "--common":
             common = True
             i += 1
+        elif args[i] == "--unweighted":
+            weighted = False
+            i += 1
+        elif args[i] == "--paired":
+            do_paired = True
+            i += 1
+        elif args[i] == "--weights":
+            wpath = args[i + 1]
+            i += 2
         elif args[i] == "--spearman":
             metric = spearman
             i += 1
@@ -123,18 +198,29 @@ def main():
             dbs.append(args[i])
             i += 1
     pred = old_forecasts()
+    w = load_weights(wpath) if weighted else None
     name = "Spearman" if metric is spearman else f"NDCG{'@' + str(k) if k else ''}, relevance 1/place"
-    print(f"{name}, in-person, {frm} to {to}{', common tournaments only' if common else ''}\n")
+    how = "weighted by " + wpath if weighted else "unweighted"
+    print(f"{name}, in-person, {frm} to {to}, {how}"
+          f"{', common tournaments only' if common else ''}\n")
     runs = {db: run(db, pred, frm, to, k, metric) for db in dbs}
     # --common: every column averaged over the tournaments all databases forecast.
     tids = None
     for r in runs.values():
         tids = set(r["forecast"]) if tids is None else tids & set(r["forecast"])
+    if do_paired:
+        print("| a | b | difference | bootstrap SE | tournaments |")
+        print("|---|---|---:|---:|---:|")
+        first = dbs[0]
+        for db in dbs[1:]:
+            d, se = paired(runs[first], runs[db], w, tids)
+            print(f"| {first} | {db} | {d:+.4f} | {se:.4f} | {len(tids)} |")
+        return
     print("| db | forecast | x (rating+lineup) | mu only | roster only | old system | tournaments |")
     print("|---|---:|---:|---:|---:|---:|---:|")
     for db, r in runs.items():
         sel = tids if common else set(r["forecast"]) | set(r["old"])
-        f, x, mu, sr, old = (mean_over(r[key], sel) for key in ("forecast", "x", "mu", "s_r", "old"))
+        f, x, mu, sr, old = (mean_over(r[key], sel, w) for key in ("forecast", "x", "mu", "s_r", "old"))
         print(f"| {db} | {f[0]:.4f} | {x[0]:.4f} | {mu[0]:.4f} | {sr[0]:.4f} | {old[0]:.4f} | {f[1]} / old {old[1]} |")
 
 

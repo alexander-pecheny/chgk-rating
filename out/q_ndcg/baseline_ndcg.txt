@@ -1,0 +1,41 @@
+NDCG, relevance 1/place, in-person, 2024-08-30 to 2026-08-27, weighted by data/tournament_weights.csv, common tournaments only
+
+| db | forecast | x (rating+lineup) | mu only | roster only | old system | tournaments |
+|---|---:|---:|---:|---:|---:|---:|
+| out/shipped.db | 0.8981 | 0.8933 | 0.8745 | 0.8978 | 0.8708 | 282 / old 280 |
+| out/ext/fun.db | 0.9040 | 0.9038 | 0.9040 | 0.9951 | 0.8704 | 282 / old 281 |
+| out/ext/quest.db | 0.9011 | 0.8944 | 0.8944 | 0.8944 | 0.8703 | 282 / old 277 |
+| out/ext/gg.db | 0.8710 | 0.8624 | 0.7919 | 1.0000 | 0.8704 | 282 / old 281 |
+
+NDCG@3, relevance 1/place, in-person, 2024-08-30 to 2026-08-27, weighted by data/tournament_weights.csv, common tournaments only
+
+| db | forecast | x (rating+lineup) | mu only | roster only | old system | tournaments |
+|---|---:|---:|---:|---:|---:|---:|
+| out/shipped.db | 0.7803 | 0.7754 | 0.7594 | 0.7796 | 0.7258 | 282 / old 280 |
+| out/ext/fun.db | 0.7997 | 0.7991 | 0.7997 | 0.9902 | 0.7250 | 282 / old 281 |
+| out/ext/quest.db | 0.7914 | 0.7748 | 0.7748 | 0.7748 | 0.7247 | 282 / old 277 |
+| out/ext/gg.db | 0.7261 | 0.7130 | 0.6124 | 1.0000 | 0.7250 | 282 / old 281 |
+
+NDCG, relevance 1/place, in-person, 2024-08-30 to 2026-08-27, unweighted, common tournaments only
+
+| db | forecast | x (rating+lineup) | mu only | roster only | old system | tournaments |
+|---|---:|---:|---:|---:|---:|---:|
+| out/shipped.db | 0.8945 | 0.8890 | 0.8666 | 0.8940 | 0.8748 | 282 / old 280 |
+| out/ext/fun.db | 0.8983 | 0.8981 | 0.8982 | 0.9962 | 0.8744 | 282 / old 281 |
+| out/ext/quest.db | 0.8974 | 0.8895 | 0.8894 | 0.8895 | 0.8740 | 282 / old 277 |
+| out/ext/gg.db | 0.8749 | 0.8683 | 0.7983 | 0.9990 | 0.8745 | 282 / old 281 |
+
+NDCG@3, relevance 1/place, in-person, 2024-08-30 to 2026-08-27, unweighted, common tournaments only
+
+| db | forecast | x (rating+lineup) | mu only | roster only | old system | tournaments |
+|---|---:|---:|---:|---:|---:|---:|
+| out/shipped.db | 0.7773 | 0.7703 | 0.7349 | 0.7763 | 0.7413 | 282 / old 280 |
+| out/ext/fun.db | 0.7932 | 0.7927 | 0.7932 | 0.9920 | 0.7408 | 282 / old 281 |
+| out/ext/quest.db | 0.7883 | 0.7697 | 0.7696 | 0.7696 | 0.7403 | 282 / old 277 |
+| out/ext/gg.db | 0.7421 | 0.7312 | 0.6227 | 0.9987 | 0.7408 | 282 / old 281 |
+| out/shipped.db | out/ext/fun.db | -0.0063 | 0.0041 | 284 |
+| out/shipped.db | out/ext/fun.db | -0.0199 | 0.0093 | 284 |
+| out/shipped.db | out/ext/quest.db | -0.0030 | 0.0040 | 282 |
+| out/shipped.db | out/ext/quest.db | -0.0111 | 0.0088 | 282 |
+| out/shipped.db | out/ext/gg.db | +0.0267 | 0.0061 | 284 |
+| out/shipped.db | out/ext/gg.db | +0.0529 | 0.0135 | 284 |
