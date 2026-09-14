@@ -9,9 +9,12 @@ averaged over the tournaments all of them cover.
 
     uv run tools/compare_ndcg.py "label=path[:mu]" ... [--paired LABEL]
     uv run tools/compare_ndcg.py --list          # the rows of out/final_report.md
+    uv run tools/compare_ndcg.py ... --window tune
 
 `--paired LABEL` adds the paired bootstrap standard error of that row's weighted
-difference against every other row, over the same tournaments.
+difference against every other row, over the same tournaments.  `--window tune`
+scores the tune window of plan 3 instead of the test window, which is the window
+a round's own decisions were made on; `--window a:b` takes any two dates.
 """
 
 import random
@@ -108,12 +111,20 @@ ROWS = [
 DEFAULT_PAIRED = "proposed model (player based, new players)"
 
 
+WINDOWS = {"tune": ("2018-09-01", "2024-08-29"), "test": (FROM, TO)}
+
+
 def main():
+    global FROM, TO
     args = sys.argv[1:]
     specs, against = [], None
     i = 0
     while i < len(args):
-        if args[i] == "--list":
+        if args[i] == "--window":
+            w = args[i + 1]
+            FROM, TO = WINDOWS.get(w) or tuple(w.split(":"))
+            i += 2
+        elif args[i] == "--list":
             specs, against = list(ROWS), DEFAULT_PAIRED
             i += 1
         elif args[i] == "--paired":
@@ -128,7 +139,7 @@ def main():
         specs, against = list(ROWS), DEFAULT_PAIRED
 
     w = N.load_weights(N.WEIGHTS)
-    runs = {label: score(path, col) for label, path, col in specs}
+    runs = {label: score(path, col, FROM, TO) for label, path, col in specs}
     tids = set.intersection(*(set(r) for r in runs.values()))
 
     table = [

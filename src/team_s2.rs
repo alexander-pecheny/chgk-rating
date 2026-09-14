@@ -431,7 +431,7 @@ fn expected_relevance(id: i64, es: &[Entry], rows: &[Row], p: &S2) -> Vec<f64> {
     for _ in 0..p.rank_draws {
         x.clear();
         for (k, e) in es.iter().enumerate() {
-            let sd = rows[e.ri].sd;
+            let sd = p.rank_sd * rows[e.ri].sd;
             let mut v = e.fc + sd * rng.normal();
             if beta > 0.0 {
                 // -ln(-ln u) is a standard Gumbel.
@@ -542,13 +542,18 @@ impl TeamsS2 {
         // A quantile that depends on the field: the lineups are ordered once at
         // the shipped `sigma_c` to measure how bunched the top is, and the
         // forecast is then re-read at the quantile that tightness asks for.
-        let tight = if p.tight_gap > 0.0 {
+        let gap = if p.tight_gap > 0.0 || p.rank_gap > 0.0 {
             let mut v: Vec<f64> = rows.iter().map(|r| r.q).filter(|x| x.is_finite()).collect();
             v.sort_by(|a, b| b.total_cmp(a));
-            v.len() >= 4 && v[0] - v[3] < p.tight_gap
+            if v.len() >= 4 {
+                v[0] - v[3]
+            } else {
+                f64::INFINITY
+            }
         } else {
-            false
+            f64::INFINITY
         };
+        let tight = p.tight_gap > 0.0 && gap < p.tight_gap;
         let mut es: Vec<Entry> = Vec::with_capacity(rows.len());
         for (ri, res) in rows.iter().enumerate() {
             let idx = res.team as usize;
@@ -630,10 +635,13 @@ impl TeamsS2 {
         // metric actually pays, estimated from draws of every lineup's own
         // posterior. `fc` then carries that score rather than display points,
         // which is all the NDCG of `src/ndcg.rs` reads.
-        let score: Vec<f64> = if p.rank_rule == RankRule::Mean || p.rank_draws == 0 {
-            es.iter().map(|e| e.fc).collect()
-        } else {
+        let sample = p.rank_rule != RankRule::Mean
+            && p.rank_draws > 0
+            && (p.rank_gap <= 0.0 || gap < p.rank_gap);
+        let score: Vec<f64> = if sample {
             expected_relevance(id, &es, rows, p)
+        } else {
+            es.iter().map(|e| e.fc).collect()
         };
         let fplace = avg_ranks(&score.iter().map(|x| -x).collect::<Vec<_>>());
         let c = std::f64::consts::LN_10 / p.d;

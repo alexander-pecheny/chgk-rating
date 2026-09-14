@@ -199,6 +199,15 @@ pub struct S2 {
     pub rank_rule: RankRule,
     /// Draws per field when `rank_rule` samples. 0 falls back to the mean.
     pub rank_draws: usize,
+    /// Sample only where the residual says the spread of a lineup buys
+    /// anything: fields whose 1st-to-4th forecast gap is under this many
+    /// display points. 0 samples every field.
+    pub rank_gap: f64,
+    /// Multiplies every lineup's sd before the draws. The offline re-ranking of
+    /// `tools/q_diag4.py` puts the tune window's optimum near 0.5, which says
+    /// the propagated sd is about twice what the ordering can use; 1 is the sd
+    /// at face value.
+    pub rank_sd: f64,
     /// Display points a lineup's forecast gains when at least `home_min` of its
     /// players have played out of the tournament's own town before. The residual
     /// says the sign is negative: the visitors are the ones who beat the
@@ -264,6 +273,8 @@ impl Default for S2 {
             ed_phi: 0.0,
             rank_rule: RankRule::Mean,
             rank_draws: 200,
+            rank_gap: 0.0,
+            rank_sd: 1.0,
             home_bonus: 0.0,
             home_min: 0.5,
             home_team_bonus: 0.0,
