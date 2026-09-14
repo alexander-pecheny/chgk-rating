@@ -60,33 +60,44 @@ fn apply_swap(arena: &mut Arena, spec: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// `--scramble DATE`: from DATE on, every tournament's finishing places and
-/// answer masks are permuted among its teams. Nothing a lineup can be judged by
-/// on the morning of its tournament changes, so every feature row of the first
-/// such day must come out bit-identical; `tools/features_check.py` asserts that,
-/// and it is the leakage test plan 8 turns on.
+/// `--scramble DATE`: the **first in-person tournament** on or after DATE has
+/// its finishing places and its answer masks permuted among its teams. Nothing
+/// a lineup can be judged by on the morning of that tournament changes, so every
+/// one of its feature rows must come out bit-identical, while the fields after
+/// it must move. `tools/features_check.py` asserts both, and that is the leakage
+/// test plan 8 turns on.
+///
+/// One tournament and not a suffix: the engine reads the tournaments in date
+/// order, so scrambling a whole tail would move the player states that the
+/// second scrambled field reads, and the test would fail for a reason that is
+/// not leakage.
 fn apply_scramble(arena: &mut Arena, date: &str) -> Result<(), String> {
     let day = parse_date(date).ok_or("--scramble: bad date")?;
     let mut rng = chgk_rating::util::Rng::new(0x5C2A_3B1E);
-    let mut n = 0;
-    for t in arena.tournaments.iter_mut().filter(|t| t.day >= day) {
-        let k = t.teams.len();
-        if k < 2 {
-            continue;
-        }
-        let mut ord: Vec<usize> = (0..k).collect();
-        for i in (1..k).rev() {
-            ord.swap(i, (rng.next_u64() % (i as u64 + 1)) as usize);
-        }
-        let pos: Vec<f64> = t.teams.iter().map(|r| r.position).collect();
-        let masks: Vec<Vec<u8>> = t.teams.iter().map(|r| r.mask.clone()).collect();
-        for (i, &j) in ord.iter().enumerate() {
-            t.teams[i].position = pos[j];
-            t.teams[i].mask = masks[j].clone();
-        }
-        n += 1;
+    let t = arena
+        .tournaments
+        .iter_mut()
+        .find(|t| t.day >= day && t.format == chgk_rating::data::Format::InPerson && !t.train_only)
+        .ok_or("--scramble: no in-person tournament on or after that date")?;
+    let k = t.teams.len();
+    if k < 2 {
+        return Err("--scramble: that tournament has one team".into());
     }
-    println!("scramble: {n} tournaments permuted from {date}");
+    let mut ord: Vec<usize> = (0..k).collect();
+    for i in (1..k).rev() {
+        ord.swap(i, (rng.next_u64() % (i as u64 + 1)) as usize);
+    }
+    let pos: Vec<f64> = t.teams.iter().map(|r| r.position).collect();
+    let masks: Vec<Vec<u8>> = t.teams.iter().map(|r| r.mask.clone()).collect();
+    for (i, &j) in ord.iter().enumerate() {
+        t.teams[i].position = pos[j];
+        t.teams[i].mask = masks[j].clone();
+    }
+    println!(
+        "scramble: tournament {} of {} permuted, {k} teams",
+        t.id,
+        format_date(t.day)
+    );
     Ok(())
 }
 
