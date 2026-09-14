@@ -113,8 +113,12 @@ D = 1200.0
 K = 0.4
 k_p = 0.8
 delta = 150.0
-k_q = 0.01
+# Re-tuned with the pull of rule 8, as config.toml is.
+k_q = 0.1
 r_new = 3000.0
+# Rule 8: the team takes this much of the gap to the strength of the lineup that
+# turned up, per rated game. 0 is the rule Model S2 shipped with.
+k_r = 0.3
 # "pairwise" is Model S2, the field Elo sum; "played_like" is Model S, the order
 # statistic at the finishing place.
 perf = "pairwise"

@@ -364,6 +364,8 @@ fn run(
             spair.clone()
         };
 
+        // The field's first place, for the floor of rule 9.
+        let best = place.iter().cloned().fold(f64::INFINITY, f64::min);
         let mut evs = Vec::with_capacity(if w.is_some() { n } else { 0 });
         let mut prows: Vec<(i64, f64, f64, f64)> = Vec::new();
         for (k, &ri) in idx.iter().enumerate() {
@@ -433,7 +435,16 @@ fn run(
                 }
             }
             if rated {
+                let r_before = st.r[ti];
                 st.r[ti] += p.k * t.weight * step;
+                // Rule 8: the rating drifts towards what the players are worth.
+                if p.k_r > 0.0 && q[k].is_finite() {
+                    st.r[ti] += p.k_r * t.weight * (q[k] - st.r[ti]);
+                }
+                // Rule 9: a team that finished first keeps at least what it came with.
+                if place[k] == best && st.r[ti] < r_before {
+                    st.r[ti] = r_before;
+                }
                 if q[k].is_finite() {
                     st.qbar[ti] += p.k_q * (q[k] - st.qbar[ti]);
                 }
@@ -537,13 +548,14 @@ fn load_ext(path: &str, arena: &Arena, cfg: &Config) -> rusqlite::Result<Ext> {
     Ok(out)
 }
 
-const AXES: [(&str, &[f64]); 6] = [
+const AXES: [(&str, &[f64]); 7] = [
     ("K", &[0.05, 0.10, 0.20, 0.40, 0.80]),
     ("k_p", &[0.05, 0.10, 0.20, 0.40, 0.80]),
     ("k_q", &[0.01, 0.05, 0.10, 0.30]),
     ("delta", &[150.0, 300.0, 600.0, 1200.0]),
     ("r_new", &[3000.0, 4000.0, 5000.0]),
     ("D", &[300.0, 600.0, 1200.0, 2400.0, 4800.0]),
+    ("k_r", &[0.0, 0.1, 0.2, 0.3, 0.5]),
 ];
 
 fn axis(p: &mut Simple, i: usize) -> &mut f64 {
@@ -553,7 +565,8 @@ fn axis(p: &mut Simple, i: usize) -> &mut f64 {
         2 => &mut p.k_q,
         3 => &mut p.delta,
         4 => &mut p.r_new,
-        _ => &mut p.d,
+        5 => &mut p.d,
+        _ => &mut p.k_r,
     }
 }
 
@@ -659,8 +672,8 @@ fn grid(arena: &Arena, cfg: &Config, base: &Simple) -> Result<(), Box<dyn std::e
         b3.0, b3.3, b3.1
     );
     println!(
-        "chosen: D {} K {} k_p {} delta {} k_q {} r_new {}",
-        p.d, p.k, p.k_p, p.delta, p.k_q, p.r_new
+        "chosen: D {} K {} k_p {} delta {} k_q {} r_new {} k_r {}",
+        p.d, p.k, p.k_p, p.delta, p.k_q, p.r_new, p.k_r
     );
     Ok(())
 }
@@ -696,6 +709,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "roster" => S2Lineup::Roster,
             _ => return Err("--lineup: mean or roster".into()),
         };
+    }
+    if let Some(v) = arg("--k-r") {
+        p.k_r = v.parse().map_err(|_| "--k-r: a number")?;
     }
     if let Some(v) = arg("--player-rule") {
         p.player_rule = match v.as_str() {

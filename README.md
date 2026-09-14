@@ -7,7 +7,7 @@ A team-first rating for sports ChGK. `DESIGN.md` is the specification; this file
 One chronological pass over the tournaments, in `fit`. Per tournament, in order:
 
 1. **Questions.** Each question's difficulty is set from the take rate of the lineups that played it, given their strengths as they stood this morning.
-2. **Teams.** Model S2 — Elo in a field, on the published scale. A team stands at its rating shifted by how much stronger today's lineup is than its usual one, gains or loses `K · w · D ·` (actual minus expected wins over the field), and the forecast published beside the result is the strength of the lineup alone.
+2. **Teams.** Model S2 — Elo in a field, on the published scale. A team stands at its rating shifted by how much stronger today's lineup is than its usual one, gains or loses `K · w · D ·` (actual minus expected wins over the field), then takes `K_r` of the way towards what the lineup that turned up is worth, and never ends a tournament it won below where it started. The forecast published beside the result is the strength of the lineup alone.
 3. **Players.** A Kalman step on `θ` from the question model's gradient and Fisher information, then a small pull towards the lineup mean.
 
 Every Thursday is a release: the player gauge is re-centred on the established players and the two tables are written out. The team engine is `[team] engine` — `s2` ships, `kalman` is the filter it replaced and still runs from the same config. `DESIGN.md` sections 3, 4 and 8.3.
@@ -93,6 +93,28 @@ field Elo sum, or `played_like`, the order statistic at the finishing place —
 `[simple].player_rule` picks `surprise` or `level`, and `[simple].anchor` picks
 `none`, `mean` or `mean_sd`, the per-release rescaling that keeps the scale
 still. `--perf`, `--player-rule` and `--anchor` override them.
+
+## team_ndcg and team_sweep
+
+Whether the published team number, on its own, orders an in-person field of
+base-roster teams — DESIGN 7.3. `tools/team_ndcg.py` scores a finished database
+and writes `out/team_ndcg/qualify.csv`, the base-roster rule of МАИИ
+Prilozhenie A; `eval --brief` prints the same number; `team_sweep` runs the
+question model once and replays the team engine over its output, so a grid point
+costs a second instead of a fit.
+
+```
+uv run tools/team_ndcg.py out/ratings.db --window tune
+uv run tools/team_ndcg.py out/ratings.db out/ext/gg.db out/ext/fun.db --old --common
+uv run tools/team_top20.py out/a.db out/b.db          # the top teams side by side
+./target/release/team_sweep --boot 2000               # the whole lever scan, 63 s
+./target/release/team_sweep --axis "k_r=0.1,0.2,0.3,0.5" --axis "k_q=0.03,0.1,0.3"
+./target/release/team_sweep --base "k_r=0.3,k_q=0.1" --point "K=0.8"
+```
+
+`out/team_ndcg/report.md` is the study: the baseline against chgk.gg,
+rating.chgk.fun and the old system, a row per lever, and the regulation as
+numbered sentences.
 
 ## calibrate
 

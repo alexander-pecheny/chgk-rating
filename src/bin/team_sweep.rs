@@ -14,14 +14,10 @@ use chgk_rating::config::{Config, MarginShape, PullTarget, S2};
 use chgk_rating::data::{Arena, Format};
 use chgk_rating::gauge::{self, Activity};
 use chgk_rating::question_model as qm;
+use chgk_rating::team_ndcg::{self as metric, QUALIFY, TEST, TUNE, WEIGHTS};
 use chgk_rating::team_s2::{rows_of, Row, TeamsS2};
-use chgk_rating::util::{csv_rows, next_thursday, parse_date};
+use chgk_rating::util::{next_thursday, parse_date};
 use std::collections::{HashMap, HashSet};
-
-const TUNE: (&str, &str) = ("2018-09-01", "2024-08-29");
-const TEST: (&str, &str) = ("2024-08-30", "2026-08-27");
-const QUALIFY: &str = "out/team_ndcg/qualify.csv";
-const WEIGHTS: &str = "data/tournament_weights.csv";
 
 fn args() -> Vec<String> {
     std::env::args().skip(1).collect()
@@ -108,52 +104,6 @@ const LEVERS: &[&str] = &[
 
 // -------------------------------------------------------------- the metric
 
-/// A deterministic tie-break, the same number in `tools/team_ndcg.py`.
-fn tiekey(tid: i64, team: i64) -> u64 {
-    let mut x = (tid as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(team as u64);
-    x ^= x >> 30;
-    x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    x ^= x >> 27;
-    x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
-    x ^ (x >> 31)
-}
-
-/// 1-based ranks ascending, ties sharing the mean rank.
-fn avg_ranks(v: &[f64]) -> Vec<f64> {
-    let mut ord: Vec<usize> = (0..v.len()).collect();
-    ord.sort_by(|&a, &b| v[a].total_cmp(&v[b]));
-    let mut r = vec![0.0; v.len()];
-    let mut i = 0;
-    while i < ord.len() {
-        let mut j = i;
-        while j + 1 < ord.len() && v[ord[j + 1]] == v[ord[i]] {
-            j += 1;
-        }
-        for &t in &ord[i..=j] {
-            r[t] = (i + j) as f64 / 2.0 + 1.0;
-        }
-        i = j + 1;
-    }
-    r
-}
-
-fn ndcg(rel_in_order: &[f64], k: usize) -> Option<f64> {
-    let k = k.min(rel_in_order.len());
-    let dcg: f64 = rel_in_order[..k]
-        .iter()
-        .enumerate()
-        .map(|(i, r)| r / ((i + 2) as f64).log2())
-        .sum();
-    let mut s = rel_in_order.to_vec();
-    s.sort_by(|a, b| b.total_cmp(a));
-    let idcg: f64 = s[..k]
-        .iter()
-        .enumerate()
-        .map(|(i, r)| r / ((i + 2) as f64).log2())
-        .sum();
-    (idcg > 0.0).then(|| dcg / idcg)
-}
-
 /// One tournament's field, as the metric sees it after the replay.
 #[derive(Default)]
 struct Field {
@@ -236,18 +186,10 @@ fn replay(cache: &[Cached], arena: &Arena, qual: &HashSet<(i64, i64)>, p: &Point
         if f.team.len() < 5 {
             continue;
         }
-        let places = avg_ranks(&f.place);
-        let mut ord: Vec<usize> = (0..f.team.len()).collect();
-        ord.sort_by(|&a, &b| {
-            f.mu[b]
-                .total_cmp(&f.mu[a])
-                .then(tiekey(t.id, f.team[a]).cmp(&tiekey(t.id, f.team[b])))
-        });
-        let rel: Vec<f64> = ord.iter().map(|&i| 1.0 / places[i]).collect();
-        if let Some(v) = ndcg(&rel, usize::MAX) {
+        if let Some(v) = metric::score(t.id, &f.team, &f.mu, &f.place, usize::MAX) {
             run.full[w].insert(t.id, v);
         }
-        if let Some(v) = ndcg(&rel, 3) {
+        if let Some(v) = metric::score(t.id, &f.team, &f.mu, &f.place, 3) {
             run.at3[w].insert(t.id, v);
         }
     }
@@ -255,27 +197,6 @@ fn replay(cache: &[Cached], arena: &Arena, qual: &HashSet<(i64, i64)>, p: &Point
 }
 
 // ------------------------------------------------------------------ reports
-
-fn wmean(d: &HashMap<i64, f64>, w: &HashMap<i64, f64>) -> f64 {
-    let (mut num, mut den) = (0.0, 0.0);
-    for (t, v) in d {
-        let x = *w.get(t).unwrap_or(&0.0);
-        num += x * v;
-        den += x;
-    }
-    if den > 0.0 {
-        num / den
-    } else {
-        f64::NAN
-    }
-}
-
-fn umean(d: &HashMap<i64, f64>) -> f64 {
-    if d.is_empty() {
-        return f64::NAN;
-    }
-    d.values().sum::<f64>() / d.len() as f64
-}
 
 struct Rng(u64);
 
@@ -322,13 +243,13 @@ fn line(name: &str, r: &Run, base: Option<&Run>, w: &HashMap<i64, f64>, nboot: u
     let se = base.map_or(f64::NAN, |b| boot(&r.at3[0], &b.at3[0], w, nboot));
     format!(
         "| {name} | {:.4} | {:.4} | {:.4} | {} | {:.4} | {:.4} | {:.4} | {} / {} |\n",
-        wmean(&r.full[0], w),
-        umean(&r.full[0]),
-        wmean(&r.at3[0], w),
+        metric::wmean(&r.full[0], w),
+        metric::umean(&r.full[0]),
+        metric::wmean(&r.at3[0], w),
         if se.is_finite() { format!("{se:.4}") } else { "-".into() },
-        wmean(&r.full[1], w),
-        umean(&r.full[1]),
-        wmean(&r.at3[1], w),
+        metric::wmean(&r.full[1], w),
+        metric::umean(&r.full[1]),
+        metric::wmean(&r.at3[1], w),
         r.sole,
         r.shared,
     )
@@ -399,29 +320,13 @@ fn build_cache(arena: &Arena, cfg: &Config) -> Vec<Cached> {
     cache
 }
 
-fn load_pairs(path: &str) -> HashSet<(i64, i64)> {
-    csv_rows(path)
-        .unwrap_or_else(|e| panic!("{path}: {e} -- run `uv run tools/team_ndcg.py out/shipped.db` first"))
-        .iter()
-        .filter_map(|r| Some((r.first()?.parse().ok()?, r.get(1)?.parse().ok()?)))
-        .collect()
-}
-
-fn load_weights(path: &str) -> HashMap<i64, f64> {
-    csv_rows(path)
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|r| Some((r.first()?.parse().ok()?, r.get(3)?.parse().ok()?)))
-        .collect()
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cfg_path = arg("--config").unwrap_or_else(|| "config.toml".into());
     let mut cfg = Config::load(&cfg_path)?;
     cfg.data.to = arg("--to").unwrap_or_else(|| "2026-09-05".into());
     let nboot: usize = arg("--boot").map_or(2000, |v| v.parse().unwrap_or(2000));
-    let qual = load_pairs(QUALIFY);
-    let w = load_weights(WEIGHTS);
+    let qual = metric::qualify(QUALIFY);
+    let w = metric::weights(WEIGHTS);
 
     let arena = chgk_rating::data::load(&cfg, &cfg.data.from, &cfg.data.to)?;
     eprintln!(

@@ -48,7 +48,8 @@
 // -- Section B.3: team model (Model S2) --------------------------------------
 #let k_D           = [1200]
 #let k_K           = [0.4]
-#let k_Kq          = [0.01]
+#let k_Kq          = [0.1]
+#let k_Kr          = [0.3]
 #let k_scale       = [2454.8828]
 #let k_zero        = [6000]
 #let k_roster_bias = [−0.2427]
@@ -341,20 +342,27 @@
 ]
 #p[A pair of teams that shared a place is skipped in both sums: such a pair says nothing about which of the two is stronger. The score margin does not enter the pairwise comparison.]
 
-#p(tag: <winner>)[Since $y_(A B) - P_(A B) >= 0$ for every pair in which team $A$ placed higher, a team that took first place has $S_A >= 0$. Such a team therefore never loses rating points, whether its first place is sole or shared. This property is the winner rule; it follows from the construction of the update, not from a separate rule.]
+#p(tag: <winner>)[Since $y_(A B) - P_(A B) >= 0$ for every pair in which team $A$ placed higher, a team that took first place has $S_A >= 0$. The placement step therefore never lowers the rating of a team that finished first, whether its first place is sole or shared; the floor of #rf(<apply>) keeps that true of the whole update. This property is the winner rule.]
 
-#p(tag: <apply>)[The update after a tournament is the following, performed only on a rated result:]
-#eq[$ R_T <- R_T + K w_t D S_T, quad overline(Q)_T <- overline(Q)_T + K_q (Q(L) - overline(Q)_T), quad n_T <- n_T + 1, $]
+#p(tag: <apply>)[The update after a tournament is the following, performed only on a rated result and in this order:]
+#eq[$ R_T <- R_T + K w_t D S_T, quad R_T <- R_T + K_r w_t (Q(L) - R_T), $]
+#eq[$ R_T <- max(R_T, R_T^0) "if team" T "finished first", quad overline(Q)_T <- overline(Q)_T + K_q (Q(L) - overline(Q)_T), quad n_T <- n_T + 1, $]
 #whr(lead: [where:])[
   $K$~– the rating step, #k_K#[;] \
+  $K_r$~– the lineup pull, #k_Kr#[;] \
   $K_q$~– the usual-lineup step, #k_Kq#[;] \
+  $R_T^0$~– the rating the team held before the update; \
   $w_t$~– the tournament weight.
 ]
-#p[The usual lineup is updated only when the lineup is non-empty. An unrated result stands in the field as an opponent for all others and gives the team no update, no rated tournament and no right to appear in a Release; the date of the last rated tournament advances only on a rated result.]
 
-#p[Inactivity does not change a team rating: nothing happens to a team state between tournaments. A change of lineup by itself does not change any team's rating either: today's lineup changes the tournament strength of #rf(<field>), and the usual lineup follows a real change over subsequent tournaments.]
+#p[The second step is the lineup pull, and it is what gives a published team rating a meaning of its own. The placement step alone records who beat whom and nothing about who was at the table, so the rating taken by itself orders a field of teams playing in their base rosters worse than the rating it replaces. The pull moves the rating a fixed share of the way towards what the players who actually turned up are worth, so the evidence of the question model reaches the team number through the only door open to it: a tournament played. Both the pull and the usual-lineup step are performed only when the lineup is non-empty, and $K_q$ is of the same order as $K_r$ so that the lineup offset of #rf(<field>) does not count today's table a second time.]
 
-#p[The constants $D$, $K$ and $K_q$ are set outside the publication loop (#rf(<offline>)).]
+#p[The third step is the winner floor: a team that took first place, sole or shared, ends the tournament with at least the rating it came with. The pull on its own could lower a team rated above the worth of the lineup it won with; the floor prevents that. At $K_r = 0$ the floor never binds.]
+#p[An unrated result stands in the field as an opponent for all others and gives the team no update, no rated tournament and no right to appear in a Release; the date of the last rated tournament advances only on a rated result.]
+
+#p[Inactivity does not change a team rating: nothing happens to a team state between tournaments. A change of lineup does not change a team's rating on the day it is announced either: a team that changes its roster and plays nothing keeps its number. What a changed lineup changes at once is the tournament strength of #rf(<field>); from the next rated tournament on, the rating follows the real lineup through the pull and the usual lineup follows it through $K_q$, the first over roughly three tournaments and the second over roughly ten.]
+
+#p[The constants $D$, $K$, $K_r$ and $K_q$ are set outside the publication loop (#rf(<offline>)).]
 
 #sect[Forecast]
 
@@ -451,7 +459,7 @@
 
 #p[The top-#k_ov_n overlap test is failed. The threshold of #k_ov_need of #k_ov_n is above what mature external systems reach with each other: chgk.quest and rating.chgk.fun agree on #k_ov_mutual of #k_ov_n. The rank correlation of the strength of players with at least #k_corr_games tournaments is #k_corr_quest with chgk.quest and #k_corr_fun with rating.chgk.fun.]
 
-#p(tag: <offline>)[Outside the publication loop the following are set: the correction $delta_0$~– as the mean difference between a team's realised strength and the uncorrected sum of its players' strengths over full six-player lineups on in-person tournaments of 2015–2024; the constant $D$~– as the maximum-likelihood value for the pairwise outcomes, the likelihood being flat from 900 to 2400; the steps $K$ and $K_q$~– as the maximum of the mean Spearman rank correlation of the forecast on in-person tournaments from #k_tune_from to #k_tune_to over the grid 0.2, 0.3, 0.4 and 0.6 for $K$ and 0.01, 0.03 and 0.1 for $K_q$#[;] the constants of the individual scale~– from the 2019 Release (#rf(<display>)).]
+#p(tag: <offline>)[Outside the publication loop the following are set: the correction $delta_0$~– as the mean difference between a team's realised strength and the uncorrected sum of its players' strengths over full six-player lineups on in-person tournaments of 2015–2024; the constant $D$~– as the maximum-likelihood value for the pairwise outcomes, the likelihood being flat from 900 to 2400; the step $K$~– as the maximum of the mean Spearman rank correlation of the forecast on in-person tournaments from #k_tune_from to #k_tune_to over the grid 0.2, 0.3, 0.4 and 0.6; the pull $K_r$ and the usual-lineup step $K_q$~– as the maximum, over the same tournaments, of the mean quality of the order the rating alone imposes on a field of teams playing in their base rosters, each tournament weighted by the strength of its ten strongest lineups#[;] the constants of the individual scale~– from the 2019 Release (#rf(<display>)).]
 
 #p(tag: <honest>)[The honesty requirement on uncertainty is the condition that the standardised residuals $z_i$ have unit variance on in-person tournaments from 2018 onwards. This requirement sets the discount $d_"info"$. It does not apply to the team rating: Model S2 neither estimates nor publishes an uncertainty.]
 

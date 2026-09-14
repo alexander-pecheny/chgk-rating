@@ -27,6 +27,10 @@ pub struct Simple {
     pub delta: f64,
     pub k_q: f64,
     pub r_new: f64,
+    /// The pull of rule 8: the team takes this much of the gap to the strength
+    /// of the lineup that turned up. 0 is the rule S2 shipped with.
+    #[serde(default)]
+    pub k_r: f64,
     #[serde(default = "pairwise")]
     pub perf: Perf,
     #[serde(default = "surprise")]

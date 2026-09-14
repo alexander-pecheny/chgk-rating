@@ -88,11 +88,14 @@ margin_intercept = 0.0
 
 # Model S2, the shipped engine. Everything above this line belongs to "kalman".
 [team.s2]
-# D is the maximum-likelihood scale of the pairwise outcomes; K and k_q are tuned
-# on the in-person forecast Spearman, 2018-09-01 to 2024-08-29.
+# D is the maximum-likelihood scale of the pairwise outcomes. K is tuned on the
+# in-person forecast Spearman, 2018-09-01 to 2024-08-29; k_r and k_q on the
+# weighted team NDCG of DESIGN 7.3 over the same window.
 D = 1200.0
 K = 0.4
-k_q = 0.01
+# Re-tuned with the pull from 0.01: the usual lineup has to track the real one at
+# about the speed the rating does, or the offset of step 1 counts today's table twice.
+k_q = 0.1
 # "roster" is the roster estimate of DESIGN 4.1 and ignores delta; "mean" is the
 # average of the lineup's ratings less delta per seat short of six.
 lineup = "roster"
@@ -100,6 +103,24 @@ delta = 150.0
 # theta -> the team scale: player_zero + player_scale * (theta + ln 6 + roster_bias).
 player_scale = 2454.8828
 player_zero = 6000.0
+# The pull of DESIGN 4.3 step 4: per rated game the rating takes this much of the
+# gap to what the lineup that turned up is worth. Tuned on the weighted team NDCG,
+# 2018-09-01 to 2024-08-29; see out/team_ndcg/report.md. 0 is the rule it replaced.
+k_r = 0.3
+# "lineup" is the lineup that turned up, "usual" the running average of them.
+k_r_target = "lineup"
+# A team that finished first keeps at least the rating it came with. Without the
+# pull the Elo step alone already guarantees it and the floor never binds.
+winner_floor = true
+# The switches of DESIGN 4.8, all at the value that changes nothing.
+# Questions of score gap worth a whole win; 0 is the win/lose rule.
+margin_g = 0.0
+margin_shape = "linear"
+# Rated games below which the step is enlarged to K n0 / n; 0 is off.
+n0 = 0.0
+# The team side's own format weights; absent means the shared [data] ones.
+# w_sync = 0.75
+# w_strict_sync = 1.0
 
 [truedl]
 # Six equal players at the strength of a balanced 251-500 team; fixed at launch.

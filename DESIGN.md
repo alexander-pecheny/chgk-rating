@@ -6,7 +6,7 @@ This document is the specification. Code is checked against it. Constants marked
 
 1. A team's rating is its demonstrated strength on a stable scale. It moves only when the team plays.
 2. A predicted winner that wins never loses points. The direction of every update comes from placement against the other teams in the field.
-3. A lineup change never moves a team's rating. Today's lineup shifts the strength the team is judged at, not the rating itself.
+3. A lineup change never moves a team's rating on the day it is declared. Today's lineup shifts the strength the team is judged at; over the games that follow, the rating drifts towards what the lineups that turn up are worth, so a roster change is absorbed by playing rather than by decree.
 4. Inactivity never decays the number. The published table lists only teams and players with a rated game in the trailing 365 days.
 5. The scale is anchored to the population: each release, the mean strength of established players is zero. The team scale stands on the same footing, because both a lineup's strength and a new team's first rating are read off the players.
 6. The forecast for a tournament is a separate object from the rating: it is the strength of the lineup that turned up, and uses no team state at all.
@@ -126,7 +126,7 @@ Because the snapshot is taken at `warm_until` and no player who debuts after it 
 
 ## 4. The team model
 
-Model S2: Elo in a field, kept on the published scale. Five constants and no
+Model S2: Elo in a field, kept on the published scale. Six constants and no
 algebra beyond a weighted average. `team.engine` selects it (`s2`, shipped)
 against the Kalman filter it replaced, which stays selectable as section 8.3.
 
@@ -195,13 +195,34 @@ pair a first-placed team is in, `S_A ≥ 0` for a team that finished first, sole
 or shared: principle 2 holds by construction. The margin of the score does not
 enter at all.
 
-3. **Update**, on a rated result only:
+3. **Update**, on a rated result only, in this order:
 
 ```
-R  += K · w_t · D · S_A
-Q̄  += K_q · ( Q(L) − Q̄ )        when a lineup is listed
+R0  = R                                   the rating the team came with
+R  += K · w_t · D · S_A                   the Elo step
+R  += K_r · w_t · ( Q(L) − R )            the pull, when a lineup is listed
+R   = max(R, R0)                          when A finished first, sole or shared
+Q̄  += K_q · ( Q(L) − Q̄ )                 when a lineup is listed
 n  += 1
 ```
+
+The **pull** is what makes `R` mean something on its own. Without it the rating
+is a pure placement number: it knows who beat whom and nothing about who was at
+the table, so it orders a field of base-roster teams worse than either the old
+system or chgk.gg (section 7.3). With it the rating takes `K_r` of the way
+towards the lineup's strength at every rated game, which is the question model's
+evidence entering the team number by the only door principle 1 leaves open — a
+game played.
+
+The pull can lower a team that won, when the team is rated above what its lineup
+is worth, so principle 2 needs the **floor**: a team that finished first, sole or
+shared, keeps at least the rating it came with. At `K_r = 0` the floor never
+binds, because `S_A ≥ 0` for a first place already.
+
+`K_q` is the memory of the usual lineup and has to be of the same order as
+`K_r`: if the rating tracks the lineups and `Q̄` does not, the offset of step 1
+counts today's table twice, and the innovations of section 7.2 go from white to
++0.19 autocorrelated.
 
 An unrated result stands in the field for everyone else and takes no update, no
 game and no listing credit. The date of the last rated game advances only on a
@@ -229,11 +250,15 @@ five. S2 estimates no variance and publishes none.
 
 ### 4.6 Inactivity and lineup change
 
-Neither has an effect. A rating does not decay between games and a lineup change
-does not move it; today's lineup moves the strength the team is judged at, and
-the usual lineup follows the real change over the next hundred games. There is
-no volatility, no departure rule and no evidence per player: `evidence` in the
-outputs is the count of rated games.
+Inactivity has no effect: a rating does not decay between games, and docking an
+untested rating 100 or 200 points a year was measured and makes the ranking
+slightly worse (section 7.3). A lineup change has no effect on the day it is
+declared — a team that changes half its roster and then plays nothing keeps the
+number it had. What a lineup change does is move `Q(L)`, and from the next rated
+game on both the pull of step 3 and the usual lineup of step 3 follow it, with
+time constants of about three and about ten games. There is no volatility, no
+departure rule and no evidence per player: `evidence` in the outputs is the count
+of rated games.
 
 
 ### 4.7 Tournament difficulty
@@ -246,6 +271,28 @@ truedl_t = 10 · ( 1 − mean over q of p_q ),   q ranging over questions with a
 ```
 
 NULL when no question of the tournament was answered by anyone. `θ* = 0.2368` is the roster strength of a balanced team at places 251-500 re-expressed as six equal players, which is the band the published TrueDL uses as its reference; the number therefore means what TrueDL claims it means — ten times the share of the package such a team would miss — while being computed from fitted difficulties rather than a band-ratio table.
+
+### 4.8 Reserved extensions
+
+Four team-side switches are implemented, measured against section 7.3 and
+switched off. All ship at the value that leaves 4.3 unchanged.
+
+- **Margin** (`team.s2.margin_g > 0`) replaces the win/lose outcome of step 2
+  with the score gap, `y_AB = clamp(½ + (s_A − s_B) / 2g, 0, 1)`, or the logistic
+  `1 / (1 + 10^(−(s_A − s_B)/g))` under `margin_shape = "logistic"`. It loses
+  0.04 of weighted NDCG@3 at `g = 8` and 0.08 at `g = 16`; the order of finish
+  already carries what there is to carry, and the gap adds the package's length
+  and hardness as noise.
+- **Faster start** (`team.s2.n0 > 0`) enlarges the step of a provisional team to
+  `K · max(1, n₀ / n)`. Worth +0.0017 of weighted NDCG@3 at `n₀ = 10` against a
+  bootstrap SE of 0.0010, and negative by `n₀ = 20`.
+- **Team-side format weights** (`team.s2.w_sync`, `w_strict_sync`) let the team
+  update weigh a format differently from the player update. Counting a
+  synchronous result as heavily as an in-person one is +0.0029 at an SE of
+  0.0034.
+- **Pull target** (`team.s2.k_r_target = "usual"`) pulls towards `Q̄` instead of
+  `Q(L)`. It does nothing at any `K_r`, which is what a hundred-game average of
+  a quantity the rating already tracks should do.
 
 ## 5. Display scale
 
@@ -288,7 +335,7 @@ Indexes: `team_events(team_id)`, `team_events(tournament_id)`, `team_ratings(rel
 
 `info_scale` is fixed by the requirement that the published player uncertainty be honest: over in-person tournaments from 2018, the standardised residuals `z_i` of section 3.4 must have unit variance. The team-side half of that test, and `ν`, belong to section 8.3.
 
-S2's own constants are not calibrated offline. `D` is the maximum-likelihood scale of the pairwise outcomes, and the likelihood is flat from 900 to 2400 (`simple --calibrate-d`); `K` and `K_q` are tuned on the mean in-person forecast Spearman over 2018-09-01 to 2024-08-29, on the grid `K ∈ {0.2, 0.3, 0.4, 0.6}` against `K_q ∈ {0.01, 0.03, 0.1}`, run once per lineup rule (`out/s2_grid_kq.md`).
+S2's own constants are not calibrated offline. `D` is the maximum-likelihood scale of the pairwise outcomes, and the likelihood is flat from 900 to 2400 (`simple --calibrate-d`); `K` is tuned on the mean in-person forecast Spearman over 2018-09-01 to 2024-08-29, on the grid `K ∈ {0.2, 0.3, 0.4, 0.6}` against `K_q ∈ {0.01, 0.03, 0.1}`, run once per lineup rule (`out/s2_grid_kq.md`). `K_r` and `K_q` are tuned on the weighted team NDCG of section 7.3 over the same window, by `team_sweep`; the surface is a plateau and `K` is flat from 0.2 to 1.2 once the pull is in (`out/team_ndcg/report.md`).
 
 ### 7.2 Acceptance tests
 
@@ -300,7 +347,8 @@ Results are from `out/eval_s2.md`, over `out/ratings_s2.db`.
 4. **Inflation:** the display value of the 50th team at each September release from 2015 to 2026 stays within a band of ±10%. A September whose trailing year holds fewer than 200 rated teams is a hole in the data, not inflation, and is excluded from the band; only September 2021 is. **Result: largest deviation 6.3% over 11 Septembers (range 6612 to 7416 around a mean of 6978).** Passed.
 5. **Transfer invariance:** swap the strongest player between two top teams in the input at a chosen date and confirm no team rating changes at that date. Forecasts must change. **Result: 0 teams moved, maximum difference exactly 0; 286 139 team events on or after the swap have a different forecast.** Passed.
 6. **Winner rule:** no team that finished first, sole or shared, has `mu_after < mu_before` anywhere in `team_events`. **Result: 0, sole and shared alike.** Passed.
-7. The user's read of the resulting tables.
+7. **The rating on its own.** The weighted team NDCG of section 7.3 must not be behind chgk.gg or the old system. **Result: 0.8987 against chgk.gg's 0.8893 and the old system's 0.8877 on the tune window, 0.9029 against 0.8901 and 0.8886 on the test window.** Passed. `eval --brief` prints it.
+8. The user's read of the resulting tables.
 
 **The lineup rule.** Both rules of section 4.1 were run over the same players, tuned on the same window (`out/s2_grid_kq.md`). The roster estimate wins at each rule's own optimum and on both held-out formats, and `delta` goes with the rule it belongs to:
 
@@ -319,6 +367,47 @@ Results are from `out/eval_s2.md`, over `out/ratings_s2.db`.
 | the Kalman engine's forecast | 0.8234 | 0.7456 |
 | the old system's `predictedPosition` | 0.8202 | 0.7428 |
 
+### 7.3 The team rating on its own
+
+Section 4.4 measures the *forecast*, which is the lineup. This measures the
+*rating*: rank the teams of an in-person field by `R` as it stood that morning,
+with no lineup and no player table in hand, and score the order against the
+result. `tools/team_ndcg.py` and `eval --brief` compute it; `team_sweep` tunes on
+it.
+
+- In-person tournaments, results with `inRating = 1`, and **base-roster results
+  only**: a lineup qualifies by МАИИ Prilozhenie A, А.4.7 — at least three
+  base-roster players, more base-roster players than legionnaires, at most three
+  legionnaires — with the roster read at the tournament date (А.2.2). The roster
+  history comes from `data/external/chgk_gg/base_rosters.csv`, because `buff.db`'s
+  `team_seasons` holds only the two current seasons. 89.7% of the tune window's
+  rated in-person results qualify and 99.8% of the test window's, the latter
+  because `inRating` itself encodes roster continuity from 2021 on.
+- The qualifying teams are re-ranked among themselves, ties sharing the mean
+  place; relevance is `1 / place`; the order under test is by `R` descending with
+  ties broken by a hash of the tournament and team ids. Fewer than five
+  qualifying teams and the tournament is skipped: 597 tune tournaments and 268
+  test ones.
+- The headline is the **mean over tournaments weighted** by
+  `data/tournament_weights.csv` — the mean strength of the ten strongest lineups
+  in the field, less the 10th percentile, clipped at zero, frozen at commit
+  `fffb987` and never recomputed — so the fields with the best teams count for
+  more than a school event. The unweighted mean is reported beside it.
+- Standard errors are a paired bootstrap over tournaments, 2 000 resamples.
+
+| weighted NDCG / NDCG@3 | tune | test |
+|---|---:|---:|
+| **ours** | **0.8987 / 0.8014** | **0.9029 / 0.8042** |
+| chgk.gg | 0.8893 / 0.7847 | 0.8901 / 0.7713 |
+| the old system | 0.8877 / 0.7845 | 0.8886 / 0.7686 |
+| rating.chgk.fun | 0.9058 / 0.8081 | 0.9137 / 0.8332 |
+| ours before the pull of 4.3 | 0.8792 / 0.7657 | 0.8860 / 0.7685 |
+
+Both windows are on the tournaments all four systems cover. The chgk.fun column
+is not a team state — that system composes its team number from the players who
+turned up, so it is the analogue of our `Q(L)`, which scores 0.8993 and 0.9125
+under the same filter.
+
 ## 8. Implementation
 
 Rust workspace, one library crate `chgk-rating` with modules `data`, `question_model`, `team_s2` (the shipped team engine), `team_model` (the legacy one), `gauge`, `display`, `output`, `util`, and binaries `fit` (online pass, writes `out/ratings.db`), `eval` (metrics report from the outputs), `calibrate` (`β`, `σ_model`, `roster_bias`, and the display constants). Both engines expose the same `step(tournament, players, config) -> Vec<TeamEvent>` and the same release rows, so `fit` differs only in which one it constructs. `src/bin/simple.rs` is the same S2 rules as a research tool, over player ratings of its own or from a finished `fit`; it stays the place tuning grids are run. Configuration in `config.toml`. Parallelism through rayon over questions within a tournament and over teams within a tournament's pairwise stage.
@@ -336,8 +425,10 @@ Rust workspace, one library crate `chgk-rating` with modules `data`, `question_m
            tau_p 0.25, v_min 0.05, v_max 0.6, v_eta 0.15, tau_aff 0.05
 [gauge]    n_est 8, window_days 365
 [team]     engine s2, roster_bias −0.2427, sigma_model 0.3669
-[team.s2]  D 1200, K 0.4, k_q 0.01, lineup roster, delta 150 (unused under roster),
-           player_scale 2454.8828, player_zero 6000
+[team.s2]  D 1200, K 0.4, k_r 0.3, k_q 0.1, winner_floor true, lineup roster,
+           delta 150 (unused under roster), player_scale 2454.8828, player_zero 6000,
+           k_r_target lineup, margin_g 0, margin_shape linear, n0 0,
+           w_sync and w_strict_sync absent (section 4.8)
 [truedl]   theta_ref 0.2368
 [display]  a_team −7295.3562, b_team 1.1904, a_player 5543.6775, b_player 4723.7898,
            provisional_sigma 0.3

@@ -5,5 +5,6 @@ pub mod gauge;
 pub mod output;
 pub mod question_model;
 pub mod team_model;
+pub mod team_ndcg;
 pub mod team_s2;
 pub mod util;

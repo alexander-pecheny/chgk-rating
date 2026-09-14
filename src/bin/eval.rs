@@ -1,4 +1,5 @@
 use chgk_rating::config::{Config, TeamEngine};
+use chgk_rating::team_ndcg as tn;
 use chgk_rating::util::{csv_rows, spearman};
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -19,6 +20,44 @@ type Loss = (String, i64, i64, f64, f64);
 const FORMATS: [&str; 3] = ["in-person", "sync", "strict-sync"];
 /// Test 2 and the tuning grid both look at the last two seasons.
 const WIN: (&str, &str) = ("2024-08-30", "2026-08-27");
+
+/// Test 7 of DESIGN 7.3: does the team rating alone order an in-person field of
+/// base-roster teams? `(weighted NDCG, weighted NDCG@3, tournaments)` over one
+/// window. Needs `out/team_ndcg/qualify.csv`, which `tools/team_ndcg.py` writes.
+fn team_ndcg(conn: &Connection, from: &str, to: &str) -> rusqlite::Result<(f64, f64, usize)> {
+    let qual = tn::qualify(tn::QUALIFY);
+    let w = tn::weights(tn::WEIGHTS);
+    let mut st = conn.prepare(
+        "SELECT e.tournament_id, e.team_id, e.mu_before, e.actual_place
+         FROM team_events e JOIN tournament_metrics m ON m.tournament_id = e.tournament_id
+         WHERE m.type = 'in-person' AND m.date >= ?1 AND m.date < ?2
+           AND e.actual_place > 0 AND e.rated = 1 AND e.mu_before IS NOT NULL
+         ORDER BY e.tournament_id",
+    )?;
+    let mut rows = st.query([from, to])?;
+    let mut by_t: HashMap<i64, (Vec<i64>, Vec<f64>, Vec<f64>)> = HashMap::new();
+    while let Some(r) = rows.next()? {
+        let (tid, team): (i64, i64) = (r.get(0)?, r.get(1)?);
+        if !qual.contains(&(tid, team)) {
+            continue;
+        }
+        let e = by_t.entry(tid).or_default();
+        e.0.push(team);
+        e.1.push(r.get(2)?);
+        e.2.push(r.get(3)?);
+    }
+    let (mut full, mut at3) = (HashMap::new(), HashMap::new());
+    for (tid, (team, mu, place)) in &by_t {
+        if let Some(v) = tn::score(*tid, team, mu, place, usize::MAX) {
+            full.insert(*tid, v);
+        }
+        if let Some(v) = tn::score(*tid, team, mu, place, 3) {
+            at3.insert(*tid, v);
+        }
+    }
+    let n = full.len();
+    Ok((tn::wmean(&full, &w), tn::wmean(&at3, &w), n))
+}
 
 fn fmt_key(f: &str) -> usize {
     FORMATS.iter().position(|x| *x == f).unwrap_or(9)
@@ -386,6 +425,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             col("sync", 0),
             col("in-person", 1),
             col("sync", 1)
+        );
+        let (ft, t3, nt) = team_ndcg(&conn, tn::TUNE.0, tn::TUNE.1)?;
+        let (fs, s3, ns) = team_ndcg(&conn, tn::TEST.0, tn::TEST.1)?;
+        println!(
+            "team ndcg (weighted, mu only) tune {ft:.4}/@3 {t3:.4} over {nt}  test {fs:.4}/@3 {s3:.4} over {ns}"
         );
         for (team, cells) in case_rows(&conn, cfg.display.b_team, history)? {
             println!("team {team}: {}", cells.join(" "));
