@@ -8,7 +8,7 @@ One chronological pass over the tournaments, in `fit`. Per tournament, in order:
 
 1. **Questions.** Each question's difficulty is set from the take rate of the lineups that played it, given their strengths as they stood this morning.
 2. **Teams.** Model S2 — Elo in a field, on the published scale. A team stands at its rating shifted by how much stronger today's lineup is than its usual one, gains or loses `K · w · D ·` (actual minus expected wins over the field), and the forecast published beside the result is the strength of the lineup alone.
-3. **Players.** A Kalman step on `θ` from the question model's gradient and Fisher information, then a small pull towards the lineup mean.
+3. **Players.** A Kalman step on `θ` from the question model's gradient and Fisher information, then a small pull towards the lineup mean. A second Kalman step tracks `φ`, how much stronger the player is at an in-person table than elsewhere.
 
 Every Thursday is a release: the player gauge is re-centred on the established players and the two tables are written out. The team engine is `[team] engine` — `s2` ships, `kalman` is the filter it replaced and still runs from the same config. `DESIGN.md` sections 3, 4 and 8.3.
 
@@ -58,6 +58,21 @@ Prints the Markdown report: log-loss, the six acceptance tests, uncertainty cali
 ./target/release/eval > report.md
 ./target/release/eval --db out/ratings.db --swap-db out/swap.db --swap-date 2018-12-22
 ./target/release/eval --brief                         # one line, for parameter sweeps
+./target/release/eval --ndcg                          # the forecast metric alone
+./target/release/eval --ndcg --paired out/other.db    # difference and bootstrap SE
+```
+
+`--ndcg` is the top-weighted forecast metric of DESIGN 7.3 on both windows:
+NDCG and NDCG@3 of the forecast, in person, averaged with the frozen weights of
+`data/tournament_weights.csv` and unweighted beside it. `--unweighted` drops the
+weights, `--weights PATH` points elsewhere. `tools/ndcg.py` is the same metric in
+Python, to the last digit, and prints the column-by-column table against other
+databases:
+
+```
+uv run tools/ndcg.py out/ratings.db out/ext/fun.db --common [--k 3] [--unweighted]
+uv run tools/ndcg.py out/ratings.db out/ext/fun.db --common --paired
+uv run tools/q_ndcg_sweep.py out/q_ndcg/batch/glue.txt --jobs 2   # a config sweep
 ```
 
 ## simple
@@ -86,9 +101,10 @@ the numbers against the shipped model.
 `simple` takes `--rows-every` too, and the `config_simple*.toml` files set
 `rows_every = 0`, so a run writes rows at the last release only.
 
-`[simple].lineup` picks the lineup rule of DESIGN 4.1 — `roster`, the shipped
-one, or `mean`, the average less `delta` per empty seat — and `--lineup`
-overrides it. `[simple].perf` picks the rule that turns a result into points — `pairwise`, the
+`[simple].lineup` and `[team.s2].lineup` pick the lineup rule of DESIGN 4.1 —
+`tempered`, the shipped one, the roster estimate at temperature `tau`; `roster`,
+the same at `tau = 1`; `mean`, the average less `delta` per empty seat; or
+`best6`, chgk.gg's weighted top six — and `--lineup` overrides it. `[simple].perf` picks the rule that turns a result into points — `pairwise`, the
 field Elo sum, or `played_like`, the order statistic at the finishing place —
 `[simple].player_rule` picks `surprise` or `level`, and `[simple].anchor` picks
 `none`, `mean` or `mean_sd`, the per-release rescaling that keeps the scale

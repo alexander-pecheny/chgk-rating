@@ -26,6 +26,11 @@ eta_v = 0.2
 # "take_rate" is the closed-form difficulty of DESIGN 3.3 step 1; "newton" is the
 # Newton fit it replaced, kept selectable.
 fit = "take_rate"
+# The per-player format effect of DESIGN 3.7. "in_person" adds phi at an
+# in-person table and nothing elsewhere; "signed" subtracts it at a synchronous
+# one and lost; "none" is the model without it.
+format_effect = "in_person"
+s_phi = 0.3
 
 [player]
 mu_new = -1.0
@@ -40,6 +45,8 @@ v_min = 0.05
 v_max = 0.6
 v_eta = 0.15
 tau_aff = 0.05
+# Diffusion of phi between a player's tournaments.
+tau_phi = 0.05
 
 [gauge]
 n_est = 8
@@ -93,9 +100,14 @@ margin_intercept = 0.0
 D = 1200.0
 K = 0.4
 k_q = 0.01
-# "roster" is the roster estimate of DESIGN 4.1 and ignores delta; "mean" is the
-# average of the lineup's ratings less delta per seat short of six.
-lineup = "roster"
+# The lineup rule of DESIGN 4.1: "tempered" is the roster estimate at temperature
+# tau, "roster" is tau = 1, "mean" is the average less delta per seat short of
+# six and "best6" is chgk.gg's weighted top six. delta belongs to the last two.
+lineup = "tempered"
+tau = 0.7
+# Each player enters the lineup at theta - sigma_c * sigma: an unknown counts for
+# less than a known player of the same estimate.
+sigma_c = 1.5
 delta = 150.0
 # theta -> the team scale: player_zero + player_scale * (theta + ln 6 + roster_bias).
 player_scale = 2454.8828
@@ -109,10 +121,10 @@ theta_ref = 0.2368
 # Fitted by `calibrate --display` so that the 50th and 1000th teams and players
 # of the 2019 releases match the old system; under engine = "kalman" the team
 # map was -209.5770 + 2454.8828 mu.
-a_team = -7295.3562
-b_team = 1.1904
-a_player = 5543.6775
-b_player = 4723.7898
+a_team = -4394.7095
+b_team = 1.0678
+a_player = 5461.6007
+b_player = 4832.6752
 provisional_sigma = 0.3
 
 [numeric]

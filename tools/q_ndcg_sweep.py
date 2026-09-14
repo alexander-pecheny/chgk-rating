@@ -73,15 +73,21 @@ def run_one(name, overrides, keep):
     )
     if fit.returncode != 0:
         return name, None, fit.stderr.strip().splitlines()[-3:]
-    ev = subprocess.run(
-        ["./target/release/eval", "--db", db, "--ndcg"], capture_output=True, text=True
-    )
-    nums = [float(x) for x in re.findall(r"\d\.\d{4}", ev.stdout)]
+    cmd = ["./target/release/eval", "--db", db, "--ndcg"]
+    if name != "baseline" and os.path.exists(f"{DIR}/base.db"):
+        cmd += ["--paired", f"{DIR}/base.db"]
+    ev = subprocess.run(cmd, capture_output=True, text=True)
+    nums = []
+    for line in ev.stdout.splitlines():
+        f = [float(x) for x in re.findall(r"[-+]?\d\.\d{4}", line)]
+        # "ndcg <window> a @3 b unweighted c @3 d", then
+        # "paired <window> minus base: d se s @3 d3 se3".
+        nums += f[:4]
     if name not in keep:
         os.remove(db)
-    if len(nums) != 8:
+    if len(nums) not in (8, 16):
         return name, None, ev.stdout.strip() + ev.stderr.strip()
-    return name, nums, " ".join(overrides)
+    return name, nums + [0.0] * (16 - len(nums)), " ".join(overrides)
 
 
 def main():
@@ -108,7 +114,10 @@ def main():
     new = not os.path.exists(RESULTS)
     with open(RESULTS, "a", encoding="utf-8") as f:
         if new:
-            f.write("name\ttune\ttune@3\tutune\tutune@3\ttest\ttest@3\tutest\tutest@3\twhat\n")
+            f.write(
+                "name\ttune\ttune@3\tutune\tutune@3\ttest\ttest@3\tutest\tutest@3"
+                "\tdtune\tsetune\tdtune@3\tsetune@3\tdtest\tsetest\tdtest@3\tsetest@3\twhat\n"
+            )
         with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
             for name, nums, what in ex.map(lambda t: run_one(*t, keep), todo):
                 if nums is None:

@@ -36,7 +36,7 @@ Events are processed in order of `date_start`, then tournament id. A release is 
 
 ### 3.1 Parameters
 
-- Player `i`: strength `θ_i`, variance `σ_i²`, volatility `v_i`, affinity vector `u_i ∈ R^r`.
+- Player `i`: strength `θ_i`, variance `σ_i²`, volatility `v_i`, affinity vector `u_i ∈ R^r`. Under the format effect of section 3.7 the affinity slot holds the format effect `φ_i` instead.
 - Editor `e`: style vector `v_e ∈ R^r`. `r` is the affinity rank (tunable; 0 disables affinity — see section 8.2).
 - Question `q` of tournament `t`: difficulty `b_q`, log-discrimination `log a_q`, log-step-count `log m_q`.
 
@@ -122,7 +122,34 @@ The first season has no history, so every player starts at `μ_new` at once, the
 - Pass 1 runs as above. When it first reaches a tournament on or after `warm_until` (tunable, default 2016-01-01) it snapshots the published `θ` of every player who has already appeared.
 - Each later pass restarts at `from` with those players at their snapshot value, `σ = warm_sigma`, `v = τ_p`, and every other player unseen, so they still enter at the newcomer prior when they first appear. Team states are rebuilt from scratch in every pass.
 
-Because the snapshot is taken at `warm_until` and no player who debuts after it is warm-started, nothing after that date has seen its own future. Online publication after the backfill is a single pass, per principle 8.
+Because the snapshot is taken at `warm_until` and no player who debuts after it is warm-started, nothing after that date has seen its own future. Nothing snapshots the affinity or the format effect, so a later pass restarts them at their prior for the same reason. Online publication after the backfill is a single pass, per principle 8.
+
+Passes beyond the second change nothing: the snapshot is taken on the first pass only, so every later pass starts from the same state and follows the same trajectory. `passes = 3` reproduces `passes = 2` exactly.
+
+### 3.7 The format effect
+
+A player is not equally strong in every format. Cheating aside (section on `anomaly`), a table that meets face to face works differently from one playing a synchronous package at home, and the gap is per player. `question.format_effect` (`in_person`, shipped) gives each player a second scalar `φ_i` and reads their strength on question `q` of tournament `t` as
+
+```
+z_i,t = θ_i + s_t · φ_i,     s_t = 1 at an in-person tournament, 0 elsewhere
+```
+
+`φ_i ~ N(0, s_φ²)` with `s_φ` tunable. It takes the same Kalman step as `θ` against the same gradient and the same information, with its own diffusion, and only where `s_t ≠ 0`:
+
+```
+σ²_φ  += τ_φ² · Δt
+π'     = 1/σ²_φ + max( w_t · I_i · info_scale , info_floor )
+φ_i   += clamp( s_t · w_t · info_scale · g_i / π' , ±θ_max_step ),  then clamped to ±5 s_φ
+σ²_φ   = 1/π'
+```
+
+This is the affinity of section 3.1 at rank 1 against a fixed indicator instead of an editor vector, and it occupies the same slot: `aff_rank` and `format_effect` cannot both be on.
+
+`z_i,t` is what the question fit and the player gradient of section 3.3 read, and what the lineup strength of section 4.1 is built from, so the forecast for an in-person tournament uses `θ + φ` and the forecast for a synchronous one uses `θ` alone. The **published** player rating is `θ`: the format effect is a deviation from it, not part of it, and it is what the gauge of section 3.5 centres.
+
+`format_effect = "signed"` — `s_t = −1` off an in-person table, so `φ` is half the gap between the formats — was tried and lost by a wide margin (section 7.3).
+
+Over the 24 970 players listed at the last release the fitted `φ` has mean 0.013 and median 0.000 — most listed players have never played in person — with the 10th and 90th percentiles at −0.059 and 0.100 and a range of −0.51 to 0.86. On the team scale a `φ` of 0.1 is about 245 points.
 
 ## 4. The team model
 
@@ -135,28 +162,50 @@ against the Kalman filter it replaced, which stays selectable as section 8.3.
 A player's strength on the team scale is the affine image of `θ`:
 
 ```
-r_i = player_zero + player_scale · (θ_i + aff_i,t + ln 6 + roster_bias)
+r_i = player_zero + player_scale · (θ_i + aff_i,t − σ_c · σ_i + ln 6 + roster_bias)
 ```
 
 so that six equal players of rating `r` make a lineup of strength exactly `r`.
 `player_scale` is the display slope of the engine this one replaced;
 `player_zero` is a free shift, because nothing in S2 reads an absolute level.
+`aff_i,t` is the format effect `s_t · φ_i` of section 3.7 under the shipped
+switch, so a lineup at an in-person tournament is read at `θ + φ` and one at a
+synchronous tournament at `θ` alone.
 
-The **strength of the lineup** `L` that turned up is the roster estimate —
-`log Σ_{i∈L} exp(θ_i + aff_i,t)`, the strength at which a single player would
-answer as much as the whole table — mapped by the same affine map. In display
-units the bias and the zero cancel and only the slope survives:
+`σ_c` (tunable, 1.5) is the **pessimistic quantile**: a player enters at
+`θ − σ_c σ` rather than at `θ`, with `σ` as of the day of the tournament,
+diffusion included. A newcomer at `σ = 1` therefore counts a full 1.5 lower than
+an established player with the same estimate, and a lineup with an unknown in it
+— the usual reason a forecast misses at the top — is no longer credited with
+that unknown's prior. `σ_c = 0` is the rule that shipped before.
+
+The **strength of the lineup** `L` that turned up is the tempered roster
+estimate — the strength at which a single player would answer as much as the
+whole table, softened by a temperature `τ` (tunable, 0.7) — mapped by the same
+affine map. In display units the bias and the zero cancel and only the slope
+survives:
 
 ```
-Q(L) = player_scale · ( ln Σ_{i∈L} exp( r_i / player_scale ) − ln 6 )
+Q(L) = τ · player_scale · ( ln Σ_{i∈L} exp( r_i / (τ · player_scale) ) − ln 6 )
 ```
 
 A short table is worth less than a full one and a strong player carries more
 than his share of the average, both by construction rather than by a penalty.
+`τ = 1` is the plain roster estimate, the engine's own likelihood and the rule
+that shipped before; `τ < 1` sharpens it towards the strongest player at the
+table, and forecasts the top of the field better.
 
-`team.s2.lineup = "mean"` is the alternative that was tested against it: the
-mean of `r_i` less `delta` per seat short of six. Section 7.2 has the numbers;
-the roster estimate wins, and `delta` is then unused.
+`team.s2.lineup` selects the rule. All four agree on a full lineup of six equal
+players; section 7.3 has the numbers.
+
+- `tempered`, the rule above, shipped;
+- `roster`, the same at `τ` fixed to 1;
+- `mean`, the mean of `r_i` less `delta` per seat short of six;
+- `best6`, chgk.gg's rule — the sorted lineup under weights 1, 5/6, 2/3, 1/2,
+  1/3, 1/6, normalised, with each seat short of six filled at the weakest player
+  less `delta`.
+
+`delta` belongs to the last two and is unused under the first two.
 
 The roster estimate also has a variance, which `calibrate` and section 8.3 use
 and S2 does not.
@@ -292,12 +341,12 @@ S2's own constants are not calibrated offline. `D` is the maximum-likelihood sca
 
 ### 7.2 Acceptance tests
 
-Results are from `out/eval_s2.md`, over `out/ratings_s2.db`.
+Results are from `out/q_ndcg/eval_winner.md`; the numbers in brackets are the model as it stood before section 7.3 retuned it.
 
-1. **Cross-fitted log-loss** on in-person rated tournaments, per variant. A variant (step count, affinity rank, async weight, teammate shrinkage) stays only if it lowers the number. **Result: 0.4900 over all seasons, 0.5161 in 2025/26.** Passed.
-2. **Forecast rank correlation.** Spearman between forecast places and actual places per tournament, averaged over in-person tournaments of the last two seasons, against the old system's `predictedPosition`. Target: within 0.02 of the best external system. **Result: 0.8363 against 0.8177; sync 0.8194 against 0.7897.** Passed, and ahead rather than within.
-3. **Individual top-200 overlap with chgk.quest of at least 70%.** **Result: 117/200 against chgk.quest and 122/200 against rating.chgk.fun. Failed.** For context those two systems agree with each other on 136/200, so the 140 threshold is above what mature external systems reach between themselves; the rank correlation of `θ` over players with at least 50 games is 0.90 against chgk.quest and 0.79 against rating.chgk.fun.
-4. **Inflation:** the display value of the 50th team at each September release from 2015 to 2026 stays within a band of ±10%. A September whose trailing year holds fewer than 200 rated teams is a hole in the data, not inflation, and is excluded from the band; only September 2021 is. **Result: largest deviation 6.3% over 11 Septembers (range 6612 to 7416 around a mean of 6978).** Passed.
+1. **Cross-fitted log-loss** on in-person rated tournaments, per variant. A variant (step count, affinity rank, async weight, teammate shrinkage) stays only if it lowers the number. **Result: 0.4899 over all seasons, 0.5160 in 2025/26** (0.4900 and 0.5161). Passed.
+2. **Forecast rank correlation.** Spearman between forecast places and actual places per tournament, averaged over in-person tournaments of the last two seasons, against the old system's `predictedPosition`. Target: within 0.02 of the best external system. **Result: 0.8531 against 0.8177; sync 0.8186 against 0.7897** (0.8363 and 0.8194). Passed, and ahead rather than within.
+3. **Individual top-200 overlap with chgk.quest of at least 70%.** **Result: 112/200 against chgk.quest and 115/200 against rating.chgk.fun** (117 and 122). **Failed**, and by five and seven players more than before: the published `θ` is now the strength off an in-person table, and the format effect it no longer carries is part of what the external systems' numbers mean. For context those two systems agree with each other on 136/200, so the 140 threshold is above what mature external systems reach between themselves; the rank correlation of `θ` over players with at least 50 games is 0.89 against chgk.quest and 0.78 against rating.chgk.fun (0.90 and 0.79).
+4. **Inflation:** the display value of the 50th team at each September release from 2015 to 2026 stays within a band of ±10%. A September whose trailing year holds fewer than 200 rated teams is a hole in the data, not inflation, and is excluded from the band; only September 2021 is. **Result: largest deviation 1.7% over 11 Septembers (range 6902 to 7130 around a mean of 7020)** (6.3%, 6612 to 7416 around 6978). Passed.
 5. **Transfer invariance:** swap the strongest player between two top teams in the input at a chosen date and confirm no team rating changes at that date. Forecasts must change. **Result: 0 teams moved, maximum difference exactly 0; 286 139 team events on or after the swap have a different forecast.** Passed.
 6. **Winner rule:** no team that finished first, sole or shared, has `mu_after < mu_before` anywhere in `team_events`. **Result: 0, sole and shared alike.** Passed.
 7. The user's read of the resulting tables.
@@ -319,6 +368,42 @@ Results are from `out/eval_s2.md`, over `out/ratings_s2.db`.
 | the Kalman engine's forecast | 0.8234 | 0.7456 |
 | the old system's `predictedPosition` | 0.8202 | 0.7428 |
 
+### 7.3 Top-weighted forecast quality
+
+The acceptance tests above weigh a school event and a championship alike, and
+Spearman weighs a swap at places 27 and 30 like a swap at 1 and 2. The forecast
+is judged a second way, on the metric of `tools/ndcg.py` and `eval --ndcg`: NDCG
+of the `forecast` column against the actual places with relevance `1/place`,
+over in-person tournaments with at least five teams, plus `NDCG@3`. Ties in the
+forecast are broken by a shuffle seeded from the tournament id, so the stored
+finishing order never leaks into the rank.
+
+The mean over tournaments is **weighted** by `data/tournament_weights.csv`: the
+mean lineup strength of the ten strongest lineups in the field, less the 10th
+percentile of that over in-person tournaments since 2018-09-01, clipped at zero.
+The weights are frozen at the model of commit `fffb987` and never move with the
+model under test, so every candidate and every external system is scored on the
+same footing. Two windows: **tune** 2018-09-01 to 2024-08-29, where every
+decision is made, and **test** 2024-08-30 to 2026-08-27, read once per
+candidate. A paired bootstrap over tournaments, 2000 resamples, gives the
+standard error of a difference (`eval --paired other.db`, `ndcg.py --paired`).
+
+On the 282 test tournaments all four databases forecast (`--common`), weighted:
+
+| | NDCG | NDCG@3 |
+|---|---:|---:|
+| **ours** | **0.9069** | **0.8048** |
+| rating.chgk.fun | 0.9040 | 0.7997 |
+| chgk.quest | 0.9011 | 0.7914 |
+| ours before this tuning | 0.8981 | 0.7803 |
+| chgk.gg | 0.8710 | 0.7261 |
+| the old system's `predictedPosition` | 0.8708 | 0.7258 |
+
+The three switches that earned their place are the format effect of section 3.7,
+the pessimistic quantile `σ_c` and the tempered lineup `τ` of section 4.1; each
+is worth about a third of the gain and they add. `out/q_ndcg/report.md` is the
+protocol, every lever tried and the tables.
+
 ## 8. Implementation
 
 Rust workspace, one library crate `chgk-rating` with modules `data`, `question_model`, `team_s2` (the shipped team engine), `team_model` (the legacy one), `gauge`, `display`, `output`, `util`, and binaries `fit` (online pass, writes `out/ratings.db`), `eval` (metrics report from the outputs), `calibrate` (`β`, `σ_model`, `roster_bias`, and the display constants). Both engines expose the same `step(tournament, players, config) -> Vec<TeamEvent>` and the same release rows, so `fit` differs only in which one it constructs. `src/bin/simple.rs` is the same S2 rules as a research tool, over player ratings of its own or from a finished `fit`; it stays the place tuning grids are run. Configuration in `config.toml`. Parallelism through rayon over questions within a tournament and over teams within a tournament's pairwise stage.
@@ -330,20 +415,23 @@ Rust workspace, one library crate `chgk-rating` with modules `data`, `question_m
 ```
 [data]     w_in_person 1, w_strict_sync 2/3, w_sync 1/2, w_async 0, rows_every 1, passes 2
 [question] b_bar 1.5, s_b 2.0, s_a 0.5, s_m 0, s_aff 0.3, aff_rank 0, eta_v 0.2,
-           fit take_rate, gradient exact
+           fit take_rate, gradient exact, format_effect in_person, s_phi 0.3
 [player]   mu_new −1.0, sigma_new 1.0, warm_sigma 0.5, warm_until 2016-01-01,
            info_scale 0.46, teammate_shrink 0.005,
-           tau_p 0.25, v_min 0.05, v_max 0.6, v_eta 0.15, tau_aff 0.05
+           tau_p 0.25, v_min 0.05, v_max 0.6, v_eta 0.15, tau_aff 0.05, tau_phi 0.05
 [gauge]    n_est 8, window_days 365
 [team]     engine s2, roster_bias −0.2427, sigma_model 0.3669
-[team.s2]  D 1200, K 0.4, k_q 0.01, lineup roster, delta 150 (unused under roster),
-           player_scale 2454.8828, player_zero 6000
+[team.s2]  D 1200, K 0.4, k_q 0.01, lineup tempered, tau 0.7, sigma_c 1.5,
+           delta 150 (unused under tempered), player_scale 2454.8828, player_zero 6000
 [truedl]   theta_ref 0.2368
-[display]  a_team −7295.3562, b_team 1.1904, a_player 5543.6775, b_player 4723.7898,
+[display]  a_team −4394.7095, b_team 1.0678, a_player 5461.6007, b_player 4832.6752,
            provisional_sigma 0.3
 [numeric]  newton_iters 12, a ∈ [0.3, 3], m ∈ [0.5, 4], b ∈ [−10, 12],
            info_floor 1e−3, theta_max_step 1.5, u_max 15
 ```
+
+The display map was refitted by `calibrate --display` after `σ_c` moved the level of
+the team scale; the 2019 anchors of section 5 are unchanged.
 
 The rest of `[team]` — `sigma_new_team 0.5, beta 0.3757, kappa_m 10, m_max 2, nu 2.6, e_cap 20, rho 0.8, miss_streak 3, gamma 2, tau_t 0.2, v_min 0.05, v_max 0.6, v_eta 0.15, sigma_floor 0.2` and the switches below — belongs to `engine = "kalman"` and is kept at the values that engine shipped with. `roster_bias` and `sigma_model` are read by both.
 
@@ -356,7 +444,11 @@ Two question-model extensions are implemented, tested and switched off. Both sta
 
 The question model carries a third group, the simplification ladder of `out/ladder/report.md`. Of these only `question.fit` moved: `take_rate` is rung Q1, the last rung that held, and it ships.
 
-- `question.fit` (`take_rate`, shipped; section 3.3 step 1) against `newton`.
+- `question.fit` (`take_rate`, shipped; section 3.3 step 1) against `newton`. Retried under section 7.3 with a free step count: `newton` with `s_m = 0.5` is the best single point on the tune window (weighted NDCG 0.8961 against 0.8945) and loses on the test window (NDCG@3 0.7973 against 0.8044), which is the same in-sample-for-out-of-sample trade the free step count made before. It stays off.
+- `question.format_effect = "signed"` (section 3.7), a format effect subtracted off an in-person table rather than merely absent: weighted tune NDCG 0.8780 against 0.8867 without any format effect at all. Far the worst thing tried.
+- `team.s2.lineup = "best6"`, chgk.gg's weighted top six (section 4.1): +0.0003 ± 0.0021 of weighted tune NDCG, +0.0042 ± 0.0047 at 3. Indistinguishable from the roster estimate.
+- `player.teammate_shrink = 0` is worth +0.0016 ± 0.0018 on its own and −0.0017 once the format effect is in: `φ` absorbs part of what the shrinkage was correcting. It stays at 0.005.
+- `data.passes = 3` is a no-op by construction (section 3.6), and `data.w_async` is inert because every asynchronous tournament in the mirror carries `in_rating = 0` and never loads.
 - `question.gradient` (`exact`, shipped) replaces the noisy-OR gradient of step 2 with `share`: `g_i = (y - P) * p_i / sum_j p_j`, credit in proportion to `p_i = 1 - exp(-lambda_i)`. Rung Q3; it fails on the individual table, 102/200 against chgk.quest.
 - `player.update` (`kalman`, shipped) replaces the Kalman step with `schedule`: `theta_i += eta0/sqrt(c0 + games_i) * w_t * g_i`, no `sigma`, no volatility; a player under five games is provisional. Rung Q2; it costs 0.012 of forecast Spearman.
 
