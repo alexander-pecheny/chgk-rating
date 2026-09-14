@@ -109,6 +109,9 @@ pub struct S2 {
     /// A pessimistic lineup: each player enters at `theta - sigma_c * sigma`, so
     /// a newcomer or a player long unseen counts for less. 0 is the shipped rule.
     pub sigma_c: f64,
+    /// Widens that discount for a player whose evidence is mostly not in person:
+    /// the factor is `1 + sigma_ip / (1 + n_in_person)`. 0 leaves it flat.
+    pub sigma_ip: f64,
     pub player_scale: f64,
     pub player_zero: f64,
     /// Questions of score gap worth a whole win; 0 is the win/lose rule.
@@ -137,6 +140,7 @@ impl Default for S2 {
             lineup: S2Lineup::Mean,
             tau: 1.0,
             sigma_c: 0.0,
+            sigma_ip: 0.0,
             player_scale: 2454.8828,
             player_zero: 6000.0,
             margin_g: 0.0,
@@ -276,6 +280,14 @@ pub struct Question {
     /// Prior width of `phi`, the per-player format effect.
     #[serde(default = "s_phi")]
     pub s_phi: f64,
+    /// A second per-player scalar, read at a synchronous table only, so that
+    /// synchronous evidence stops moving the in-person strength without forcing
+    /// the symmetry `signed` imposes. Off is the shipped model.
+    #[serde(default)]
+    pub sync_effect: bool,
+    /// Prior width of that scalar.
+    #[serde(default = "s_phi")]
+    pub s_psi: f64,
 }
 
 fn s_phi() -> f64 {
@@ -325,6 +337,11 @@ pub struct Player {
     /// Diffusion of `phi` between a player's tournaments.
     #[serde(default = "tau_phi")]
     pub tau_phi: f64,
+    /// Measure that diffusion from the player's last tournament of the pinned
+    /// column's own format instead of their last tournament of any format, so a
+    /// season of synchronous play does not age their in-person strength.
+    #[serde(default)]
+    pub tau_phi_own: bool,
     #[serde(default = "kalman")]
     pub update: PUpdate,
     /// `update = "schedule"`: step `eta0 / sqrt(c0 + games)`.
@@ -428,6 +445,11 @@ pub struct Display {
     pub b_player: f64,
     /// A rating wider than this is published as provisional.
     pub provisional_sigma: f64,
+    /// How much of the format effect the published player number carries:
+    /// 0 is `theta`, the strength away from an in-person table, 1 is
+    /// `theta + phi`, the strength at one. The forecast never reads this.
+    #[serde(default)]
+    pub player_phi: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]

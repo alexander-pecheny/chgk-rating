@@ -73,9 +73,28 @@ databases:
 uv run tools/ndcg.py out/ratings.db out/ext/fun.db --common [--k 3] [--unweighted]
 uv run tools/ndcg.py out/ratings.db out/ext/fun.db --common --paired
 uv run tools/q_ndcg_sweep.py out/q_ndcg/batch/glue.txt --jobs 2   # a config sweep
+uv run tools/q_ndcg_sweep.py --dir out/q2 out/q_ndcg/batch2/glue.txt   # elsewhere
 uv run tools/compare_ndcg.py --list          # every system in one table
 uv run tools/compare_ndcg.py "ours=out/final.db" "ours, rating=out/final.db:mu"
 ```
+
+Three tools read the residual rather than the score, and all three want a
+database fitted by this code, because they read the `player_events` columns that
+record what the forecast saw:
+
+```
+uv run tools/q_diag.py out/ratings.db --teams 6 --cohorts   # the worst fields
+uv run tools/q_feat.py out/ratings.db [--top 3]             # features vs residual
+uv run tools/q_vs.py out/ratings.db out/ext/fun.db          # where they beat us
+```
+
+`q_diag` ranks fields by `weight x (1 - NDCG)`, then prints the teams inside the
+worst ones with every player's theta, phi, sigma and in-person record, the loss
+split by cohort of lineup, and the loss against how far apart the top of the
+field is. `q_feat` regresses the residual on what the lineup looked like, after
+removing the part that is a function of where the forecast put the team.
+`q_vs` is the difference against another system, field by field and by cohort.
+`out/q_ndcg/round2.md` is what they found.
 
 `tools/compare_ndcg.py` scores each database twice over the same tournaments: a
 *player based* row ranks the field by the forecast, a *team based* row (`:mu`) by

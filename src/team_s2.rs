@@ -93,7 +93,12 @@ pub fn rows_of(t: &Tournament, players: &Players, cfg: &Config) -> Vec<Row> {
                     let i = i as usize;
                     // `sigma_c > 0` reads each player at a pessimistic quantile,
                     // so an unknown in the lineup lowers the forecast.
-                    let pess = p.sigma_c * players.sigma_at(i, t.day, cfg);
+                    // `sigma_ip > 0` widens the discount again for a player whose
+                    // evidence is mostly not from an in-person table.
+                    let ip = players.state[i].games_ip as f64;
+                    let pess = p.sigma_c
+                        * players.sigma_at(i, t.day, cfg)
+                        * (1.0 + p.sigma_ip / (1.0 + ip));
                     player_rating(players.theta(i) + players.affinity(i, &vbar) - pess, cfg)
                 })
                 .collect();

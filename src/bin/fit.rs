@@ -397,9 +397,11 @@ fn emit_release(
     let mut rows = Vec::new();
     for (i, &c) in activity.count.iter().enumerate() {
         if c > 0 {
+            // The published number may carry a share of the format effect; the
+            // forecast reads `theta` and `phi` separately and never this.
             rows.push((
                 arena.player_ids[i],
-                players.theta(i),
+                players.theta(i) + cfg.display.player_phi * players.phi(i),
                 players.sigma_at(i, day, cfg),
                 c,
                 i,

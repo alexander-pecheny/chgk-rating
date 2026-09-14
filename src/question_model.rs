@@ -50,13 +50,27 @@ pub struct PlayerState {
     pub seen: bool,
 }
 
+/// A column of the affinity state whose value is fixed by the tournament's
+/// format rather than learned: DESIGN 3.7. The free columns after these are the
+/// editor affinity of DESIGN 3.6.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Pin {
+    /// `phi`, read at an in-person table.
+    InPerson,
+    /// `psi`, read at a synchronous one.
+    Sync,
+}
+
 pub struct Players {
     pub state: Vec<PlayerState>,
     pub shift_cum: f64,
     pub editors: Vec<f64>,
     pub rank: usize,
+    /// The pinned columns, in order, followed by `free` learned editor columns.
+    /// `rank` is the two together.
+    pub pins: Vec<Pin>,
+    pub free: usize,
     /// Which per-player format effect is in force; `None` is the shipped model.
-    /// Under it the one affinity slot holds `phi` and the editor vectors are unused.
     pub fmt: FormatEffect,
     /// Count, sum and sum of squares of the standardised surprise.
     pub zstat: (f64, f64, f64),
@@ -72,32 +86,44 @@ fn format_sign(f: Format, mode: FormatEffect) -> f64 {
     }
 }
 
+/// What a pinned column is read against today.
+fn pin_value(p: Pin, f: Format, mode: FormatEffect) -> f64 {
+    match p {
+        Pin::InPerson => format_sign(f, mode),
+        Pin::Sync => match f {
+            Format::Sync | Format::StrictSync => 1.0,
+            _ => 0.0,
+        },
+    }
+}
+
 impl Players {
     pub fn new(n_players: usize, n_editors: usize, cfg: &Config) -> Players {
         let fmt = cfg.question.format_effect;
-        // The format effect is affinity of rank 1 against a fixed indicator, so
-        // it reuses the affinity slot and leaves the editor vectors empty.
-        let (rank, prior) = match fmt {
-            FormatEffect::None => (
-                cfg.question.aff_rank,
-                cfg.question.s_aff * cfg.question.s_aff,
-            ),
-            _ => (1, cfg.question.s_phi * cfg.question.s_phi),
-        };
+        // A format effect is affinity against a fixed indicator, so it takes a
+        // column of the same state; the editor columns follow it. Round 1 had
+        // room for only one column and had to choose between them.
+        let mut pins = Vec::new();
+        if fmt != FormatEffect::None {
+            pins.push(Pin::InPerson);
+        }
+        if cfg.question.sync_effect {
+            pins.push(Pin::Sync);
+        }
+        let free = cfg.question.aff_rank;
+        let rank = pins.len() + free;
+        let prior = Players::priors(&pins, free, cfg);
         let mut rng = crate::util::Rng::new(cfg.numeric.crossfit_seed ^ 0x5eed);
-        let editors = match fmt {
-            FormatEffect::None => (0..n_editors * rank)
-                .map(|_| rng.normal() * cfg.question.s_aff)
-                .collect(),
-            _ => Vec::new(),
-        };
+        let editors: Vec<f64> = (0..n_editors * free)
+            .map(|_| rng.normal() * cfg.question.s_aff)
+            .collect();
         let state = (0..n_players)
             .map(|_| PlayerState {
                 theta_raw: cfg.player.mu_new,
                 var: cfg.player.sigma_new * cfg.player.sigma_new,
                 vol: cfg.player.tau_p,
                 aff: vec![0.0; rank],
-                aff_var: vec![prior; rank],
+                aff_var: prior.clone(),
                 games: 0,
                 last_day: 0,
                 games_ip: 0,
@@ -110,9 +136,36 @@ impl Players {
             shift_cum: 0.0,
             editors,
             rank,
+            pins,
+            free,
             fmt,
             zstat: (0.0, 0.0, 0.0),
         }
+    }
+
+    /// Prior variance of every affinity column: each pinned one has its own
+    /// width, the editor columns share `s_aff`.
+    fn priors(pins: &[Pin], free: usize, cfg: &Config) -> Vec<f64> {
+        let mut v: Vec<f64> = pins
+            .iter()
+            .map(|p| match p {
+                Pin::InPerson => cfg.question.s_phi * cfg.question.s_phi,
+                Pin::Sync => cfg.question.s_psi * cfg.question.s_psi,
+            })
+            .collect();
+        v.extend(std::iter::repeat_n(
+            cfg.question.s_aff * cfg.question.s_aff,
+            free,
+        ));
+        v
+    }
+
+    /// Clamp of every affinity column, five prior widths out.
+    fn clamps(&self, cfg: &Config) -> Vec<f64> {
+        Players::priors(&self.pins, self.free, cfg)
+            .iter()
+            .map(|v| 5.0 * v.sqrt())
+            .collect()
     }
 
     pub fn theta(&self, i: usize) -> f64 {
@@ -123,10 +176,9 @@ impl Players {
     /// force, `phi_i` otherwise. `affinity` is what a tournament reads; this is
     /// what the diagnosis and the published table want.
     pub fn phi(&self, i: usize) -> f64 {
-        if self.fmt == FormatEffect::None {
-            0.0
-        } else {
-            self.state[i].aff[0]
+        match self.pins.iter().position(|p| *p == Pin::InPerson) {
+            Some(k) => self.state[i].aff[k],
+            None => 0.0,
         }
     }
 
@@ -140,25 +192,27 @@ impl Players {
         (s.var + s.vol * s.vol * dt).sqrt()
     }
 
-    /// The vector a player's affinity is read against. Under a format effect it
-    /// is the format indicator, so `affinity` returns `phi_i` at an in-person
-    /// tournament and zero or `-phi_i` elsewhere.
+    /// The vector a player's affinity is read against: the pinned format
+    /// indicators first, then the mean editor vector of this tournament. Under
+    /// the shipped switches the only column is the in-person indicator, so
+    /// `affinity` returns `phi_i` in person and zero elsewhere.
     pub fn editor_mean(&self, t: &Tournament) -> Vec<f64> {
-        if self.fmt != FormatEffect::None {
-            return vec![format_sign(t.format, self.fmt)];
-        }
         let mut v = vec![0.0; self.rank];
-        if self.rank == 0 || t.editors.is_empty() {
+        for (k, p) in self.pins.iter().enumerate() {
+            v[k] = pin_value(*p, t.format, self.fmt);
+        }
+        if self.free == 0 || t.editors.is_empty() {
             return v;
         }
+        let base = self.pins.len();
         for &e in &t.editors {
-            let s = e as usize * self.rank;
-            for (k, x) in v.iter_mut().enumerate() {
+            let s = e as usize * self.free;
+            for (k, x) in v[base..].iter_mut().enumerate() {
                 *x += self.editors[s + k];
             }
         }
         let n = t.editors.len() as f64;
-        for x in v.iter_mut() {
+        for x in v[base..].iter_mut() {
             *x /= n;
         }
         v
@@ -174,10 +228,7 @@ impl Players {
     /// snapshot date has seen the future.
     pub fn warm_restart(&mut self, snap: &[Option<f64>], day: i32, cfg: &Config) {
         let var = cfg.player.warm_sigma * cfg.player.warm_sigma;
-        let aff_prior = match self.fmt {
-            FormatEffect::None => cfg.question.s_aff * cfg.question.s_aff,
-            _ => cfg.question.s_phi * cfg.question.s_phi,
-        };
+        let aff_prior = Players::priors(&self.pins, self.free, cfg);
         for (s, warm) in self.state.iter_mut().zip(snap) {
             s.games = 0;
             s.last_day = day;
@@ -186,7 +237,7 @@ impl Players {
             // Nothing snapshots the affinity, so a later pass must not inherit
             // the value the first pass ended on: that is the future.
             s.aff.iter_mut().for_each(|a| *a = 0.0);
-            s.aff_var.iter_mut().for_each(|v| *v = aff_prior);
+            s.aff_var.copy_from_slice(&aff_prior);
             match warm {
                 Some(theta) => {
                     s.theta_raw = *theta;
@@ -260,9 +311,9 @@ impl Players {
         collect: bool,
         cfg: &Config,
     ) {
-        let free_aff = self.rank > 0 && self.fmt == FormatEffect::None;
-        let sign = format_sign(t.format, self.fmt);
-        let phi_clamp = 5.0 * cfg.question.s_phi;
+        let n_pin = self.pins.len();
+        let free_aff = self.free > 0;
+        let pin_clamp = self.clamps(cfg);
         let tau_phi2 = cfg.player.tau_phi * cfg.player.tau_phi;
         let clamp = 5.0 * cfg.question.s_aff;
         let tau_aff2 = cfg.player.tau_aff * cfg.player.tau_aff;
@@ -272,7 +323,7 @@ impl Players {
             cfg.player.v_eta,
         );
         let vbar = self.editor_mean(t);
-        let mut ed_grad = vec![0.0; self.rank];
+        let mut ed_grad = vec![0.0; self.free];
         for &(i, g, info) in grads {
             let s = &mut self.state[i as usize];
             let dt = ((t.day - s.last_day).max(0) as f64) / 365.25;
@@ -299,18 +350,30 @@ impl Players {
                     }
                 }
             }
-            // `phi` enters the likelihood exactly as `theta` does, times the
-            // format indicator, so it takes the same Kalman step against the
-            // same gradient — and only where the indicator is not zero.
-            if sign != 0.0 {
-                let av = &mut s.aff_var[0];
-                *av += tau_phi2 * dt;
+            // A pinned column enters the likelihood exactly as `theta` does,
+            // times its format indicator, so it takes the same Kalman step
+            // against the same gradient — and only where the indicator is not
+            // zero, which is what keeps a format's evidence to its own column.
+            for k in 0..n_pin {
+                if vbar[k] == 0.0 {
+                    continue;
+                }
+                let own = cfg.player.tau_phi_own
+                    && self.pins[k] == Pin::InPerson
+                    && s.games_ip > 0;
+                let dt_pin = if own {
+                    ((t.day - s.last_ip).max(0) as f64) / 365.25
+                } else {
+                    dt
+                };
+                let av = &mut s.aff_var[k];
+                *av += tau_phi2 * dt_pin;
                 let ieff = t.weight * info * cfg.player.info_scale;
                 let prec = 1.0 / *av + ieff.max(cfg.numeric.info_floor);
-                let step = sign * t.weight * cfg.player.info_scale * g / prec;
-                s.aff[0] = (s.aff[0]
+                let step = vbar[k] * t.weight * cfg.player.info_scale * g / prec;
+                s.aff[k] = (s.aff[k]
                     + step.clamp(-cfg.numeric.theta_max_step, cfg.numeric.theta_max_step))
-                .clamp(-phi_clamp, phi_clamp);
+                .clamp(-pin_clamp[k], pin_clamp[k]);
                 *av = 1.0 / prec;
             }
             s.games += 1;
@@ -321,12 +384,13 @@ impl Players {
             }
             if free_aff {
                 #[allow(clippy::needless_range_loop)]
-                for k in 0..self.rank {
-                    ed_grad[k] += g * s.aff[k];
-                    let av = &mut s.aff_var[k];
+                for k in 0..self.free {
+                    let j = n_pin + k;
+                    ed_grad[k] += g * s.aff[j];
+                    let av = &mut s.aff_var[j];
                     *av += tau_aff2 * dt;
-                    let p = 1.0 / *av + t.weight * info * vbar[k] * vbar[k];
-                    s.aff[k] = (s.aff[k] + t.weight * g * vbar[k] / p).clamp(-clamp, clamp);
+                    let p = 1.0 / *av + t.weight * info * vbar[j] * vbar[j];
+                    s.aff[j] = (s.aff[j] + t.weight * g * vbar[j] / p).clamp(-clamp, clamp);
                     *av = 1.0 / p;
                 }
             }
@@ -341,8 +405,8 @@ impl Players {
             ed_seen[e as usize] += 1.0;
             // The prior is spread over the editor's own tournaments, not reapplied at each.
             let pull = shrink / ed_seen[e as usize];
-            let base = e as usize * self.rank;
-            let slot = &mut self.editors[base..base + self.rank];
+            let base = e as usize * self.free;
+            let slot = &mut self.editors[base..base + self.free];
             for (v, g) in slot.iter_mut().zip(&ed_grad) {
                 *v = (*v + lr * (g / n_ed - *v * pull)).clamp(-clamp, clamp);
             }

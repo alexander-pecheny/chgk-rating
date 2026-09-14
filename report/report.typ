@@ -34,7 +34,7 @@
 #let k_info_scale = [0.46]
 #let k_info_floor = [0.001]
 #let k_theta_step = [1.5]
-#let k_shrink     = [0.005]
+#let k_shrink     = [0.0025]
 #let k_mu_new     = [−1.0]
 #let k_sigma_new  = [1.0]
 #let k_tau_p      = [0.25]
@@ -43,9 +43,9 @@
 #let k_v_eta      = [0.15]
 #let k_n_est      = [8]
 #let k_s_phi      = [0.3]
-#let k_tau_phi    = [0.05]
-#let k_phi_p10    = [−0.059]
-#let k_phi_p90    = [0.100]
+#let k_tau_phi    = [0]
+#let k_phi_p10    = [−0.045]
+#let k_phi_p90    = [0.091]
 #let k_m_mean     = [1.056]
 #let k_aff_mag    = [0.01]
 
@@ -69,10 +69,10 @@
 #let k_band       = [251–500]
 
 // -- Section B.6: published quantities ---------------------------------------
-#let k_A_T        = [−7640.2986]
-#let k_B_T        = [1.2677]
-#let k_A_P        = [5461.6007]
-#let k_B_P        = [4832.6752]
+#let k_A_T        = [−7383.8881]
+#let k_B_T        = [1.2421]
+#let k_A_P        = [5738.6039]
+#let k_B_P        = [4269.2612]
 #let k_anchor_t   = [5 September 2019]
 #let k_anchor_p   = [3 October 2019]
 #let k_pos_hi     = [50]
@@ -87,19 +87,19 @@
 #let k_ll_cross   = [0.4899]
 #let k_ll_2526    = [0.5160]
 #let k_ll_quest   = [0.501]
-#let k_sp_new     = [0.8531]
+#let k_sp_new     = [0.8527]
 #let k_sp_old     = [0.8177]
-#let k_sp_new_s   = [0.8186]
-#let k_sp_old_s   = [0.7897]
+#let k_sp_new_s   = [0.8182]
+#let k_sp_old_s   = [0.7892]
 #let k_ov_n       = [200]
-#let k_ov_quest   = [112]
-#let k_ov_fun     = [115]
+#let k_ov_quest   = [121]
+#let k_ov_fun     = [130]
 #let k_ov_mutual  = [136]
 #let k_ov_need    = [140]
-#let k_corr_quest = [0.89]
-#let k_corr_fun   = [0.78]
+#let k_corr_quest = [0.86]
+#let k_corr_fun   = [0.80]
 #let k_corr_games = [50]
-#let k_infl       = [6.1%]
+#let k_infl       = [6.0%]
 #let k_infl_band  = [±10%]
 #let k_infl_from  = [2015]
 #let k_infl_to    = [2026]
@@ -248,9 +248,9 @@
 ]
 #p[The model in #rf(<qmodel>) is the «noisy OR» model: a question counts as answered if at least one player of the lineup answers it, and the players' contributions are independent.]
 
-#p(tag: <format>)[The strength that enters #rf(<qmodel>) is not $th_i$ alone but $th_i + s_t phi_i$, where $s_t$~= 1 at an in-person tournament and $s_t$~= 0 at any other. The format effect $phi_i$ is a per-player quantity: how much stronger the player is at a table that meets face to face than at a package played elsewhere. Its prior is $N(0, s_phi^2)$ with $s_phi$~= #k_s_phi, and between a player's tournaments $sigma_(phi,i)^2$ grows by $tau_phi^2$ a year with $tau_phi$~= #k_tau_phi. It is updated by the same rule as the strength, from the same gradient and the same information, and only at tournaments where $s_t != 0$:]
+#p(tag: <format>)[The strength that enters #rf(<qmodel>) is not $th_i$ alone but $th_i + s_t phi_i$, where $s_t$~= 1 at an in-person tournament and $s_t$~= 0 at any other. The format effect $phi_i$ is a per-player quantity: how much stronger the player is at a table that meets face to face than at a package played elsewhere. Its prior is $N(0, s_phi^2)$ with $s_phi$~= #k_s_phi, and between a player's tournaments $sigma_(phi,i)^2$ grows by $tau_phi^2$ a year with $tau_phi$~= #k_tau_phi, so the estimate does not fade: how a player takes to a face-to-face table is treated as a property of the player rather than of their form. It is updated by the same rule as the strength, from the same gradient and the same information, and only at tournaments where $s_t != 0$:]
 #eq[$ pi'_phi = 1 \/ sigma_(phi,i)^2 + max(I_"eff", I_"min"), quad Delta phi_i = (s_t w_t d_"info" g_i) / pi'_phi, quad sigma_(phi,i)^2 <- 1 \/ pi'_phi, $]
-#p[with the increment capped at #k_theta_step in absolute value and $phi_i$ itself held to $plus.minus 5 s_phi$. The published individual rating is $th_i$, the strength away from an in-person table; $phi_i$ is a deviation from it and is not published. For most listed players $phi_i$ is zero, because most have never played in person; among the rest the tenth and ninetieth percentiles are #k_phi_p10 and #k_phi_p90.]
+#p[with the increment capped at #k_theta_step in absolute value and $phi_i$ itself held to $plus.minus 5 s_phi$. The published individual rating is $th_i + phi_i$, the strength at an in-person table, which is what the other systems' individual numbers also mean; the model keeps the two apart everywhere else, and it is $th_i$ alone that the population scale is anchored to. For most listed players $phi_i$ is zero, because most have never played in person; among the rest the tenth and ninetieth percentiles are #k_phi_p10 and #k_phi_p90.]
 
 #p(tag: <intensity>)[The intensity $lambda_(i,q)$ is the rate at which player $i$ finds the answer to question $q$. It depends only on the player's strength and the question's parameters: it equals 1 when the strength equals the difficulty, and every unit of strength above the difficulty multiplies it by $e^(a_q)$, every unit below divides it by the same. A player alone answers with probability $1 - exp(-lambda_(i,q))$, so intensity 1 means a 63% chance and intensity 0.1 about 10%. Intensities of a lineup add because the players search independently, and this sum is what makes the lineup's chance $1 - exp(-u_q)$. Uncertainty and volatility take no part in the answer probability; they govern only how far a player's estimate moves after a tournament (#rf(<update>), #rf(<diffusion>)).]
 
@@ -308,7 +308,7 @@
 
 #p[The individual rating is a direct estimate of the question model. It is published together with its uncertainty; no grade transition rules, thresholds or limits on change apply to it.]
 
-#p(tag: <reserved>)[Reserved. The Rules provide for three extensions of the question model that are implemented and tested but switched off in this edition; none of them lowered the cross-validated log loss of test #rf(<t_ll>). The first is a free number of steps: a question gets a parameter $m_q$ and the answer probability becomes $P_(L,q)^(m_q)$, which penalises lineups of sharply unequal strength relative to even ones; the mean fitted $m_q$ was #k_m_mean and the gain was in-sample only. The second is editor affinity: a player gets a vector $u_i$, an editor a vector $v_e$, and the player's strength in a tournament grows by the mean dot product $u_i dot v_e$ over the tournament's editors; the learned values did not exceed #k_aff_mag on the strength scale, since the Fisher information for $u_i$ is smaller than for $th_i$ and one forward pass is not enough to extract it. Affinity and the format effect of #rf(<format>) are the same mechanism and share the same slot, so this edition, which carries the format effect, cannot carry affinity as well. The third is the Newton question fit: instead of the closed form of #rf(<qfit>), $(b_q, ln a_q)$ are fitted by damped Newton iterations with step halving on the penalised log likelihood, at most #k_newton iterations, clamped to $a_q in [#k_a_min, #k_a_max]$ and $b_q in [#k_b_min, #k_b_max]$; the priors of #rf(<priors>) serve this fit. It lowers the cross-validated log loss by 0.0009 and the in-sample log loss by 0.018, within the test tolerance, and was replaced by the closed form for simplicity of exposition. All three extensions remain in the implementation behind their switches and are reserved for a future edition of these Rules.]
+#p(tag: <reserved>)[Reserved. The Rules provide for three extensions of the question model that are implemented and tested but switched off in this edition; none of them lowered the cross-validated log loss of test #rf(<t_ll>). The first is a free number of steps: a question gets a parameter $m_q$ and the answer probability becomes $P_(L,q)^(m_q)$, which penalises lineups of sharply unequal strength relative to even ones; the mean fitted $m_q$ was #k_m_mean and the gain was in-sample only. The second is editor affinity: a player gets a vector $u_i$, an editor a vector $v_e$, and the player's strength in a tournament grows by the mean dot product $u_i dot v_e$ over the tournament's editors; the learned values did not exceed #k_aff_mag on the strength scale, since the Fisher information for $u_i$ is smaller than for $th_i$ and one forward pass is not enough to extract it. Affinity and the format effect of #rf(<format>) are the same mechanism, and the format effect takes a fixed column in front of the affinity ones, so the two can be carried together; measured together they were worse than the format effect alone, and this edition carries only the format effect. The third is the Newton question fit: instead of the closed form of #rf(<qfit>), $(b_q, ln a_q)$ are fitted by damped Newton iterations with step halving on the penalised log likelihood, at most #k_newton iterations, clamped to $a_q in [#k_a_min, #k_a_max]$ and $b_q in [#k_b_min, #k_b_max]$; the priors of #rf(<priors>) serve this fit. It lowers the cross-validated log loss by 0.0009 and the in-sample log loss by 0.018, within the test tolerance, and was replaced by the closed form for simplicity of exposition. All three extensions remain in the implementation behind their switches and are reserved for a future edition of these Rules.]
 
 #sect[Team rating]
 
@@ -404,7 +404,7 @@
 #sect[Published quantities]
 
 #p(tag: <display>)[The published rating is an affine map of the internal value:]
-#eq[$ R_"team" = A_T + B_T R_T, quad R_"player" = A_P + B_P th_i. $]
+#eq[$ R_"team" = A_T + B_T R_T, quad R_"player" = A_P + B_P (th_i + phi_i). $]
 #whr(lead: [where:])[
   $A_T$~= #k_A_T, $B_T$~= #k_B_T~– the constants of the team scale; \
   $A_P$~= #k_A_P, $B_P$~= #k_B_P~– the constants of the individual scale.
