@@ -381,9 +381,10 @@ Lever by lever.
    0.0003 against a standard error of 0.0038; the plan gates the lever on that
    check and it did not pass. Zero fits spent.
 
-5. **The editor memory is where round 3 put it.** Forty-eight cells of
-   `editor_memory` × `ed_gate` × `ed_min_n`, plus the half-life, plus two more
-   keys, plus the `phi` channel, and nothing clears the plan's rule.
+5. **The editor memory is where round 3 put it.** Thirty-one fits: eighteen more
+   cells of `editor_memory` × `ed_gate`, three of `ed_min_n`, four of the
+   half-life, three of the team key, one of the editors' set and three of the
+   `phi` channel. Nothing clears the plan's rule.
 
    The best tune cell is `(1500, 0.15)` at +0.0005 ± 0.0004 — 1.25 SE, so it
    passes the first half of the rule — and it is **−0.0013 ± 0.0009 on test**, so
@@ -430,7 +431,7 @@ its own.
 
 ## 3. The winner
 
-Round 3's, unchanged. No key of `config.toml` changed value. Ten new switches
+Round 3's, unchanged. No key of `config.toml` changed value. Fifteen new keys
 were added and every one of them ships at the value that changes nothing:
 
 ```

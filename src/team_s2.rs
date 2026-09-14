@@ -104,6 +104,17 @@ pub fn roster_sd(rs: &[f64], sigmas: &[f64], p: &S2) -> f64 {
         .sqrt()
 }
 
+/// One lineup before the pessimistic discount is taken: what each seat is worth
+/// on the `theta` scale, each member's uncertainty, the width of their own
+/// discount, and the spread of the lineup. Keeping the parts lets the same
+/// lineup be read at a second quantile without touching the player states again.
+struct Seats {
+    base: Vec<f64>,
+    sigmas: Vec<f64>,
+    wides: Vec<f64>,
+    spread: f64,
+}
+
 /// One result as the team engine sees it: no players left, only the number the
 /// lineup that turned up is worth. `src/bin/team_sweep.rs` replays these.
 #[derive(Clone, Copy)]
@@ -151,7 +162,7 @@ pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -
     // of them. `base` is a seat before the pessimistic discount and `wide` the
     // discount's own width, so the same lineup can be read at another quantile
     // without touching the player states again.
-    let seats: Vec<(Vec<f64>, Vec<f64>, Vec<f64>, f64)> = t
+    let seats: Vec<Seats> = t
         .teams
         .iter()
         .map(|res| {
@@ -188,7 +199,12 @@ pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -
                 })
                 .collect();
             let n = base.len().max(1) as f64;
-            (base, sigmas, wides, p.player_scale * (ss / n).sqrt())
+            Seats {
+                base,
+                sigmas,
+                wides,
+                spread: p.player_scale * (ss / n).sqrt(),
+            }
         })
         .collect();
     // One lineup on the display scale at a given quantile.
@@ -200,9 +216,7 @@ pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -
     };
     let lineups: Vec<(Vec<f64>, Vec<f64>, f64)> = seats
         .iter()
-        .map(|(base, sigmas, wides, spread)| {
-            (at(base, wides, p.sigma_c), sigmas.clone(), *spread)
-        })
+        .map(|s| (at(&s.base, &s.wides, p.sigma_c), s.sigmas.clone(), s.spread))
         .collect();
     // The temperature may depend on how far apart this field's lineups are.
     let tau = if p.tau_spread != 0.0 {
@@ -222,7 +236,8 @@ pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -
         .iter()
         .zip(&lineups)
         .zip(&seats)
-        .map(|((res, (rs, sigmas, sd)), (base, _, wides, _))| {
+        .map(|((res, (rs, sigmas, sd)), seat)| {
+            let (base, wides) = (&seat.base, &seat.wides);
             let q = if rs.is_empty() {
                 f64::NAN
             } else {
