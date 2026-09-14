@@ -1,0 +1,11 @@
+# The winners of each lever, combined, and the interactions of the top few.
+c_phi_sig    question.format_effect="in_person" team.s2.sigma_c=1.5
+c_phi_tmp    question.format_effect="in_person" team.s2.lineup="tempered" team.s2.tau=0.7
+c_sig_vmin   team.s2.sigma_c=1.5 player.v_min=0.15
+c_ps_vmin    question.format_effect="in_person" team.s2.sigma_c=1.5 player.v_min=0.15
+c_ps_shr     question.format_effect="in_person" team.s2.sigma_c=1.5 player.teammate_shrink=0.0
+c_ps_tmp     question.format_effect="in_person" team.s2.sigma_c=1.5 team.s2.lineup="tempered" team.s2.tau=0.7
+c_ps_vs      question.format_effect="in_person" team.s2.sigma_c=1.5 player.v_min=0.15 player.teammate_shrink=0.0
+c_all        question.format_effect="in_person" team.s2.sigma_c=1.5 player.v_min=0.15 player.teammate_shrink=0.0 team.s2.lineup="tempered" team.s2.tau=0.7
+c_ps_newton  question.format_effect="in_person" team.s2.sigma_c=1.5 question.fit="newton" question.s_m=0.5
+c_aff_all    question.aff_rank=1 team.s2.sigma_c=1.5 player.v_min=0.15 player.teammate_shrink=0.0 team.s2.lineup="tempered" team.s2.tau=0.7

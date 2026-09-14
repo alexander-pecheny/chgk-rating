@@ -1,0 +1,7 @@
+# Lever 6: the lineup glue. K and k_q were tuned under the roster estimate.
+temper_050  team.s2.lineup="tempered" team.s2.tau=0.5
+temper_070  team.s2.lineup="tempered" team.s2.tau=0.7
+temper_150  team.s2.lineup="tempered" team.s2.tau=1.5
+temper_200  team.s2.lineup="tempered" team.s2.tau=2.0
+best6       team.s2.lineup="best6"
+mean_lineup team.s2.lineup="mean"

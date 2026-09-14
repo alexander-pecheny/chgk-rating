@@ -1,0 +1,9 @@
+# Lever 4: newcomers, and a pessimistic lineup.
+mu_new_20   player.mu_new=-2.0
+mu_new_15   player.mu_new=-1.5
+mu_new_05   player.mu_new=-0.5
+snew_050    player.sigma_new=0.5
+snew_150    player.sigma_new=1.5
+sigc_025    team.s2.sigma_c=0.25
+sigc_050    team.s2.sigma_c=0.5
+sigc_100    team.s2.sigma_c=1.0

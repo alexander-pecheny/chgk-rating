@@ -1,0 +1,11 @@
+# The paired standard error for the rows of levers 1 to 3 that the report quotes.
+se_wsync000 data.w_sync=0.0
+se_wsync025 data.w_sync=0.25
+se_wsync075 data.w_sync=0.75
+se_wsync100 data.w_sync=1.0
+se_phi_sg   question.format_effect="signed"
+se_info060  player.info_scale=0.60
+se_taup015  player.tau_p=0.15
+se_vmax100  player.v_max=1.00
+se_veta030  player.v_eta=0.30
+se_shrink02 player.teammate_shrink=0.02

@@ -1,0 +1,16 @@
+# Lever 3: pace and uncertainty, re-tuned on NDCG rather than on log-loss.
+info_030    player.info_scale=0.30
+info_060    player.info_scale=0.60
+info_080    player.info_scale=0.80
+info_100    player.info_scale=1.00
+taup_015    player.tau_p=0.15
+taup_040    player.tau_p=0.40
+vmin_002    player.v_min=0.02
+vmin_010    player.v_min=0.10
+vmax_040    player.v_max=0.40
+vmax_100    player.v_max=1.00
+veta_005    player.v_eta=0.05
+veta_030    player.v_eta=0.30
+shrink_000  player.teammate_shrink=0.0
+shrink_002  player.teammate_shrink=0.02
+shrink_005  player.teammate_shrink=0.05

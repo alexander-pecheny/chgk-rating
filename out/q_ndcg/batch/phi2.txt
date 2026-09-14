@@ -1,0 +1,8 @@
+# Lever 2, finer: the prior width and the diffusion of phi.
+phi_ip_020  question.format_effect="in_person" question.s_phi=0.2
+phi_ip_025  question.format_effect="in_person" question.s_phi=0.25
+phi_ip_040  question.format_effect="in_person" question.s_phi=0.4
+phi_tau_002 question.format_effect="in_person" player.tau_phi=0.02
+phi_tau_010 question.format_effect="in_person" player.tau_phi=0.10
+phi_tau_020 question.format_effect="in_person" player.tau_phi=0.20
+phi_tau_000 question.format_effect="in_person" player.tau_phi=0.0

@@ -1,0 +1,12 @@
+# Lever 5: the question fit.
+newton      question.fit="newton"
+newton_m02  question.fit="newton" question.s_m=0.2
+newton_m05  question.fit="newton" question.s_m=0.5
+# Lever 7: editor affinity. In-person tournaments name their editors.
+aff1        question.aff_rank=1
+aff2        question.aff_rank=2
+# Lever 8: the warm-start backfill.
+passes3     data.passes=3
+warm2017    player.warm_until="2017-01-01"
+warm2017p3  player.warm_until="2017-01-01" data.passes=3
+warmsig_03  player.warm_sigma=0.3

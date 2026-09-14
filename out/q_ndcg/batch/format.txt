@@ -1,0 +1,11 @@
+# Lever 1: the format weights. In-person is the target; sync may be worth less
+# evidence for a player, or async may be worth loading at all.
+baseline    data.w_sync=0.5
+w_sync_000  data.w_sync=0.0
+w_sync_025  data.w_sync=0.25
+w_sync_075  data.w_sync=0.75
+w_sync_100  data.w_sync=1.0
+w_async_010 data.w_async=0.1
+w_async_025 data.w_async=0.25
+w_ss_050    data.w_strict_sync=0.5
+w_ss_100    data.w_strict_sync=1.0

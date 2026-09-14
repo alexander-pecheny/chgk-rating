@@ -1,0 +1,7 @@
+# Lever 2: the per-player format effect phi.
+phi_ip_030  question.format_effect="in_person"
+phi_sg_030  question.format_effect="signed"
+phi_ip_015  question.format_effect="in_person" question.s_phi=0.15
+phi_ip_060  question.format_effect="in_person" question.s_phi=0.6
+phi_sg_015  question.format_effect="signed" question.s_phi=0.15
+phi_sg_060  question.format_effect="signed" question.s_phi=0.6
