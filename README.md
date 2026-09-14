@@ -50,6 +50,21 @@ way. `--rows-every N` overrides the config.
 
 Write large outputs to `out/`, not to `/tmp` — `/tmp` is a 3.8 GB tmpfs and a full run does not fit.
 
+## just
+
+Everything done by hand has a recipe; `just` with no argument lists them.
+
+```
+just deploy          # publish this checkout to rating2.pecheny.me
+just ship my-branch  # merge a branch into master and publish it
+just deploy-dry      # the same pipeline here, no service touched
+just status          # the last lines of out/update.log and whether the site answers
+just diagnose        # where the forecast still loses
+```
+
+`just deploy` is `deploy/update.sh`, which is also what cron runs at 06:30 UTC;
+see `deploy/README.md` for what each step does and how to recover from one.
+
 ## eval
 
 Prints the Markdown report: log-loss, the six acceptance tests, uncertainty calibration, the top tables and the external comparisons.

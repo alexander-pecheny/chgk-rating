@@ -83,9 +83,12 @@ pub struct Row {
 pub fn rows_of(t: &Tournament, players: &Players, cfg: &Config) -> Vec<Row> {
     let p = &cfg.team.s2;
     let vbar = players.editor_mean(t);
-    t.teams
+    // Each lineup on the team scale, and the spread of its members' uncertainty.
+    let lineups: Vec<(Vec<f64>, f64)> = t
+        .teams
         .iter()
         .map(|res| {
+            let mut ss = 0.0;
             let rs: Vec<f64> = res
                 .members
                 .iter()
@@ -95,27 +98,64 @@ pub fn rows_of(t: &Tournament, players: &Players, cfg: &Config) -> Vec<Row> {
                     // so an unknown in the lineup lowers the forecast.
                     // `sigma_ip > 0` widens the discount again for a player whose
                     // evidence is mostly not from an in-person table.
+                    let sigma = players.sigma_at(i, t.day, cfg);
                     let ip = players.state[i].games_ip as f64;
-                    let pess = p.sigma_c
-                        * players.sigma_at(i, t.day, cfg)
-                        * (1.0 + p.sigma_ip / (1.0 + ip));
-                    player_rating(players.theta(i) + players.affinity(i, &vbar) - pess, cfg)
+                    let pess = p.sigma_c * sigma * (1.0 + p.sigma_ip / (1.0 + ip));
+                    ss += sigma * sigma;
+                    // `k_fast > 0` mixes in the fast estimate of the same
+                    // strength, which is the only part of the state that tracks
+                    // an established player's recent form.
+                    let th = players.theta(i);
+                    let th = th + p.k_fast * (players.theta_fast(i) - th);
+                    player_rating(th + players.affinity(i, &vbar) - pess, cfg)
                 })
                 .collect();
-            Row {
-                team: res.team,
-                position: res.position,
-                score: res.score,
-                pred_pos: res.pred_pos,
-                rated: res.rated,
-                q: if rs.is_empty() {
-                    f64::NAN
-                } else {
-                    lineup_strength(&rs, p)
-                },
-            }
+            let n = rs.len().max(1) as f64;
+            (rs, p.player_scale * (ss / n).sqrt())
+        })
+        .collect();
+    // The temperature may depend on how far apart this field's lineups are.
+    let tau = if p.tau_spread != 0.0 {
+        let v: Vec<f64> = lineups
+            .iter()
+            .filter(|(rs, _)| !rs.is_empty())
+            .map(|(rs, _)| lineup_strength(rs, p))
+            .collect();
+        field_tau(&v, p)
+    } else {
+        p.tau
+    };
+    let mut q = p.clone();
+    q.tau = tau;
+    t.teams
+        .iter()
+        .zip(&lineups)
+        .map(|(res, (rs, sd))| Row {
+            team: res.team,
+            position: res.position,
+            score: res.score,
+            pred_pos: res.pred_pos,
+            rated: res.rated,
+            q: if rs.is_empty() {
+                f64::NAN
+            } else {
+                lineup_strength(rs, &q) + p.sigma_v * sd
+            },
         })
         .collect()
+}
+
+/// The temperature this field is read at. A field whose lineups stand close
+/// together is read more sharply, because that is where the order is decided by
+/// the strongest player at each table rather than by the table as a whole.
+fn field_tau(v: &[f64], p: &S2) -> f64 {
+    if v.len() < 3 {
+        return p.tau;
+    }
+    let m = v.iter().sum::<f64>() / v.len() as f64;
+    let sd = (v.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / v.len() as f64).sqrt();
+    let r = (sd / 1000.0).max(1e-3);
+    (p.tau * r.powf(p.tau_spread)).clamp(0.2, 2.0)
 }
 
 /// Team state of DESIGN 4.2: a rating, the usual lineup it was earned with, and

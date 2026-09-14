@@ -1,25 +1,66 @@
-# The production checkout; `just deploy` refits and restarts the site there.
-prod := "/home/pecheny/new_chgk_rating"
+# Everything that is done by hand, in one place. `just` with no recipe lists them.
+# The live site is rating2.pecheny.me, served by the chgk-rating unit out of
+# /home/pecheny/new_chgk_rating; see deploy/README.md.
 
-# Build both crates here.
+repo := justfile_directory()
+
+default:
+    @just --list
+
+# Build the model binaries and the site server.
 build:
     cargo build --release
-    cargo build --release --manifest-path web/Cargo.toml
+    cd web && cargo build --release
 
-# Fast-forward master in the production checkout to this branch and build there.
+# Publish this checkout to rating2.pecheny.me (about five minutes).
+deploy: build
+    deploy/update.sh
+
+# The same, but keep the buff.db that is already here.
+deploy-here: build
+    SKIP_SYNC=1 deploy/update.sh
+
+# A rehearsal: fit and evaluate in this directory, touch no service.
+deploy-dry: build
+    SKIP_SYNC=1 SKIP_RESTART=1 REPO="{{repo}}" deploy/update.sh
+
+# Fast-forward master in the production checkout to this branch, build there, publish.
+# From a worktree; `just ship` then `just deploy`.
+prod := "/home/pecheny/new_chgk_rating"
 ship:
     git -C {{prod}} merge --ff-only $(git rev-parse --abbrev-ref HEAD)
     cargo build --release --manifest-path {{prod}}/Cargo.toml
     cargo build --release --manifest-path {{prod}}/web/Cargo.toml
 
-# Sync buff.db, fetch team names, refit, eval, restart the site (what cron runs at 06:30 UTC).
-deploy:
-    REPO={{prod}} {{prod}}/deploy/update.sh
+# The last lines of the daily log, and whether the site is up.
+status:
+    @tail -n 12 out/update.log 2>/dev/null || echo "no out/update.log yet"
+    @systemctl is-active chgk-rating || true
+    @curl -sf -o /dev/null -w 'site %{http_code} in %{time_total}s\n' http://127.0.0.1:9684/ || echo "site did not answer"
 
-# Refit and restart without the rsync and the name fetch.
-redeploy:
-    REPO={{prod}} SKIP_SYNC=1 {{prod}}/deploy/update.sh
+# One full fit into out/ratings.db with the shipped config.
+fit:
+    ./target/release/fit --config config.toml
 
-# Score this checkout's out/final.db against every other system.
-compare db="out/final.db":
-    uv run tools/compare_ndcg.py {{db}}
+# The acceptance report, and the forecast metric on its own.
+report:
+    ./target/release/eval > out/eval.md
+    ./target/release/eval --ndcg
+
+# The forecast metric of every system, both ways of ordering a field.
+compare:
+    uv run tools/compare_ndcg.py --list
+
+# Where the forecast still loses: the worst fields, the features, the rivals.
+diagnose db="out/ratings.db":
+    uv run tools/q_diag.py {{db}} --teams 6 --cohorts
+    uv run tools/q_feat.py {{db}}
+    uv run tools/q_vs.py {{db}} out/ext/fun.db
+
+# One config sweep. `just sweep out/q_ndcg/batch2/glue.txt out/q2`.
+sweep batch dir="out/q_ndcg":
+    uv run tools/q_ndcg_sweep.py --dir {{dir}} --jobs 3 {{batch}}
+
+# Rebuild the rules report; needs the fonts of tools/fetch_fonts.py.
+rules:
+    typst compile --font-path fonts report/report.typ report/report.pdf

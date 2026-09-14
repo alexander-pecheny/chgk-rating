@@ -1,0 +1,31 @@
+# Three hypotheses neither round had: a fast channel the forecast alone reads,
+# an uncertainty term with the sign the winner of a bunched field needs, and a
+# temperature that knows how bunched the field is.
+#
+# A. The fast channel. The diagnosis says we lose to both rivals exactly on
+# lineups with long records, whose theta is frozen at sigma about 0.12. A second
+# Kalman state at a volatility floor tracks recent form; only the forecast reads
+# it, so the question fit, the gauge and the published table do not move.
+fa_v15_k03 player.v_fast=0.15 team.s2.k_fast=0.3
+fa_v15_k05 player.v_fast=0.15 team.s2.k_fast=0.5
+fa_v15_k10 player.v_fast=0.15 team.s2.k_fast=1.0
+fa_v30_k03 player.v_fast=0.3 team.s2.k_fast=0.3
+fa_v30_k05 player.v_fast=0.3 team.s2.k_fast=0.5
+fa_v30_k10 player.v_fast=0.3 team.s2.k_fast=1.0
+fa_v60_k03 player.v_fast=0.6 team.s2.k_fast=0.3
+fa_v60_k05 player.v_fast=0.6 team.s2.k_fast=0.5
+fa_v60_k10 player.v_fast=0.6 team.s2.k_fast=1.0
+fa_v08_k05 player.v_fast=0.08 team.s2.k_fast=0.5
+# B. The other sign of uncertainty. sigma_c lowers a table that might be weak;
+# a table that might be very good wins a bunched field more often than its mean
+# says, and nothing in the model has ever carried that term.
+sv_p05 team.s2.sigma_v=0.5
+sv_p10 team.s2.sigma_v=1.0
+sv_p20 team.s2.sigma_v=2.0
+sv_m05 team.s2.sigma_v=-0.5
+# C. A temperature that knows the field. The loss runs with how far apart the
+# top of a field is; read a bunched field more sharply than a spread one.
+ts_p15 team.s2.tau_spread=0.15
+ts_p30 team.s2.tau_spread=0.3
+ts_p60 team.s2.tau_spread=0.6
+ts_m30 team.s2.tau_spread=-0.3

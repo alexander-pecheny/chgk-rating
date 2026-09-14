@@ -574,3 +574,85 @@ with rating.chgk.fun from 115 to 130. Fourteen of the twenty are the same people
   first thing anyone reading section 1.6 will want to try.
 - **The weights were not re-derived.** They are still frozen at commit
   `fffb987`, as the protocol requires.
+
+Section 8 adds four hypotheses that were not on the plan's list, written after
+the diagnosis rather than before it. All four lose, and between them they close
+`include_unrated` and the two readings of section 1 that looked most like
+levers.
+
+## 8. Four more hypotheses, after the diagnosis
+
+The seven levers of the plan were written before the residual was looked at.
+Section 1 says the residual has no exploitable structure, and the honest test of
+that claim is to attack it from directions the plan did not list. Four were
+built and run against the shipped winner; the base is `out/q3/base.toml` and the
+rows are `out/q3/results.tsv`.
+
+| hypothesis | best point | tune NDCG | tune @3 | test NDCG | d NDCG | SE |
+|---|---|---:|---:|---:|---:|---:|
+| **the winner, the base** | | 0.8948 | 0.7806 | 0.9077 | - | - |
+| A. a fast channel for the forecast | `v_fast` 0.08, `k_fast` 0.5 | 0.8921 | 0.7773 | 0.9051 | −0.0027 | 0.0015 |
+| A, harsher | `v_fast` 0.3, `k_fast` 0.5 | 0.8534 | 0.6903 | 0.8635 | −0.0414 | 0.0042 |
+| B. the lineup's own spread | `sigma_v` −0.5 | 0.8924 | 0.7743 | 0.9066 | −0.0024 | 0.0011 |
+| B, the other sign | `sigma_v` +0.5 | 0.8914 | 0.7726 | 0.9026 | −0.0033 | 0.0011 |
+| C. a field-adaptive temperature | `tau_spread` 0.15 | 0.8942 | 0.7773 | 0.9072 | −0.0006 | 0.0006 |
+| D. train on the unrated tournaments | `include_unrated` | — | — | — | −0.0051 | 0.0024 |
+
+**A. A fast channel the forecast alone reads.** The sharpest fact in section 1.6
+is that we lose to *both* rivals exactly on lineups with long records — players
+whose `σ` has settled near 0.12 and whose `θ` therefore cannot move more than a
+hundredth per tournament. The obvious missing object is recent form. So: a
+second Kalman state for the same `θ`, kept at a volatility floor of its own,
+taking the same step against the same gradient, read **only** by the forecast as
+`θ + k_fast (θ_fast − θ)` — the question fit, the gauge and the published table
+keep the long-run estimate, so none of the objections to simply raising `v_min`
+apply. It is negative at every point of a 3 × 3 grid and monotone in both
+parameters: −0.0027 at the gentlest setting and −0.15 at the harshest, on both
+windows. **Recent form is a worse predictor of tomorrow than the long-run
+estimate**, and the more of it the forecast reads the worse it gets. That is a
+statement about the game, not about the code: a player's strength in this data
+really is close to constant, and the model's slowness is not a deficit.
+
+**B. The other sign of uncertainty.** `σ_c` reads every player at `θ − 1.5σ`, a
+pessimistic *mean* shift. But the metric rewards ordering the top of a field, and
+in a bunched field a table that *might* be very good wins more often than its
+expected strength says — the win probability is convex in strength there. Nothing
+in either model carried that term, so: add the lineup's aggregate sd to its
+strength, `Q(L) + σ_v · sd`. It loses at `+0.5` (−0.0033) and it also loses at
+`−0.5` (−0.0024). Both signs, so `σ_c = 1.5` is at a genuine interior optimum
+and the convexity argument, which is correct in theory, is worth less than the
+noise it adds.
+
+**C. A temperature that knows the field.** Section 1.4 is the strongest single
+fact in the whole diagnosis: a field's NDCG runs from 0.847 to 0.936 with the gap
+between its first and fourth lineup. The natural response is to read a bunched
+field more sharply — `τ_eff = τ (spread/1000)^{tau_spread}`, so a field whose
+lineups stand 400 points apart is ordered more by each table's best player and
+one whose lineups stand 2000 apart more by the table as a whole. It is −0.0006 at
+0.15, −0.0017 at 0.6 and −0.0020 at −0.3. **Bunched fields do not want a
+different rule; they are simply harder.** Section 1.4 describes a ceiling, not a
+lever, and this is the experiment that tells the two apart.
+
+**D. Training on the unrated tournaments.** Both rounds left this alone because
+it changes the set of tournaments the metric covers. It is also the one
+hypothesis with external evidence behind it: chgk.quest trains on those
+tournaments, and section 1.6 says chgk.quest's advantage sits exactly where more
+data per player would show — the best-established lineups. Scored honestly on
+the 650 fields both models cover (`tools/ndcg.py --common`, so the extra
+tournaments enter neither mean) it is **−0.0051 ± 0.0024** of weighted tune NDCG
+and −0.0158 ± 0.0057 at 3, and −0.0045 with `w_async = 0.25` on top. The
+tournaments the official system leaves out are left out for a reason; the volume
+does not pay for the noise. That is the last hypothesis with a reason behind it,
+and it is answered.
+
+**What these four are worth.** They are negatives, and they are the useful kind.
+Each was aimed at a specific thing the diagnosis identified — the frozen `θ` of
+established players, the convexity at the top of a bunched field, the bunching
+itself, the data we exclude — and each says the same thing from a different
+direction: *the remaining loss is not information the model is failing to use.*
+After the plan's seven levers and these four, the forecast has been attacked from
+eleven angles in this round and the total gain is +0.0009 of tune NDCG. The next
+thing to try should not be another parameter. It should be a different kind of
+observation — a per-pair or per-lineup synergy term learned from the masks, a
+venue or travel effect, or the question texts themselves — and each of those is a
+larger piece of work than this plan had room for.
