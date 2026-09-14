@@ -125,7 +125,8 @@ page and in search.
 
 Live at https://rating2.pecheny.me: `chgk-rating.service` runs the binary on
 port 9684 and Caddy proxies to it. After a refit, `sudo systemctl restart
-chgk-rating` rebuilds the index and picks up the new numbers.
+chgk-rating` rebuilds the index and picks up the new numbers. Cron does all of
+that at 06:30 UTC every day; `deploy/README.md` says how.
 
 ## anomaly
 
