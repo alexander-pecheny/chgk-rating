@@ -61,6 +61,11 @@ pub struct Tournament {
     pub day: i32,
     pub format: Format,
     pub weight: f64,
+    /// A tournament the official system leaves out, loaded under
+    /// `data.train_unrated`: it moves the players and nothing else. No team
+    /// state opens or moves on it, it writes no team event and it never enters
+    /// the metric's tournament set.
+    pub train_only: bool,
     pub editors: Vec<u32>,
     pub teams: Vec<TeamResult>,
     pub n_q: usize,
@@ -148,7 +153,7 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
         &cfg.data.db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
     )?;
-    let rated = if cfg.data.include_unrated {
+    let rated = if cfg.data.include_unrated || cfg.data.train_unrated {
         ""
     } else {
         "t.in_rating = 1 AND"
@@ -156,7 +161,7 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
     let mut stmt = conn.prepare(&format!(
         "SELECT t.id, substr(t.date_start,1,10), t.tournament_type, t.editors,
                 r.team_id, r.position, r.questions_total, r.mask, r.team_members, r.rating,
-                t.questions_by_tour
+                t.questions_by_tour, t.in_rating
          FROM tournaments t JOIN tournament_results r ON r.id = t.id
          WHERE {rated} substr(t.date_start,1,10) >= ?1 AND substr(t.date_start,1,10) < ?2
          ORDER BY substr(t.date_start,1,10), t.id"
@@ -188,7 +193,15 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
                     continue;
                 }
             };
-            let weight = format.weight(cfg);
+            // `train_unrated` keeps the unrated tournaments for the player side
+            // only, at a weight of their own; `include_unrated` treats them as
+            // ordinary tournaments, which is the switch round 2 measured.
+            let in_rating: i64 = row.get::<_, Option<i64>>(11)?.unwrap_or(0);
+            let train_only = cfg.data.train_unrated && !cfg.data.include_unrated && in_rating == 0;
+            let mut weight = format.weight(cfg);
+            if train_only {
+                weight *= cfg.data.w_unrated;
+            }
             if weight <= 0.0 {
                 skip_id = tid;
                 continue;
@@ -212,6 +225,7 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
                 day,
                 format,
                 weight,
+                train_only,
                 editors,
                 teams: Vec::new(),
                 n_q: 0,

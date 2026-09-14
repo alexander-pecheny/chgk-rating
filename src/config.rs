@@ -112,6 +112,22 @@ pub struct S2 {
     /// Widens that discount for a player whose evidence is mostly not in person:
     /// the factor is `1 + sigma_ip / (1 + n_in_person)`. 0 leaves it flat.
     pub sigma_ip: f64,
+    /// A quantile of the lineup instead of one of each player: the strength is
+    /// lowered by `q_sigma_c · sd(Q(L))`, the sd of the roster estimate
+    /// propagated from the players' sigma. 0 leaves it alone.
+    pub q_sigma_c: f64,
+    /// Display points the forecast gains per unit of `T(L)`, the mean over the
+    /// pairs of a lineup of `log(1 + rated games together)`. 0 is off.
+    pub chemistry: f64,
+    /// Rank the field by the expected number of answers on a package of the
+    /// difficulty a field of this strength usually gets, instead of by `Q(L)`.
+    /// The difficulties come from the in-person tournaments already fitted, so
+    /// nothing today's field carries enters its own forecast.
+    pub difficulty_forecast: bool,
+    /// Display points the forecast gains per unit of a team's mean surprise over
+    /// its last `series_k` in-person results. 0 is off.
+    pub kappa_s: f64,
+    pub series_k: usize,
     pub player_scale: f64,
     pub player_zero: f64,
     /// Questions of score gap worth a whole win; 0 is the win/lose rule.
@@ -141,6 +157,11 @@ impl Default for S2 {
             tau: 1.0,
             sigma_c: 0.0,
             sigma_ip: 0.0,
+            q_sigma_c: 0.0,
+            chemistry: 0.0,
+            difficulty_forecast: false,
+            kappa_s: 0.0,
+            series_k: 5,
             player_scale: 2454.8828,
             player_zero: 6000.0,
             margin_g: 0.0,
@@ -209,6 +230,14 @@ pub struct Data {
     /// Tournaments the official system leaves out; chgk.quest trains on them.
     #[serde(default)]
     pub include_unrated: bool,
+    /// The same tournaments, but for the player side only: they move `theta` and
+    /// `phi` and never open or move a team state, never produce a team event and
+    /// never enter the metric's tournament set.
+    #[serde(default)]
+    pub train_unrated: bool,
+    /// Weight of one of those tournaments, on top of its format weight.
+    #[serde(default = "one")]
+    pub w_unrated: f64,
     /// Per-entity rows are written every Nth release and always on the last;
     /// `0` means the last release only.
     pub rows_every: i64,
@@ -288,6 +317,61 @@ pub struct Question {
     /// Prior width of that scalar.
     #[serde(default = "s_phi")]
     pub s_psi: f64,
+    /// A single global collaboration exponent: `P = (1 − e^{−u})^m` for every
+    /// question. 1 is the noisy-OR every round so far has fitted, and the
+    /// take-rate closed form solves `b` from `r^{1/m}` when it is not.
+    #[serde(default = "one")]
+    pub m_fixed: f64,
+    /// A single global discrimination, read at an in-person table only; 1 is the
+    /// pinned value of every round so far. The take-rate closed form solves `b`
+    /// with this `a`, so the difficulties stay on the take rate.
+    #[serde(default = "one")]
+    pub a_in_person: f64,
+    /// Lineup chemistry inside the likelihood: the team's intensity is
+    /// `u · exp(chem_u · T(L))`, so a lineup that has played together often
+    /// reaches further and its players are credited less for what it answers.
+    /// 0 leaves the likelihood alone.
+    #[serde(default)]
+    pub chem_u: f64,
+    /// Whether the editor affinity of section 3.6 is a property of every player
+    /// or of a strong one; `none` is the shipped model.
+    #[serde(default = "flat_affinity")]
+    pub aff_strength: AffStrength,
+    /// `aff_strength = "scale"`: the affinity of a player at `theta` is
+    /// multiplied by `exp(aff_kappa · theta)`, clipped to `[0, aff_s_max]`.
+    /// The gauge centres the established panel at `theta = 0`, so that is the
+    /// reference the multiplier is one at.
+    #[serde(default = "one")]
+    pub aff_kappa: f64,
+    #[serde(default = "five")]
+    pub aff_s_max: f64,
+    /// `aff_strength = "gate"`: the share of the established panel that carries
+    /// an affinity vector at all. 0.2 is the top fifth.
+    #[serde(default)]
+    pub aff_gate: f64,
+}
+
+/// Whether every player's editor affinity counts the same, or a strong player's
+/// counts for more. A weak player misses a question whoever wrote it; the
+/// hypothesis is that reading an editor well is something only a strong player
+/// has room to do.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AffStrength {
+    /// Every player's vector counts the same: the model of DESIGN 3.6.
+    None,
+    /// Multiply the affinity, and its gradient, by `exp(aff_kappa · theta)`.
+    Scale,
+    /// Only the top `aff_gate` of the established panel carries a vector.
+    Gate,
+}
+
+fn flat_affinity() -> AffStrength {
+    AffStrength::None
+}
+
+fn five() -> f64 {
+    5.0
 }
 
 fn s_phi() -> f64 {

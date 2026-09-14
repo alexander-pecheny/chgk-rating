@@ -1,5 +1,7 @@
+use chgk_rating::chemistry::Chemistry;
 use chgk_rating::config::{Config, TeamEngine};
 use chgk_rating::data::Arena;
+use chgk_rating::difficulty::Difficulties;
 use chgk_rating::gauge::{self, Activity};
 use chgk_rating::output::Writer;
 use chgk_rating::question_model as qm;
@@ -152,16 +154,19 @@ impl Engine {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn step(
         &mut self,
         t: &chgk_rating::data::Tournament,
         players: &qm::Players,
         params: &[qm::QParams],
+        chem: &Chemistry,
+        diff: &Difficulties,
         cfg: &Config,
     ) -> Vec<TeamEvent> {
         match self {
             Engine::Kalman(e) => e.step(t, players, params, cfg),
-            Engine::S2(e) => e.step(t, players, cfg),
+            Engine::S2(e) => e.step(t, players, chem, diff, cfg),
         }
     }
 
@@ -203,6 +208,8 @@ fn run_pass(
 ) -> Result<i64, Box<dyn std::error::Error>> {
     let zfrom = crate_parse_date("2018-01-01").unwrap();
     let mut teams = Engine::new(arena.n_teams(), cfg);
+    let mut chem = Chemistry::new(cfg.question.chem_u != 0.0 || cfg.team.s2.chemistry != 0.0);
+    let mut diff = Difficulties::new(cfg.team.s2.difficulty_forecast);
     let mut activity = Activity::new(arena.n_players());
     // Last published raw value per entity, so `change` excludes the gauge shift.
     let mut prev_p = vec![f64::NAN; arena.n_players()];
@@ -242,20 +249,43 @@ fn run_pass(
         }
         players.seed(t, cfg);
 
-        let field = qm::build_field(t, players, cfg);
+        let field = qm::build_field(t, players, &chem, cfg);
         let mut n_obs = 0u64;
         let mut cross = 0.0;
-        for half in 0..2u8 {
-            let p = qm::fit_all(&field, Some(half), cfg);
-            let (s, k) = qm::score(&field, &p, Some(1 - half), cfg);
-            cross += s;
-            n_obs += k;
+        // A tournament kept for the player side alone is never scored and never
+        // listed, so the cross-fit it would need is not run either.
+        if !t.train_only {
+            for half in 0..2u8 {
+                let p = qm::fit_all(&field, Some(half), cfg);
+                let (s, k) = qm::score(&field, &p, Some(1 - half), cfg);
+                cross += s;
+                n_obs += k;
+            }
         }
         let params = qm::fit_all(&field, None, cfg);
         let (ins, n_all) = qm::score(&field, &params, None, cfg);
         let grads = qm::player_grads(&field, &params, cfg);
-        let events = teams.step(t, players, &params, cfg);
+        let events = if t.train_only {
+            Vec::new()
+        } else {
+            teams.step(t, players, &params, &chem, &diff, cfg)
+        };
+        // The difficulty sample and the pair counter are advanced only once the
+        // tournament has been forecast, so neither reads its own field.
+        if diff.on() && t.format == chgk_rating::data::Format::InPerson && !t.train_only {
+            let mut q: Vec<f64> = events.iter().map(|e| e.s_r).filter(|x| x.is_finite()).collect();
+            q.sort_by(|a, b| b.total_cmp(a));
+            let k = 10.min(q.len());
+            if k > 0 {
+                let s = q[..k].iter().sum::<f64>() / k as f64;
+                diff.absorb(s, params.iter().map(|p| p.b));
+            }
+        }
+        if !t.train_only {
+            chem.absorb(t);
+        }
 
+        let w = if t.train_only { None } else { w };
         if let Some(w) = w {
             w.question_params(
                 t.id,
@@ -396,6 +426,15 @@ fn emit_release(
     activity.expire_before(day - cfg.gauge.window_days);
     let shift = gauge::shift(players, activity, cfg.gauge.n_est);
     players.shift_cum += shift;
+    // The affinity gate stands at a quantile of the same established panel the
+    // gauge centres, so "a strong player" means strong against today's field.
+    if cfg.question.aff_strength == chgk_rating::config::AffStrength::Gate {
+        let mut panel: Vec<f64> = (0..arena.n_players())
+            .filter(|&i| activity.count[i] >= cfg.gauge.n_est)
+            .map(|i| players.theta(i))
+            .collect();
+        players.set_gate(&mut panel, cfg.question.aff_gate);
+    }
     let mut rows = Vec::new();
     for (i, &c) in activity.count.iter().enumerate() {
         if c > 0 {

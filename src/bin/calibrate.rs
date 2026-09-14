@@ -167,9 +167,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let (mut rn, mut rs, mut rss, mut vsum) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
 
+    let mut chem = chgk_rating::chemistry::Chemistry::new(cfg.question.chem_u != 0.0);
     for t in &arena.tournaments {
         players.seed(t, &cfg);
-        let field = qm::build_field(t, &players, &cfg);
+        let field = qm::build_field(t, &players, &chem, &cfg);
         let params = qm::fit_all(&field, None, &cfg);
         let in_window = t.format == Format::InPerson && t.day >= lo && t.day < hi;
         if in_window {
@@ -226,6 +227,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         let grads = qm::player_grads(&field, &params, &cfg);
+        chem.absorb(t);
         players.absorb(t, &grads, &mut ed_seen, false, &cfg);
     }
 

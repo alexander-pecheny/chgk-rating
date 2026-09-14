@@ -15,6 +15,8 @@ use chgk_rating::data::{Arena, Format};
 use chgk_rating::gauge::{self, Activity};
 use chgk_rating::question_model as qm;
 use chgk_rating::team_ndcg::{self as metric, QUALIFY, TEST, TUNE, WEIGHTS};
+use chgk_rating::chemistry::Chemistry;
+use chgk_rating::difficulty::Difficulties;
 use chgk_rating::team_s2::{rows_of, Row, TeamsS2};
 use chgk_rating::util::{next_thursday, parse_date};
 use std::collections::{HashMap, HashSet};
@@ -275,6 +277,10 @@ fn build_cache(arena: &Arena, cfg: &Config) -> Vec<Cached> {
         let mut activity = Activity::new(arena.n_players());
         let mut next_rel = next_thursday(from_day);
         cache.clear();
+        // The team sweep replays the rows, so it needs the pair counter the
+        // forecast reads; it never scores a difficulty-aware forecast.
+        let mut chem = Chemistry::new(cfg.question.chem_u != 0.0 || cfg.team.s2.chemistry != 0.0);
+        let diff = Difficulties::new(false);
         for (n, t) in arena.tournaments.iter().enumerate() {
             if snap.is_empty() && t.day >= warm_until {
                 snap = players.snapshot();
@@ -286,7 +292,7 @@ fn build_cache(arena: &Arena, cfg: &Config) -> Vec<Cached> {
                 next_rel += 7;
             }
             players.seed(t, cfg);
-            let field = qm::build_field(t, &players, cfg);
+            let field = qm::build_field(t, &players, &chem, cfg);
             let params = qm::fit_all(&field, None, cfg);
             let grads = qm::player_grads(&field, &params, cfg);
             if last {
@@ -295,9 +301,10 @@ fn build_cache(arena: &Arena, cfg: &Config) -> Vec<Cached> {
                     day: t.day,
                     format: t.format,
                     weight: t.weight,
-                    rows: rows_of(t, &players, cfg),
+                    rows: rows_of(t, &players, &chem, &diff, cfg),
                 });
             }
+            chem.absorb(t);
             let collect = t.format == Format::InPerson && t.day >= zfrom;
             players.absorb(t, &grads, &mut ed_seen, collect, cfg);
             players.shrink_to_lineups(t, cfg);

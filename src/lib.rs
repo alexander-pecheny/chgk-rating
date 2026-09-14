@@ -1,5 +1,7 @@
+pub mod chemistry;
 pub mod config;
 pub mod data;
+pub mod difficulty;
 pub mod display;
 pub mod gauge;
 pub mod ndcg;

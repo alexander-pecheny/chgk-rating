@@ -1,8 +1,10 @@
 //! Model S2, the shipped team engine of DESIGN 4: Elo in a field, kept on the
 //! published scale. `src/bin/simple.rs` is the same rules as a research tool.
 
+use crate::chemistry::Chemistry;
 use crate::config::{Config, MarginShape, PullTarget, S2Lineup, S2};
 use crate::data::{Format, Tournament};
+use crate::difficulty::Difficulties;
 use crate::question_model::Players;
 use crate::team_model::TeamEvent;
 use crate::util::avg_ranks;
@@ -64,6 +66,29 @@ pub fn lineup_strength(rs: &[f64], p: &S2) -> f64 {
     }
 }
 
+/// The sd of the tempered roster estimate, propagated from the players'
+/// uncertainty: `sqrt(Σ w_i² (scale σ_i)²)` over the softmax weights the roster
+/// estimate puts on the members. A lineup of six moderately uncertain players
+/// and one with a single unknown have the same mean σ and different sd.
+fn roster_sd(rs: &[f64], sigmas: &[f64], p: &S2) -> f64 {
+    let t = p.player_scale * p.tau;
+    let mx = rs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let e: Vec<f64> = rs.iter().map(|&x| ((x - mx) / t).exp()).collect();
+    let s: f64 = e.iter().sum();
+    if s <= 0.0 {
+        return 0.0;
+    }
+    e.iter()
+        .zip(sigmas)
+        .map(|(&w, &sg)| {
+            let w = w / s;
+            let d = w * p.player_scale * sg;
+            d * d
+        })
+        .sum::<f64>()
+        .sqrt()
+}
+
 /// One result as the team engine sees it: no players left, only the number the
 /// lineup that turned up is worth. `src/bin/team_sweep.rs` replays these.
 #[derive(Clone, Copy)]
@@ -76,16 +101,29 @@ pub struct Row {
     pub rated: bool,
     /// Strength of the lineup that turned up; NaN when no lineup was listed.
     pub q: f64,
+    /// The forecast, when it is not `q`: the expected number of answers on a
+    /// package of the difficulty this field usually gets. NaN otherwise.
+    pub e_ans: f64,
 }
 
 /// Everything the team rules of a tournament read off the player states, which
 /// is one number per result. `team_sweep` computes these once and replays them.
-pub fn rows_of(t: &Tournament, players: &Players, cfg: &Config) -> Vec<Row> {
+pub fn rows_of(
+    t: &Tournament,
+    players: &Players,
+    chem: &Chemistry,
+    diff: &Difficulties,
+    cfg: &Config,
+) -> Vec<Row> {
     let p = &cfg.team.s2;
     let vbar = players.editor_mean(t);
-    t.teams
+    let a = crate::question_model::a_of(t.format, cfg);
+    let m = cfg.question.m_fixed;
+    let mut rows: Vec<Row> = t
+        .teams
         .iter()
         .map(|res| {
+            let mut sigmas = Vec::with_capacity(res.members.len());
             let rs: Vec<f64> = res
                 .members
                 .iter()
@@ -96,26 +134,78 @@ pub fn rows_of(t: &Tournament, players: &Players, cfg: &Config) -> Vec<Row> {
                     // `sigma_ip > 0` widens the discount again for a player whose
                     // evidence is mostly not from an in-person table.
                     let ip = players.state[i].games_ip as f64;
-                    let pess = p.sigma_c
-                        * players.sigma_at(i, t.day, cfg)
-                        * (1.0 + p.sigma_ip / (1.0 + ip));
+                    let sg = players.sigma_at(i, t.day, cfg);
+                    sigmas.push(sg);
+                    let pess = p.sigma_c * sg * (1.0 + p.sigma_ip / (1.0 + ip));
                     player_rating(players.theta(i) + players.affinity(i, &vbar) - pess, cfg)
                 })
                 .collect();
+            let q = if rs.is_empty() {
+                f64::NAN
+            } else {
+                // Chemistry raises what the lineup is worth, and the lineup's own
+                // sd lowers it; both are display points on top of `Q(L)`.
+                lineup_strength(&rs, p) + p.chemistry * chem.t(&res.members)
+                    - p.q_sigma_c * roster_sd(&rs, &sigmas, p)
+            };
             Row {
                 team: res.team,
                 position: res.position,
                 score: res.score,
                 pred_pos: res.pred_pos,
                 rated: res.rated,
-                q: if rs.is_empty() {
-                    f64::NAN
-                } else {
-                    lineup_strength(&rs, p)
-                },
+                q,
+                e_ans: f64::NAN,
             }
         })
-        .collect()
+        .collect();
+    if !diff.on() {
+        return rows;
+    }
+    // The field's strength, for the bucket of difficulties to score it against.
+    let mut top: Vec<f64> = rows.iter().map(|r| r.q).filter(|q| q.is_finite()).collect();
+    top.sort_by(|a, b| b.total_cmp(a));
+    let k = 10.min(top.len());
+    if k == 0 {
+        return rows;
+    }
+    let strength = top[..k].iter().sum::<f64>() / k as f64;
+    let bs = diff.sample(strength);
+    if bs.is_empty() {
+        return rows;
+    }
+    // Each lineup's expected share of such a package. A result with no lineup
+    // stands at six equal players worth its own `q`, so the two scales agree.
+    for (r, res) in rows.iter_mut().zip(&t.teams) {
+        let z: Vec<f64> = if res.members.is_empty() {
+            Vec::new()
+        } else {
+            res.members
+                .iter()
+                .map(|&i| {
+                    let i = i as usize;
+                    let ip = players.state[i].games_ip as f64;
+                    let pess = p.sigma_c
+                        * players.sigma_at(i, t.day, cfg)
+                        * (1.0 + p.sigma_ip / (1.0 + ip));
+                    players.theta(i) + players.affinity(i, &vbar) - pess
+                })
+                .collect()
+        };
+        if z.is_empty() {
+            continue;
+        }
+        let mut sum = 0.0;
+        for &b in bs {
+            let u: f64 = z
+                .iter()
+                .map(|&zi| (a * (zi - b)).clamp(cfg.numeric.exp_lo, cfg.numeric.exp_hi).exp())
+                .sum();
+            sum += (-(-u).exp_m1()).powf(m);
+        }
+        r.e_ans = sum / bs.len() as f64;
+    }
+    rows
 }
 
 /// Team state of DESIGN 4.2: a rating, the usual lineup it was earned with, and
@@ -125,6 +215,11 @@ pub struct TeamsS2 {
     qbar: Vec<f64>,
     games: Vec<f64>,
     last: Vec<i32>,
+    /// The last `series_k` in-person surprises of each team: how far its own
+    /// lineup forecast put it from where it finished, in fields of the field's
+    /// own size. Teams that peak at a championship do so every year, and this is
+    /// the only quantity in the engine that carries that and is not the rating.
+    surprise: Vec<Vec<f64>>,
 }
 
 /// What the pairwise stage needs, read off the pre-tournament states.
@@ -170,6 +265,17 @@ impl TeamsS2 {
             qbar: vec![f64::NAN; n],
             games: vec![0.0; n],
             last: vec![i32::MIN / 2; n],
+            surprise: vec![Vec::new(); n],
+        }
+    }
+
+    /// The mean of a team's stored surprises, 0 when it has none.
+    fn sbar(&self, i: usize) -> f64 {
+        let v = &self.surprise[i];
+        if v.is_empty() {
+            0.0
+        } else {
+            v.iter().sum::<f64>() / v.len() as f64
         }
     }
 
@@ -183,8 +289,15 @@ impl TeamsS2 {
     }
 
     /// One tournament: DESIGN 4.3. Player states must be the pre-tournament ones.
-    pub fn step(&mut self, t: &Tournament, players: &Players, cfg: &Config) -> Vec<TeamEvent> {
-        let rows = rows_of(t, players, cfg);
+    pub fn step(
+        &mut self,
+        t: &Tournament,
+        players: &Players,
+        chem: &Chemistry,
+        diff: &Difficulties,
+        cfg: &Config,
+    ) -> Vec<TeamEvent> {
+        let rows = rows_of(t, players, chem, diff, cfg);
         self.step_rows(t.day, t.weight, t.format, &rows, &cfg.team.s2)
     }
 
@@ -221,12 +334,29 @@ impl TeamsS2 {
                 }
                 q
             };
+            // The published forecast. `difficulty_forecast` replaces the lineup's
+            // strength by what it is expected to answer; `kappa_s` adds the
+            // team's recent over- or under-performance against its own forecast,
+            // which is the one bonus that is not a property of today's lineup.
+            let fc = if res.e_ans.is_finite() {
+                res.e_ans
+            } else if q.is_nan() {
+                f
+            } else {
+                q
+            };
+            let fc = fc
+                + if p.kappa_s != 0.0 && format == Format::InPerson {
+                    p.kappa_s * self.sbar(idx)
+                } else {
+                    0.0
+                };
             es.push(Entry {
                 ri,
                 idx,
                 f,
                 q,
-                fc: if q.is_nan() { f } else { q },
+                fc,
                 qbar: self.qbar[idx],
                 place: if res.position > 0.0 {
                     res.position
@@ -330,6 +460,16 @@ impl TeamsS2 {
                 }
                 self.games[e.idx] += 1.0;
                 self.last[e.idx] = day;
+                // Today's surprise joins the memory only after today's forecast
+                // has been made, so a result never predicts itself.
+                if p.kappa_s != 0.0 && format == Format::InPerson && p.series_k > 0 {
+                    let s = (fplace[k] - rows[e.ri].position) / (n as f64);
+                    let v = &mut self.surprise[e.idx];
+                    v.push(s);
+                    if v.len() > p.series_k {
+                        v.remove(0);
+                    }
+                }
             }
             out.push(TeamEvent {
                 team: e.idx as u32,
