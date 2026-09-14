@@ -56,6 +56,13 @@ impl Chemistry {
         sum / n as f64
     }
 
+    /// `ln(1 + games together)` for one pair, which is the term `t` averages.
+    /// The feature table of plan 8 wants the spread of these and not only
+    /// their mean.
+    pub fn pair(&self, a: u32, b: u32) -> f64 {
+        (self.pairs.get(&key(a, b)).copied().unwrap_or(0) as f64).ln_1p()
+    }
+
     /// Counts one tournament's rated lineups. An unrated result is not a game
     /// the two players played together for this purpose, the same rule the team
     /// state follows.

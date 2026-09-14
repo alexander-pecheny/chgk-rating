@@ -52,6 +52,9 @@ pub struct TeamResult {
     /// The old system's per-result `inRating`; false means a pickup lineup that
     /// earns its team no rating, no evidence and no place in the table.
     pub rated: bool,
+    /// The town the team was registered in, from the mirror. `fit --features`
+    /// compares it with the tournament's own town; nothing else reads it.
+    pub team_town: Option<i64>,
     pub members: Vec<u32>,
     pub mask: Vec<u8>,
 }
@@ -67,6 +70,8 @@ pub struct Tournament {
     /// the metric's tournament set.
     pub train_only: bool,
     pub editors: Vec<u32>,
+    /// Where the tournament was played, for the home/away feature.
+    pub town: Option<i64>,
     pub teams: Vec<TeamResult>,
     pub n_q: usize,
     pub n_q_declared: usize,
@@ -138,6 +143,17 @@ fn json_true(s: &str, key: &str) -> bool {
     }
 }
 
+/// A town id as the mirror happens to store it: some rows hold the number as
+/// text and some as an integer, and either is the same town.
+fn as_id(v: rusqlite::types::Value) -> Option<i64> {
+    match v {
+        rusqlite::types::Value::Integer(i) => Some(i),
+        rusqlite::types::Value::Real(x) => Some(x as i64),
+        rusqlite::types::Value::Text(t) => t.trim().parse().ok(),
+        _ => None,
+    }
+}
+
 fn parse_mask(s: &str, out: &mut Vec<u8>) {
     for c in s.bytes() {
         out.push(match c {
@@ -161,7 +177,7 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
     let mut stmt = conn.prepare(&format!(
         "SELECT t.id, substr(t.date_start,1,10), t.tournament_type, t.editors,
                 r.team_id, r.position, r.questions_total, r.mask, r.team_members, r.rating,
-                t.questions_by_tour, t.in_rating
+                t.questions_by_tour, t.in_rating, t.town_id, r.team_current_town
          FROM tournaments t JOIN tournament_results r ON r.id = t.id
          WHERE {rated} substr(t.date_start,1,10) >= ?1 AND substr(t.date_start,1,10) < ?2
          ORDER BY substr(t.date_start,1,10), t.id"
@@ -227,6 +243,7 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
                 weight,
                 train_only,
                 editors,
+                town: as_id(row.get(12)?),
                 teams: Vec::new(),
                 n_q: 0,
                 n_q_declared: declared,
@@ -264,6 +281,7 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
             score,
             pred_pos,
             rated,
+            team_town: as_id(row.get(13)?),
             members,
             mask,
         });

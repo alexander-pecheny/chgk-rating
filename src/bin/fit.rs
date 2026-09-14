@@ -3,6 +3,7 @@ use chgk_rating::config::{Config, TeamEngine};
 use chgk_rating::data::Arena;
 use chgk_rating::difficulty::Difficulties;
 use chgk_rating::editor_memory::EditorMemory;
+use chgk_rating::features::Features;
 use chgk_rating::gauge::{self, Activity};
 use chgk_rating::output::Writer;
 use chgk_rating::question_model as qm;
@@ -59,6 +60,36 @@ fn apply_swap(arena: &mut Arena, spec: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// `--scramble DATE`: from DATE on, every tournament's finishing places and
+/// answer masks are permuted among its teams. Nothing a lineup can be judged by
+/// on the morning of its tournament changes, so every feature row of the first
+/// such day must come out bit-identical; `tools/features_check.py` asserts that,
+/// and it is the leakage test plan 8 turns on.
+fn apply_scramble(arena: &mut Arena, date: &str) -> Result<(), String> {
+    let day = parse_date(date).ok_or("--scramble: bad date")?;
+    let mut rng = chgk_rating::util::Rng::new(0x5C2A_3B1E);
+    let mut n = 0;
+    for t in arena.tournaments.iter_mut().filter(|t| t.day >= day) {
+        let k = t.teams.len();
+        if k < 2 {
+            continue;
+        }
+        let mut ord: Vec<usize> = (0..k).collect();
+        for i in (1..k).rev() {
+            ord.swap(i, (rng.next_u64() % (i as u64 + 1)) as usize);
+        }
+        let pos: Vec<f64> = t.teams.iter().map(|r| r.position).collect();
+        let masks: Vec<Vec<u8>> = t.teams.iter().map(|r| r.mask.clone()).collect();
+        for (i, &j) in ord.iter().enumerate() {
+            t.teams[i].position = pos[j];
+            t.teams[i].mask = masks[j].clone();
+        }
+        n += 1;
+    }
+    println!("scramble: {n} tournaments permuted from {date}");
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cfg_path = arg("--config").unwrap_or_else(|| "config.toml".into());
     let mut cfg = Config::load(&cfg_path)?;
@@ -92,6 +123,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(s) = arg("--swap") {
         apply_swap(&mut arena, &s)?;
     }
+    if let Some(d) = arg("--scramble") {
+        apply_scramble(&mut arena, &d)?;
+    }
     println!(
         "loaded {} tournaments, {} players, {} teams, {} editors in {:.1}s",
         arena.tournaments.len(),
@@ -104,6 +138,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let passes = arg("--passes").map_or(cfg.data.passes, |v| v.parse().unwrap_or(1));
     let warm_until = parse_date(&cfg.player.warm_until).ok_or("bad player.warm_until")?;
     let mut snap: Vec<Option<f64>> = Vec::new();
+    // The wide feature table of plan 8, written on the last pass only. It is a
+    // research output: nothing in the model reads it and asking for it changes
+    // no number the fit produces.
+    let features = arg("--features");
     let diag = arg("--diag-player").and_then(|v| v.parse::<i64>().ok());
     let diag = diag.and_then(|id| arena.player_ids.iter().position(|x| *x == id));
     let mut players = qm::Players::new(arena.n_players(), arena.n_editors(), &cfg);
@@ -128,6 +166,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &mut snap,
             diag,
             start,
+            last.then_some(features.as_deref()).flatten(),
         )?;
         if let Some(w) = w {
             w.finish()?;
@@ -205,12 +244,18 @@ fn run_pass(
     snap: &mut Vec<Option<f64>>,
     diag: Option<usize>,
     start: Instant,
+    features: Option<&str>,
 ) -> Result<i64, Box<dyn std::error::Error>> {
     let zfrom = crate_parse_date("2018-01-01").unwrap();
     let mut teams = Engine::new(arena.n_teams(), cfg);
-    let mut chem = Chemistry::new(cfg.question.chem_u != 0.0 || cfg.team.s2.chemistry != 0.0);
+    let mut chem = Chemistry::new(
+        cfg.question.chem_u != 0.0 || cfg.team.s2.chemistry != 0.0 || features.is_some(),
+    );
     let mut diff = Difficulties::new(cfg.team.s2.difficulty_forecast);
     let mut edmem = EditorMemory::new(cfg.team.s2.editor_memory != 0.0, cfg.team.s2.ed_min_n);
+    let mut feats = features
+        .map(|p| Features::create(p, arena))
+        .transpose()?;
     let mut activity = Activity::new(arena.n_players());
     // Last published raw value per entity, so `change` excludes the gauge shift.
     let mut prev_p = vec![f64::NAN; arena.n_players()];
@@ -266,6 +311,15 @@ fn run_pass(
         let params = qm::fit_all(&field, None, cfg);
         let (ins, n_all) = qm::score(&field, &params, None, cfg);
         let grads = qm::player_grads(&field, &params, cfg);
+        // The team states the forecast was made against, before the step moves
+        // them; the player states the row reads are untouched by it.
+        let pre = feats.as_mut().map(|f| {
+            let s2 = match &teams {
+                Engine::S2(e) => Some(e),
+                Engine::Kalman(_) => None,
+            };
+            s2.map(|e| f.pre(t, e))
+        });
         let events = if t.train_only {
             Vec::new()
         } else {
@@ -276,6 +330,12 @@ fn run_pass(
             };
             teams.step(t, players, &params, &ctx, cfg)
         };
+        // The feature row is written here, after the field has been scored and
+        // before any memory has absorbed it, so every column is the state of
+        // that morning.
+        if let (Some(f), Some(Some(pre))) = (feats.as_mut(), pre.as_ref()) {
+            f.emit(t, arena, players, &chem, &edmem, pre, &events, cfg)?;
+        }
         // The difficulty sample and the pair counter are advanced only once the
         // tournament has been forecast, so neither reads its own field.
         if diff.on() && t.format == chgk_rating::data::Format::InPerson && !t.train_only {
@@ -364,8 +424,14 @@ fn run_pass(
                 )
             })
             .collect();
+        if let Some(f) = feats.as_mut() {
+            f.absorb_teams(t, &events);
+        }
         players.absorb(t, &grads, &mut ed_seen, collect, cfg);
         players.shrink_to_lineups(t, cfg);
+        if let Some(f) = feats.as_mut() {
+            f.absorb_players(t, &grads, players);
+        }
         if let Some(w) = w {
             let rows: Vec<chgk_rating::output::PlayerEvent> = lineup
                 .iter()
@@ -398,6 +464,10 @@ fn run_pass(
                 start.elapsed().as_secs_f64()
             );
         }
+    }
+    if let Some(f) = feats {
+        println!("features: {} rows", f.rows());
+        f.finish()?;
     }
     if snap.is_empty() {
         *snap = players.snapshot();

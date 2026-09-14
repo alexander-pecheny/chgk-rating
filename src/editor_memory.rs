@@ -73,6 +73,16 @@ impl EditorMemory {
         }
     }
 
+    /// The `(sum of past residuals, count)` of one pair, or `None` when the two
+    /// have no history. The feature table of plan 8 wants the count as well as
+    /// the mean, and wants it without the gate.
+    pub fn pair(&self, player: u32, editor: u32) -> Option<(f64, f64)> {
+        self.acc
+            .get(&key(player, editor))
+            .copied()
+            .filter(|&(_, c)| c >= self.min_n)
+    }
+
     /// Records one scored in-person field. `res` is `(team index in t.teams,
     /// residual)`; the residual joins the memory only after the field has been
     /// forecast, so a result never predicts itself.
