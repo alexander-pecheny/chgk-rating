@@ -2,22 +2,26 @@
 //! published scale. `src/bin/simple.rs` is the same rules as a research tool.
 
 use crate::chemistry::Chemistry;
-use crate::config::{Config, MarginShape, PullTarget, S2Lineup, S2};
+use crate::config::{Config, MarginShape, PullTarget, RankRule, S2Lineup, S2};
 use crate::data::{Format, Tournament};
 use crate::difficulty::Difficulties;
 use crate::editor_memory::EditorMemory;
+use crate::geography::{Geography, PlayerLoad};
 use crate::question_model::Players;
 use crate::team_model::TeamEvent;
-use crate::util::avg_ranks;
+use crate::util::{avg_ranks, Rng};
 
 /// The forecast-side memories a tournament is read against, none of which is a
 /// property of a single player: how long the lineup has played together, the
-/// difficulties a field of this strength usually gets, and how this lineup has
-/// fared under today's editors.
+/// difficulties a field of this strength usually gets, how this lineup has
+/// fared under today's editors, where its players come from and how much they
+/// have already played this month.
 pub struct Context<'a> {
     pub chem: &'a Chemistry,
     pub diff: &'a Difficulties,
     pub edmem: &'a EditorMemory,
+    pub geo: &'a Geography,
+    pub load: &'a PlayerLoad,
 }
 
 /// S2 carries no variance, so `sigma` is only the provisional flag in the shape
@@ -81,7 +85,7 @@ pub fn lineup_strength(rs: &[f64], p: &S2) -> f64 {
 /// uncertainty: `sqrt(Σ w_i² (scale σ_i)²)` over the softmax weights the roster
 /// estimate puts on the members. A lineup of six moderately uncertain players
 /// and one with a single unknown have the same mean σ and different sd.
-fn roster_sd(rs: &[f64], sigmas: &[f64], p: &S2) -> f64 {
+pub fn roster_sd(rs: &[f64], sigmas: &[f64], p: &S2) -> f64 {
     let t = p.player_scale * p.tau;
     let mx = rs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let e: Vec<f64> = rs.iter().map(|&x| ((x - mx) / t).exp()).collect();
@@ -116,9 +120,18 @@ pub struct Row {
     /// package of the difficulty this field usually gets. NaN otherwise.
     pub e_ans: f64,
     /// Display points added to the forecast and to nothing else: the editor
-    /// memory. `q` is left alone, so the rating, the pull and the usual lineup
-    /// never see it and DESIGN 4.3 is unchanged.
+    /// memory, the home-and-away bonus and the load penalty. `q` is left alone,
+    /// so the rating, the pull and the usual lineup never see it and DESIGN 4.3
+    /// is unchanged.
     pub fc_bonus: f64,
+    /// The sd of the tempered roster estimate in display points, which is what
+    /// `rank_rule` draws around. 0 when the lineup carries no uncertainty.
+    pub sd: f64,
+    /// The same lineup read at the two quantiles of `tight_gap`; NaN when the
+    /// field-conditional quantile is off. The forecast picks one of them once
+    /// the field's own spread is known, and `q` is untouched either way.
+    pub q_tight: f64,
+    pub q_loose: f64,
 }
 
 /// Everything the team rules of a tournament read off the player states, which
@@ -129,38 +142,66 @@ pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -
     let vbar = players.editor_mean(t);
     let a = crate::question_model::a_of(t.format, cfg);
     let m = cfg.question.m_fixed;
+    // In person the editor memory may enter a player's strength the way `phi`
+    // does, at a rate of `ed_phi`, instead of being a display-point bonus on the
+    // forecast alone. That is the one setting of the memory that reaches the
+    // rating, and it is off by default.
+    let ed_phi = p.ed_phi != 0.0 && ctx.edmem.on() && t.format == Format::InPerson;
     // Each lineup on the team scale, its members' uncertainties and the spread
-    // of them.
-    let lineups: Vec<(Vec<f64>, Vec<f64>, f64)> = t
+    // of them. `base` is a seat before the pessimistic discount and `wide` the
+    // discount's own width, so the same lineup can be read at another quantile
+    // without touching the player states again.
+    let seats: Vec<(Vec<f64>, Vec<f64>, Vec<f64>, f64)> = t
         .teams
         .iter()
         .map(|res| {
             let mut sigmas = Vec::with_capacity(res.members.len());
+            let mut wides = Vec::with_capacity(res.members.len());
             let mut ss = 0.0;
-            let rs: Vec<f64> = res
+            let base: Vec<f64> = res
                 .members
                 .iter()
                 .map(|&i| {
-                    let i = i as usize;
+                    let iu = i as usize;
                     // `sigma_c > 0` reads each player at a pessimistic quantile,
                     // so an unknown in the lineup lowers the forecast.
                     // `sigma_ip > 0` widens the discount again for a player whose
                     // evidence is mostly not from an in-person table.
-                    let sigma = players.sigma_at(i, t.day, cfg);
-                    let ip = players.state[i].games_ip as f64;
-                    let pess = p.sigma_c * sigma * (1.0 + p.sigma_ip / (1.0 + ip));
+                    let sigma = players.sigma_at(iu, t.day, cfg);
+                    let ip = players.state[iu].games_ip as f64;
                     sigmas.push(sigma);
+                    wides.push(sigma * (1.0 + p.sigma_ip / (1.0 + ip)));
                     ss += sigma * sigma;
                     // `k_fast > 0` mixes in the fast estimate of the same
                     // strength, which is the only part of the state that tracks
                     // an established player's recent form.
-                    let th = players.theta(i);
-                    let th = th + p.k_fast * (players.theta_fast(i) - th);
-                    player_rating(th + players.affinity(i, &vbar) - pess, cfg)
+                    let th = players.theta(iu);
+                    let th = th + p.k_fast * (players.theta_fast(iu) - th);
+                    let mem = if ed_phi && players.theta(iu) >= players.ed_gate_theta {
+                        ctx.edmem
+                            .player_bonus(i, res.team, &t.editors, t.day)
+                            .unwrap_or(0.0)
+                    } else {
+                        0.0
+                    };
+                    th + players.affinity(iu, &vbar) + p.ed_phi * mem
                 })
                 .collect();
-            let n = rs.len().max(1) as f64;
-            (rs, sigmas, p.player_scale * (ss / n).sqrt())
+            let n = base.len().max(1) as f64;
+            (base, sigmas, wides, p.player_scale * (ss / n).sqrt())
+        })
+        .collect();
+    // One lineup on the display scale at a given quantile.
+    let at = |base: &[f64], wides: &[f64], c: f64| -> Vec<f64> {
+        base.iter()
+            .zip(wides)
+            .map(|(&b, &w)| player_rating(b - c * w, cfg))
+            .collect()
+    };
+    let lineups: Vec<(Vec<f64>, Vec<f64>, f64)> = seats
+        .iter()
+        .map(|(base, sigmas, wides, spread)| {
+            (at(base, wides, p.sigma_c), sigmas.clone(), *spread)
         })
         .collect();
     // The temperature may depend on how far apart this field's lineups are.
@@ -180,7 +221,8 @@ pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -
         .teams
         .iter()
         .zip(&lineups)
-        .map(|(res, (rs, sigmas, sd))| {
+        .zip(&seats)
+        .map(|((res, (rs, sigmas, sd)), (base, _, wides, _))| {
             let q = if rs.is_empty() {
                 f64::NAN
             } else {
@@ -197,18 +239,55 @@ pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -
             // it is made of in-person residuals -- and it moves the forecast
             // alone, so every synchronous forecast and every team rating stay
             // exactly what they were without it.
-            let fc_bonus = if ctx.edmem.on() && t.format == Format::InPerson && !rs.is_empty() {
+            let in_person = t.format == Format::InPerson && !rs.is_empty();
+            let mut fc_bonus = if ctx.edmem.on() && p.ed_phi == 0.0 && in_person {
                 let th: Vec<f64> = res
                     .members
                     .iter()
                     .map(|&i| players.theta(i as usize))
                     .collect();
                 p.editor_memory
-                    * ctx
-                        .edmem
-                        .bonus(&res.members, &t.editors, &th, players.ed_gate_theta)
+                    * ctx.edmem.bonus(
+                        &res.members,
+                        res.team,
+                        &t.editors,
+                        &th,
+                        players.ed_gate_theta,
+                        t.day,
+                    )
             } else {
                 0.0
+            };
+            // Where the lineup comes from, against where it is playing. Both
+            // bonuses are display points on the forecast alone.
+            if in_person && ctx.geo.on() {
+                if p.home_bonus != 0.0
+                    && ctx.geo.home_share(&res.members, t.town) >= p.home_min
+                {
+                    fc_bonus += p.home_bonus;
+                }
+                if p.home_team_bonus != 0.0 && res.town != u32::MAX && res.town == t.town {
+                    fc_bonus += p.home_team_bonus;
+                }
+            }
+            // How much the players have already played. `load_7` and `load_30`
+            // are display points per tournament per player, so the shipped
+            // negative reading is a fatigue penalty.
+            if in_person && ctx.load.on() {
+                let (l7, l30) = ctx.load.counts(&res.members, t.day);
+                fc_bonus += p.load_7 * l7 + p.load_30 * l30;
+            }
+            // The same lineup at the two quantiles a field-conditional rule
+            // chooses between. Built here because the seats are still to hand;
+            // which one is used is decided in `step_rows`, where the field's own
+            // spread is known.
+            let (q_tight, q_loose) = if p.tight_gap > 0.0 && !rs.is_empty() {
+                (
+                    lineup_strength(&at(base, wides, p.sigma_c_tight), &pt),
+                    lineup_strength(&at(base, wides, p.sigma_c_loose), &pt),
+                )
+            } else {
+                (f64::NAN, f64::NAN)
             };
             Row {
                 team: res.team,
@@ -219,6 +298,13 @@ pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -
                 q,
                 e_ans: f64::NAN,
                 fc_bonus,
+                sd: if rs.is_empty() {
+                    0.0
+                } else {
+                    roster_sd(rs, sigmas, &pt)
+                },
+                q_tight,
+                q_loose,
             }
         })
         .collect();
@@ -317,6 +403,70 @@ struct Entry {
     rated: bool,
 }
 
+/// The relevance the metric expects from each lineup, by simulation.
+///
+/// NDCG pays `1/place`, which is convex, so of two lineups with the same mean
+/// strength the one with the wider posterior is worth more — it has the better
+/// chance of the first place, and the places it loses instead are cheap. The
+/// mean ordering of DESIGN 4.1 cannot say that, and the pessimistic quantile
+/// `sigma_c` says the opposite of it. Here every lineup is drawn `rank_draws`
+/// times at `fc ± sd`, each draw is ranked, and the field is ordered by the mean
+/// of `1/place` over the draws (`erel`), by the share of draws it led
+/// (`p_first`), or by `1/place` with the pairwise noise of the Elo scale `D`
+/// added as a Gumbel, which makes one draw a Plackett-Luce ranking (`erel_d`).
+///
+/// The seed is the tournament id, so the order does not move between runs.
+fn expected_relevance(id: i64, es: &[Entry], rows: &[Row], p: &S2) -> Vec<f64> {
+    let n = es.len();
+    let mut acc = vec![0.0f64; n];
+    let mut rng = Rng::new(id as u64 ^ 0x5265_6C65_7661_6E63);
+    // Gumbel(0, beta) noise reproduces the pairwise win probability of DESIGN
+    // 4.3 exactly: beta = D / ln 10.
+    let beta = if p.rank_rule == RankRule::ErelD {
+        p.d / std::f64::consts::LN_10
+    } else {
+        0.0
+    };
+    let mut x: Vec<(f64, usize)> = Vec::with_capacity(n);
+    for _ in 0..p.rank_draws {
+        x.clear();
+        for (k, e) in es.iter().enumerate() {
+            let sd = rows[e.ri].sd;
+            let mut v = e.fc + sd * rng.normal();
+            if beta > 0.0 {
+                // -ln(-ln u) is a standard Gumbel.
+                let u = ((rng.next_u64() >> 11) as f64 / (1u64 << 53) as f64).max(1e-12);
+                v += beta * -(-u.ln()).ln();
+            }
+            x.push((v, k));
+        }
+        x.sort_by(|a, b| b.0.total_cmp(&a.0));
+        for (place, &(_, k)) in x.iter().enumerate() {
+            acc[k] += match p.rank_rule {
+                RankRule::PFirst => (place == 0) as u8 as f64,
+                _ => 1.0 / (place + 1) as f64,
+            };
+        }
+    }
+    let d = p.rank_draws as f64;
+    // A field of tied scores would leave the order to the metric's own
+    // tie-break; the mean strength breaks those ties instead, at a scale far
+    // below one draw's worth of relevance.
+    let lo = es
+        .iter()
+        .map(|e| e.fc)
+        .fold(f64::INFINITY, f64::min);
+    let hi = es
+        .iter()
+        .map(|e| e.fc)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let span = (hi - lo).max(1.0);
+    for (k, a) in acc.iter_mut().enumerate() {
+        *a = *a / d + 1e-9 * (es[k].fc - lo) / span;
+    }
+    acc
+}
+
 /// The outcome of one pair, `y_AB` of DESIGN 4.3 step 2. Win/lose when
 /// `margin_g` is zero, otherwise the score gap on a scale of `margin_g`
 /// questions.
@@ -373,19 +523,32 @@ impl TeamsS2 {
         cfg: &Config,
     ) -> Vec<TeamEvent> {
         let rows = rows_of(t, players, ctx, cfg);
-        self.step_rows(t.day, t.weight, t.format, &rows, &cfg.team.s2)
+        self.step_rows(t.id, t.day, t.weight, t.format, &rows, &cfg.team.s2)
     }
 
     /// The team rules alone, over lineup strengths already computed. `fit` and
-    /// the parameter sweep run this same code.
+    /// the parameter sweep run this same code. `id` seeds the draws of
+    /// `rank_rule` and is read for nothing else, so a field's order is the same
+    /// on every run and on every pass.
     pub fn step_rows(
         &mut self,
+        id: i64,
         day: i32,
         weight: f64,
         format: Format,
         rows: &[Row],
         p: &S2,
     ) -> Vec<TeamEvent> {
+        // A quantile that depends on the field: the lineups are ordered once at
+        // the shipped `sigma_c` to measure how bunched the top is, and the
+        // forecast is then re-read at the quantile that tightness asks for.
+        let tight = if p.tight_gap > 0.0 {
+            let mut v: Vec<f64> = rows.iter().map(|r| r.q).filter(|x| x.is_finite()).collect();
+            v.sort_by(|a, b| b.total_cmp(a));
+            v.len() >= 4 && v[0] - v[3] < p.tight_gap
+        } else {
+            false
+        };
         let mut es: Vec<Entry> = Vec::with_capacity(rows.len());
         for (ri, res) in rows.iter().enumerate() {
             let idx = res.team as usize;
@@ -413,12 +576,22 @@ impl TeamsS2 {
             // strength by what it is expected to answer; `kappa_s` adds the
             // team's recent over- or under-performance against its own forecast,
             // which is the one bonus that is not a property of today's lineup.
+            let qf = if p.tight_gap > 0.0 {
+                let alt = if tight { res.q_tight } else { res.q_loose };
+                if alt.is_finite() {
+                    alt
+                } else {
+                    q
+                }
+            } else {
+                q
+            };
             let fc = if res.e_ans.is_finite() {
                 res.e_ans
             } else if q.is_nan() {
                 f
             } else {
-                q + res.fc_bonus
+                qf + res.fc_bonus
             };
             let fc = fc
                 + if p.kappa_s != 0.0 && format == Format::InPerson {
@@ -452,7 +625,17 @@ impl TeamsS2 {
             return Vec::new();
         }
 
-        let fplace = avg_ranks(&es.iter().map(|e| -e.fc).collect::<Vec<_>>());
+        // The order the field is published in. `rank_rule = "mean"` sorts by the
+        // lineups' mean strength; the other three sort by the relevance the
+        // metric actually pays, estimated from draws of every lineup's own
+        // posterior. `fc` then carries that score rather than display points,
+        // which is all the NDCG of `src/ndcg.rs` reads.
+        let score: Vec<f64> = if p.rank_rule == RankRule::Mean || p.rank_draws == 0 {
+            es.iter().map(|e| e.fc).collect()
+        } else {
+            expected_relevance(id, &es, rows, p)
+        };
+        let fplace = avg_ranks(&score.iter().map(|x| -x).collect::<Vec<_>>());
         let c = std::f64::consts::LN_10 / p.d;
         let win = |a: f64, b: f64| 1.0 / (1.0 + (c * (b - a)).exp());
         let mut psum = vec![0.0; n];
@@ -555,7 +738,10 @@ impl TeamsS2 {
                     0.0
                 },
                 x: e.f,
-                forecast: e.fc,
+                // Under a sampled rule this column is the expected relevance,
+                // not display points: it is what the order was made from, and
+                // the metric reads the order alone.
+                forecast: score[k],
                 forecast_place: fplace[k],
                 expected_place: n as f64 - psum[k],
                 actual_place: rows[e.ri].position,

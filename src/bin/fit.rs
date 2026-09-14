@@ -3,6 +3,7 @@ use chgk_rating::config::{Config, TeamEngine};
 use chgk_rating::data::Arena;
 use chgk_rating::difficulty::Difficulties;
 use chgk_rating::editor_memory::EditorMemory;
+use chgk_rating::geography::{Geography, PlayerLoad};
 use chgk_rating::gauge::{self, Activity};
 use chgk_rating::output::Writer;
 use chgk_rating::question_model as qm;
@@ -210,7 +211,15 @@ fn run_pass(
     let mut teams = Engine::new(arena.n_teams(), cfg);
     let mut chem = Chemistry::new(cfg.question.chem_u != 0.0 || cfg.team.s2.chemistry != 0.0);
     let mut diff = Difficulties::new(cfg.team.s2.difficulty_forecast);
-    let mut edmem = EditorMemory::new(cfg.team.s2.editor_memory != 0.0, cfg.team.s2.ed_min_n);
+    let s2 = &cfg.team.s2;
+    let mut edmem = EditorMemory::new(
+        s2.editor_memory != 0.0 || s2.ed_phi != 0.0,
+        s2.ed_min_n,
+        s2.ed_key,
+        s2.ed_half_life,
+    );
+    let mut geo = Geography::new(s2.home_bonus != 0.0 || s2.home_team_bonus != 0.0);
+    let mut load = PlayerLoad::new(s2.load_7 != 0.0 || s2.load_30 != 0.0);
     let mut activity = Activity::new(arena.n_players());
     // Last published raw value per entity, so `change` excludes the gauge shift.
     let mut prev_p = vec![f64::NAN; arena.n_players()];
@@ -273,6 +282,8 @@ fn run_pass(
                 chem: &chem,
                 diff: &diff,
                 edmem: &edmem,
+                geo: &geo,
+                load: &load,
             };
             teams.step(t, players, &params, &ctx, cfg)
         };
@@ -300,6 +311,15 @@ fn run_pass(
                 .map(|(k, e)| (k, (e.forecast_place - e.actual_place) / n))
                 .collect();
             edmem.absorb(t, &res);
+        }
+        // Where the players come from and how much they have played: both are
+        // advanced only after the field has been forecast, like everything else
+        // on this side, so nothing predicts itself.
+        if !t.train_only {
+            geo.absorb(t);
+            if t.format == chgk_rating::data::Format::InPerson {
+                load.absorb(t);
+            }
         }
 
         let w = if t.train_only { None } else { w };

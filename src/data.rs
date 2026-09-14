@@ -52,6 +52,9 @@ pub struct TeamResult {
     /// The old system's per-result `inRating`; false means a pickup lineup that
     /// earns its team no rating, no evidence and no place in the table.
     pub rated: bool,
+    /// The town the team was registered in on the day, as an index into
+    /// `Arena.towns`; `u32::MAX` when the mirror carries none.
+    pub town: u32,
     pub members: Vec<u32>,
     pub mask: Vec<u8>,
 }
@@ -66,6 +69,11 @@ pub struct Tournament {
     /// state opens or moves on it, it writes no team event and it never enters
     /// the metric's tournament set.
     pub train_only: bool,
+    /// Where the tournament was played, as an index into `Arena.towns`;
+    /// `u32::MAX` when the mirror carries none. `tournaments.town_id` is a town
+    /// id and `tournament_results.team_current_town` a town name, so the two are
+    /// brought onto one index through `data/towns.csv`.
+    pub town: u32,
     pub editors: Vec<u32>,
     pub teams: Vec<TeamResult>,
     pub n_q: usize,
@@ -78,6 +86,8 @@ pub struct Arena {
     pub player_ids: Vec<i64>,
     pub editor_ids: Vec<i64>,
     pub team_ids: Vec<i64>,
+    /// Town names in index order, so a town is one `u32` everywhere downstream.
+    pub towns: Vec<String>,
 }
 
 impl Arena {
@@ -90,6 +100,22 @@ impl Arena {
     pub fn n_teams(&self) -> usize {
         self.team_ids.len()
     }
+    pub fn n_towns(&self) -> usize {
+        self.towns.len()
+    }
+}
+
+/// The town id to town name map of the old system, saved by
+/// `tools/fetch_towns.py`. An absent file leaves every tournament townless,
+/// which turns the geography switches off rather than failing the run.
+pub const TOWNS: &str = "data/towns.csv";
+
+pub fn town_names(path: &str) -> HashMap<i64, String> {
+    crate::util::csv_rows(path)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|r| Some((r.first()?.trim().parse().ok()?, r.get(1)?.trim().to_string())))
+        .collect()
 }
 
 fn parse_ids(s: &str, index: &mut HashMap<i64, u32>, ids: &mut Vec<i64>, out: &mut Vec<u32>) {
@@ -161,7 +187,7 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
     let mut stmt = conn.prepare(&format!(
         "SELECT t.id, substr(t.date_start,1,10), t.tournament_type, t.editors,
                 r.team_id, r.position, r.questions_total, r.mask, r.team_members, r.rating,
-                t.questions_by_tour, t.in_rating
+                t.questions_by_tour, t.in_rating, t.town_id, r.team_current_town
          FROM tournaments t JOIN tournament_results r ON r.id = t.id
          WHERE {rated} substr(t.date_start,1,10) >= ?1 AND substr(t.date_start,1,10) < ?2
          ORDER BY substr(t.date_start,1,10), t.id"
@@ -176,6 +202,21 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
     let mut team_ids: Vec<i64> = Vec::new();
     let mut tournaments: Vec<Tournament> = Vec::new();
     let mut skip_id: i64 = i64::MIN;
+    // One index per town name, shared by the tournament's own town and by the
+    // towns the teams are registered in.
+    let names = town_names(TOWNS);
+    let mut wnames: Vec<String> = Vec::new();
+    let mut widx: HashMap<String, u32> = HashMap::new();
+    let mut town_of = |name: Option<String>| -> u32 {
+        let Some(name) = name.filter(|s| !s.is_empty()) else {
+            return u32::MAX;
+        };
+        let n = wnames.len() as u32;
+        *widx.entry(name.clone()).or_insert_with(|| {
+            wnames.push(name);
+            n
+        })
+    };
 
     while let Some(row) = rows.next()? {
         let tid: i64 = row.get(0)?;
@@ -220,12 +261,17 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
                         .sum()
                 })
                 .unwrap_or(0);
+            let town = town_of(
+                row.get::<_, Option<i64>>(12)?
+                    .and_then(|i| names.get(&i).cloned()),
+            );
             tournaments.push(Tournament {
                 id: tid,
                 day,
                 format,
                 weight,
                 train_only,
+                town,
                 editors,
                 teams: Vec::new(),
                 n_q: 0,
@@ -256,6 +302,7 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
             team_ids.push(team_id);
             n
         });
+        let town = town_of(row.get::<_, Option<String>>(13)?);
         let t = tournaments.last_mut().unwrap();
         t.n_q = t.n_q.max(mask.len());
         t.teams.push(TeamResult {
@@ -264,6 +311,7 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
             score,
             pred_pos,
             rated,
+            town,
             members,
             mask,
         });
@@ -279,5 +327,6 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
         player_ids,
         editor_ids,
         team_ids,
+        towns: wnames,
     })
 }
