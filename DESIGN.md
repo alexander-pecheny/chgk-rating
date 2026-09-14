@@ -537,11 +537,12 @@ Rust workspace, one library crate `chgk-rating` with modules `data`, `question_m
 [player]   mu_new −1.0, sigma_new 1.0, warm_sigma 0.5, warm_until 2016-01-01,
            info_scale 0.46, teammate_shrink 0.0025,
            tau_p 0.25, v_min 0.05, v_max 0.6, v_eta 0.15, tau_aff 0.05, tau_phi 0,
-           tau_phi_own false
+           tau_phi_own false, v_fast 0
 [gauge]    n_est 8, window_days 365
 [team]     engine s2, roster_bias −0.2427, sigma_model 0.3669
 [team.s2]  D 1200, K 0.4, k_r 0.3, k_q 0.1, winner_floor true,
            lineup tempered, tau 0.7, sigma_c 1.5, sigma_ip 0,
+           k_fast 0, sigma_v 0, tau_spread 0,
            delta 150 (unused under tempered), player_scale 2454.8828, player_zero 6000,
            k_r_target lineup, margin_g 0, margin_shape linear, n0 0,
            w_sync and w_strict_sync absent (section 4.8)
@@ -577,6 +578,14 @@ The question model carries a third group, the simplification ladder of `out/ladd
 - `question.aff_rank > 0` **together with** the format effect, which round 1 could not test: −0.0019 at rank 1 and −0.0030 at rank 2. The pinned column and the free columns compete for the same gradient, and the free ones are the ones a single online pass cannot identify.
 - `team.s2.sigma_ip > 0` widens the pessimistic quantile for a player with little in-person evidence, `1 + σ_ip/(1 + n_in_person)`. −0.0002 at `σ_ip = 1` and −0.0027 at 10 on the tune window; in combination with the two rows above it looked positive, but it costs 0.010 of the **synchronous** forecast Spearman (0.8075 against 0.8182), which is what a discount keyed to in-person experience should be expected to do to the other format. Off. Section 7.4's residual diagnosis explains why it had nothing to find: no lineup feature the state carries predicts the residual once the forecast's own rank is controlled for.
 - `player.tau_phi_own` ages `φ` from the player's last in-person tournament rather than their last of any format: −0.0009. `player.tau_phi` itself was retuned and **moved to 0** (+0.0003); 0.2 is −0.0036 and 0.4 is −0.0097.
+
+Three more were built after the residual diagnosis of section 7.4, each aimed at a specific thing the diagnosis said was missing, and each **lost cleanly**. They stay in the code because a negative that costs two lines of config is worth keeping reproducible.
+
+- **A fast channel the forecast alone reads** (`player.v_fast > 0`, `team.s2.k_fast > 0`). A second Kalman state for the same `θ`, at a volatility floor of its own, taking the same step against the same gradient; the forecast reads `θ + k_fast (θ_fast − θ)` while the question fit, the gauge and the published table keep the long-run estimate. The motivation was the sharpest thing in the diagnosis: we lose to both rivals precisely on lineups with long records, whose `σ` has settled near 0.12 and whose `θ` can no longer move. It is negative at **every** point of a 3 × 3 grid and monotone in both parameters: −0.0027 at the gentlest setting (`v_fast` 0.08, `k_fast` 0.5) and −0.15 at the harshest. Recent form is a **worse** predictor of tomorrow than the long-run estimate, which is a real result about the game and not about the code.
+- **The other sign of uncertainty** (`team.s2.sigma_v ≠ 0`). `σ_c` lowers a lineup that might be weak; but in a field whose top is bunched, a table that *might* be very good wins more often than its expected strength says, and no term in the model carried that. Adding the lineup's aggregate sd to its strength is −0.0033 at +0.5 and −0.0117 at +1.0, and taking it away is −0.0024 at −0.5. Both signs lose, so `σ_c` is at a genuine optimum in the only direction uncertainty matters.
+- **A temperature that knows the field** (`team.s2.tau_spread ≠ 0`), `τ_eff = τ (spread/1000)^tau_spread`. The diagnosis's strongest single fact is that a field's NDCG runs from 0.847 to 0.936 with how far apart its top four are; the obvious response is to read a bunched field more sharply. −0.0006 at 0.15, −0.0017 at 0.6, −0.0020 at −0.3. The bunched fields do not want a different `τ`; they are simply harder.
+
+And one that needed no new code: **`data.include_unrated`**, which round 1 had left untried on the ground that it changes the tournament set. Scored honestly on the 650 fields both models cover (`tools/ndcg.py --common`) it is **−0.0051 ± 0.0024** of weighted tune NDCG and −0.0158 ± 0.0057 at 3, and −0.0045 with `w_async = 0.25` on top. chgk.quest trains on those tournaments and beats us on well-established lineups; that is not why.
 - `data.passes = 3` is a no-op by construction (section 3.6), and `data.w_async` is inert because every asynchronous tournament in the mirror carries `in_rating = 0` and never loads.
 - `question.gradient` (`exact`, shipped) replaces the noisy-OR gradient of step 2 with `share`: `g_i = (y - P) * p_i / sum_j p_j`, credit in proportion to `p_i = 1 - exp(-lambda_i)`. Rung Q3; it fails on the individual table, 102/200 against chgk.quest.
 - `player.update` (`kalman`, shipped) replaces the Kalman step with `schedule`: `theta_i += eta0/sqrt(c0 + games_i) * w_t * g_i`, no `sigma`, no volatility; a player under five games is provisional. Rung Q2; it costs 0.012 of forecast Spearman.

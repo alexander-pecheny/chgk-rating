@@ -112,6 +112,18 @@ pub struct S2 {
     /// Widens that discount for a player whose evidence is mostly not in person:
     /// the factor is `1 + sigma_ip / (1 + n_in_person)`. 0 leaves it flat.
     pub sigma_ip: f64,
+    /// How much of the fast estimate the forecast reads: a player enters at
+    /// `theta + k_fast (theta_fast - theta)`. 0 is the long-run estimate alone.
+    pub k_fast: f64,
+    /// A lineup's own spread enters the forecast with this coefficient, on top
+    /// of the pessimistic mean shift of `sigma_c`. In a field whose top is
+    /// bunched, the table that might be very good wins more often than its
+    /// expected strength says, and `sigma_c` can only push it down. 0 is off.
+    pub sigma_v: f64,
+    /// Sharpens the temperature when the field itself is bunched:
+    /// `tau_eff = tau * (spread / 1000)^tau_spread`, clamped to [0.2, 2].
+    /// 0 leaves `tau` alone.
+    pub tau_spread: f64,
     pub player_scale: f64,
     pub player_zero: f64,
     /// Questions of score gap worth a whole win; 0 is the win/lose rule.
@@ -141,6 +153,9 @@ impl Default for S2 {
             tau: 1.0,
             sigma_c: 0.0,
             sigma_ip: 0.0,
+            k_fast: 0.0,
+            sigma_v: 0.0,
+            tau_spread: 0.0,
             player_scale: 2454.8828,
             player_zero: 6000.0,
             margin_g: 0.0,
@@ -342,6 +357,11 @@ pub struct Player {
     /// season of synchronous play does not age their in-person strength.
     #[serde(default)]
     pub tau_phi_own: bool,
+    /// Volatility floor of the second, fast estimate of the same strength. It
+    /// takes the same Kalman step against the same gradient and forgets far
+    /// faster; only the forecast reads it, through `team.s2.k_fast`. 0 is off.
+    #[serde(default)]
+    pub v_fast: f64,
     #[serde(default = "kalman")]
     pub update: PUpdate,
     /// `update = "schedule"`: step `eta0 / sqrt(c0 + games)`.

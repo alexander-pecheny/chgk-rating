@@ -36,6 +36,12 @@ pub struct Field {
 pub struct PlayerState {
     pub theta_raw: f64,
     pub var: f64,
+    /// A second estimate of the same strength kept at a floor volatility of
+    /// `player.v_fast`, so it forgets in a season what `theta_raw` forgets in a
+    /// decade. Nothing but the forecast reads it; the question fit, the gauge
+    /// and the published table are untouched. 0 leaves it pinned to `theta_raw`.
+    pub theta_fast: f64,
+    pub var_fast: f64,
     /// Per-player volatility: how fast strength may drift, learned from surprise.
     pub vol: f64,
     pub aff: Vec<f64>,
@@ -121,6 +127,8 @@ impl Players {
             .map(|_| PlayerState {
                 theta_raw: cfg.player.mu_new,
                 var: cfg.player.sigma_new * cfg.player.sigma_new,
+                theta_fast: cfg.player.mu_new,
+                var_fast: cfg.player.sigma_new * cfg.player.sigma_new,
                 vol: cfg.player.tau_p,
                 aff: vec![0.0; rank],
                 aff_var: prior.clone(),
@@ -170,6 +178,11 @@ impl Players {
 
     pub fn theta(&self, i: usize) -> f64 {
         self.state[i].theta_raw - self.shift_cum
+    }
+
+    /// The fast estimate of the same strength, on the same scale as `theta`.
+    pub fn theta_fast(&self, i: usize) -> f64 {
+        self.state[i].theta_fast - self.shift_cum
     }
 
     /// The format effect itself, whatever today's format: zero when none is in
@@ -250,6 +263,8 @@ impl Players {
                     s.seen = false;
                 }
             }
+            s.theta_fast = s.theta_raw;
+            s.var_fast = s.var;
             s.vol = cfg.player.tau_p;
         }
         self.shift_cum = 0.0;
@@ -295,6 +310,7 @@ impl Players {
                 if !s.seen {
                     s.seen = true;
                     s.theta_raw = cfg.player.mu_new + self.shift_cum;
+                    s.theta_fast = s.theta_raw;
                     s.last_day = t.day;
                 }
             }
@@ -349,6 +365,18 @@ impl Players {
                         self.zstat.2 += z * z;
                     }
                 }
+            }
+            // The fast channel takes the same step against the same gradient, at
+            // a volatility floor of its own, so an established player's estimate
+            // can still move on a season of results. Only the forecast reads it.
+            if cfg.player.v_fast > 0.0 && cfg.player.update != PUpdate::Schedule {
+                let vf = cfg.player.v_fast;
+                s.var_fast += vf * vf * dt;
+                let ieff = t.weight * info * cfg.player.info_scale;
+                let prec = 1.0 / s.var_fast + ieff.max(cfg.numeric.info_floor);
+                s.theta_fast += (t.weight * cfg.player.info_scale * g / prec)
+                    .clamp(-cfg.numeric.theta_max_step, cfg.numeric.theta_max_step);
+                s.var_fast = 1.0 / prec;
             }
             // A pinned column enters the likelihood exactly as `theta` does,
             // times its format indicator, so it takes the same Kalman step
