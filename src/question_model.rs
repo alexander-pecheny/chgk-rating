@@ -95,6 +95,9 @@ pub struct Players {
     pub aff_kappa: f64,
     pub aff_s_max: f64,
     pub aff_gate_theta: f64,
+    /// The same cut point for the editor memory of the team side, which has its
+    /// own share and is read by the forecast only.
+    pub ed_gate_theta: f64,
 }
 
 /// The format indicator `phi` is multiplied by: DESIGN 3.7.
@@ -166,6 +169,7 @@ impl Players {
             aff_s_max: cfg.question.aff_s_max,
             // Nothing is above the gate until the first release sets it.
             aff_gate_theta: f64::INFINITY,
+            ed_gate_theta: f64::NEG_INFINITY,
         }
     }
 
@@ -184,19 +188,28 @@ impl Players {
         }
     }
 
-    /// The gate's cut point: the `1 − share` quantile of `theta` over the
-    /// established panel, recomputed at each release.
+    /// The `1 − share` quantile of `theta` over the established panel; `None`
+    /// when there is no panel yet or no share is asked for.
+    pub fn quantile(panel: &mut [f64], share: f64) -> Option<f64> {
+        if panel.is_empty() || share <= 0.0 {
+            return None;
+        }
+        panel.sort_by(f64::total_cmp);
+        let k = ((1.0 - share) * (panel.len() - 1) as f64).round() as usize;
+        Some(panel[k.min(panel.len() - 1)])
+    }
+
+    /// The affinity gate's cut point, recomputed at each release.
     pub fn set_gate(&mut self, panel: &mut [f64], share: f64) {
         if self.aff_strength != AffStrength::Gate {
             return;
         }
-        if panel.is_empty() || share <= 0.0 {
-            self.aff_gate_theta = f64::INFINITY;
-            return;
-        }
-        panel.sort_by(f64::total_cmp);
-        let k = ((1.0 - share) * (panel.len() - 1) as f64).round() as usize;
-        self.aff_gate_theta = panel[k.min(panel.len() - 1)];
+        self.aff_gate_theta = Players::quantile(panel, share).unwrap_or(f64::INFINITY);
+    }
+
+    /// The editor memory's cut point; below it a player contributes nothing.
+    pub fn set_ed_gate(&mut self, panel: &mut [f64], share: f64) {
+        self.ed_gate_theta = Players::quantile(panel, share).unwrap_or(f64::NEG_INFINITY);
     }
 
     /// Prior variance of every affinity column: each pinned one has its own

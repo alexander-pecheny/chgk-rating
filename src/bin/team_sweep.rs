@@ -17,6 +17,7 @@ use chgk_rating::question_model as qm;
 use chgk_rating::team_ndcg::{self as metric, QUALIFY, TEST, TUNE, WEIGHTS};
 use chgk_rating::chemistry::Chemistry;
 use chgk_rating::difficulty::Difficulties;
+use chgk_rating::editor_memory::EditorMemory;
 use chgk_rating::team_s2::{rows_of, Row, TeamsS2};
 use chgk_rating::util::{next_thursday, parse_date};
 use std::collections::{HashMap, HashSet};
@@ -281,6 +282,7 @@ fn build_cache(arena: &Arena, cfg: &Config) -> Vec<Cached> {
         // forecast reads; it never scores a difficulty-aware forecast.
         let mut chem = Chemistry::new(cfg.question.chem_u != 0.0 || cfg.team.s2.chemistry != 0.0);
         let diff = Difficulties::new(false);
+        let edmem = EditorMemory::new(false, 0.0);
         for (n, t) in arena.tournaments.iter().enumerate() {
             if snap.is_empty() && t.day >= warm_until {
                 snap = players.snapshot();
@@ -301,7 +303,16 @@ fn build_cache(arena: &Arena, cfg: &Config) -> Vec<Cached> {
                     day: t.day,
                     format: t.format,
                     weight: t.weight,
-                    rows: rows_of(t, &players, &chem, &diff, cfg),
+                    rows: rows_of(
+                        t,
+                        &players,
+                        &chgk_rating::team_s2::Context {
+                            chem: &chem,
+                            diff: &diff,
+                            edmem: &edmem,
+                        },
+                        cfg,
+                    ),
                 });
             }
             chem.absorb(t);

@@ -5,9 +5,20 @@ use crate::chemistry::Chemistry;
 use crate::config::{Config, MarginShape, PullTarget, S2Lineup, S2};
 use crate::data::{Format, Tournament};
 use crate::difficulty::Difficulties;
+use crate::editor_memory::EditorMemory;
 use crate::question_model::Players;
 use crate::team_model::TeamEvent;
 use crate::util::avg_ranks;
+
+/// The forecast-side memories a tournament is read against, none of which is a
+/// property of a single player: how long the lineup has played together, the
+/// difficulties a field of this strength usually gets, and how this lineup has
+/// fared under today's editors.
+pub struct Context<'a> {
+    pub chem: &'a Chemistry,
+    pub diff: &'a Difficulties,
+    pub edmem: &'a EditorMemory,
+}
 
 /// S2 carries no variance, so `sigma` is only the provisional flag in the shape
 /// the schema and `display.provisional_sigma` expect.
@@ -108,13 +119,8 @@ pub struct Row {
 
 /// Everything the team rules of a tournament read off the player states, which
 /// is one number per result. `team_sweep` computes these once and replays them.
-pub fn rows_of(
-    t: &Tournament,
-    players: &Players,
-    chem: &Chemistry,
-    diff: &Difficulties,
-    cfg: &Config,
-) -> Vec<Row> {
+pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -> Vec<Row> {
+    let (chem, diff) = (ctx.chem, ctx.diff);
     let p = &cfg.team.s2;
     let vbar = players.editor_mean(t);
     let a = crate::question_model::a_of(t.format, cfg);
@@ -143,10 +149,25 @@ pub fn rows_of(
             let q = if rs.is_empty() {
                 f64::NAN
             } else {
-                // Chemistry raises what the lineup is worth, and the lineup's own
-                // sd lowers it; both are display points on top of `Q(L)`.
+                // Chemistry raises what the lineup is worth, the lineup's own sd
+                // lowers it, and the editor memory moves it either way; all three
+                // are display points on top of `Q(L)`.
+                let ed = if ctx.edmem.on() {
+                    let th: Vec<f64> = res
+                        .members
+                        .iter()
+                        .map(|&i| players.theta(i as usize))
+                        .collect();
+                    p.editor_memory
+                        * ctx
+                            .edmem
+                            .bonus(&res.members, &t.editors, &th, players.ed_gate_theta)
+                } else {
+                    0.0
+                };
                 lineup_strength(&rs, p) + p.chemistry * chem.t(&res.members)
                     - p.q_sigma_c * roster_sd(&rs, &sigmas, p)
+                    + ed
             };
             Row {
                 team: res.team,
@@ -293,11 +314,10 @@ impl TeamsS2 {
         &mut self,
         t: &Tournament,
         players: &Players,
-        chem: &Chemistry,
-        diff: &Difficulties,
+        ctx: &Context,
         cfg: &Config,
     ) -> Vec<TeamEvent> {
-        let rows = rows_of(t, players, chem, diff, cfg);
+        let rows = rows_of(t, players, ctx, cfg);
         self.step_rows(t.day, t.weight, t.format, &rows, &cfg.team.s2)
     }
 

@@ -128,6 +128,17 @@ pub struct S2 {
     /// its last `series_k` in-person results. 0 is off.
     pub kappa_s: f64,
     pub series_k: usize,
+    /// Display points the forecast gains per unit of the lineup's mean past
+    /// residual under today's editors. 0 is off. This is the editor effect where
+    /// the residual check finds it -- in the outcomes -- rather than where
+    /// `question.aff_rank` looks for it, in the question gradients.
+    pub editor_memory: f64,
+    /// Past results a `(player, editor)` pair needs before it counts.
+    pub ed_min_n: f64,
+    /// Share of the established panel whose members carry an editor memory at
+    /// all; 0 is every player. The residual check says the effect is a property
+    /// of a strong lineup, and this is the switch that says so.
+    pub ed_gate: f64,
     pub player_scale: f64,
     pub player_zero: f64,
     /// Questions of score gap worth a whole win; 0 is the win/lose rule.
@@ -162,6 +173,9 @@ impl Default for S2 {
             difficulty_forecast: false,
             kappa_s: 0.0,
             series_k: 5,
+            editor_memory: 0.0,
+            ed_min_n: 2.0,
+            ed_gate: 0.0,
             player_scale: 2454.8828,
             player_zero: 6000.0,
             margin_g: 0.0,

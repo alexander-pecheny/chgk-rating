@@ -2,6 +2,7 @@ use chgk_rating::chemistry::Chemistry;
 use chgk_rating::config::{Config, TeamEngine};
 use chgk_rating::data::Arena;
 use chgk_rating::difficulty::Difficulties;
+use chgk_rating::editor_memory::EditorMemory;
 use chgk_rating::gauge::{self, Activity};
 use chgk_rating::output::Writer;
 use chgk_rating::question_model as qm;
@@ -160,13 +161,12 @@ impl Engine {
         t: &chgk_rating::data::Tournament,
         players: &qm::Players,
         params: &[qm::QParams],
-        chem: &Chemistry,
-        diff: &Difficulties,
+        ctx: &chgk_rating::team_s2::Context,
         cfg: &Config,
     ) -> Vec<TeamEvent> {
         match self {
             Engine::Kalman(e) => e.step(t, players, params, cfg),
-            Engine::S2(e) => e.step(t, players, chem, diff, cfg),
+            Engine::S2(e) => e.step(t, players, ctx, cfg),
         }
     }
 
@@ -210,6 +210,7 @@ fn run_pass(
     let mut teams = Engine::new(arena.n_teams(), cfg);
     let mut chem = Chemistry::new(cfg.question.chem_u != 0.0 || cfg.team.s2.chemistry != 0.0);
     let mut diff = Difficulties::new(cfg.team.s2.difficulty_forecast);
+    let mut edmem = EditorMemory::new(cfg.team.s2.editor_memory != 0.0, cfg.team.s2.ed_min_n);
     let mut activity = Activity::new(arena.n_players());
     // Last published raw value per entity, so `change` excludes the gauge shift.
     let mut prev_p = vec![f64::NAN; arena.n_players()];
@@ -268,7 +269,12 @@ fn run_pass(
         let events = if t.train_only {
             Vec::new()
         } else {
-            teams.step(t, players, &params, &chem, &diff, cfg)
+            let ctx = chgk_rating::team_s2::Context {
+                chem: &chem,
+                diff: &diff,
+                edmem: &edmem,
+            };
+            teams.step(t, players, &params, &ctx, cfg)
         };
         // The difficulty sample and the pair counter are advanced only once the
         // tournament has been forecast, so neither reads its own field.
@@ -283,6 +289,17 @@ fn run_pass(
         }
         if !t.train_only {
             chem.absorb(t);
+        }
+        // The editor memory sees today's residuals only after today's forecast.
+        if edmem.on() && t.format == chgk_rating::data::Format::InPerson && !t.train_only {
+            let n = events.len().max(1) as f64;
+            let res: Vec<(usize, f64)> = events
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| e.actual_place > 0.0)
+                .map(|(k, e)| (k, (e.forecast_place - e.actual_place) / n))
+                .collect();
+            edmem.absorb(t, &res);
         }
 
         let w = if t.train_only { None } else { w };
@@ -428,12 +445,15 @@ fn emit_release(
     players.shift_cum += shift;
     // The affinity gate stands at a quantile of the same established panel the
     // gauge centres, so "a strong player" means strong against today's field.
-    if cfg.question.aff_strength == chgk_rating::config::AffStrength::Gate {
+    if cfg.question.aff_strength == chgk_rating::config::AffStrength::Gate
+        || cfg.team.s2.ed_gate > 0.0
+    {
         let mut panel: Vec<f64> = (0..arena.n_players())
             .filter(|&i| activity.count[i] >= cfg.gauge.n_est)
             .map(|i| players.theta(i))
             .collect();
         players.set_gate(&mut panel, cfg.question.aff_gate);
+        players.set_ed_gate(&mut panel, cfg.team.s2.ed_gate);
     }
     let mut rows = Vec::new();
     for (i, &c) in activity.count.iter().enumerate() {
