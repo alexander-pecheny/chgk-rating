@@ -9,3 +9,5 @@ data/external/
 
 # build artifacts
 target/
+__pycache__/
+data/external

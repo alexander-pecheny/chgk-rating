@@ -1,8 +1,8 @@
 //! Model S2, the shipped team engine of DESIGN 4: Elo in a field, kept on the
 //! published scale. `src/bin/simple.rs` is the same rules as a research tool.
 
-use crate::config::{Config, S2Lineup, S2};
-use crate::data::Tournament;
+use crate::config::{Config, MarginShape, PullTarget, S2Lineup, S2};
+use crate::data::{Format, Tournament};
 use crate::question_model::Players;
 use crate::team_model::TeamEvent;
 use crate::util::avg_ranks;
@@ -45,6 +45,52 @@ pub fn lineup_strength(rs: &[f64], p: &S2) -> f64 {
     }
 }
 
+/// One result as the team engine sees it: no players left, only the number the
+/// lineup that turned up is worth. `src/bin/team_sweep.rs` replays these.
+#[derive(Clone, Copy)]
+pub struct Row {
+    pub team: u32,
+    pub position: f64,
+    /// Questions taken, for the margin rule; `None` when the mirror has none.
+    pub score: Option<f64>,
+    pub pred_pos: Option<f64>,
+    pub rated: bool,
+    /// Strength of the lineup that turned up; NaN when no lineup was listed.
+    pub q: f64,
+}
+
+/// Everything the team rules of a tournament read off the player states, which
+/// is one number per result. `team_sweep` computes these once and replays them.
+pub fn rows_of(t: &Tournament, players: &Players, cfg: &Config) -> Vec<Row> {
+    let p = &cfg.team.s2;
+    let vbar = players.editor_mean(t);
+    t.teams
+        .iter()
+        .map(|res| {
+            let rs: Vec<f64> = res
+                .members
+                .iter()
+                .map(|&i| {
+                    let i = i as usize;
+                    player_rating(players.theta(i) + players.affinity(i, &vbar), cfg)
+                })
+                .collect();
+            Row {
+                team: res.team,
+                position: res.position,
+                score: res.score,
+                pred_pos: res.pred_pos,
+                rated: res.rated,
+                q: if rs.is_empty() {
+                    f64::NAN
+                } else {
+                    lineup_strength(&rs, p)
+                },
+            }
+        })
+        .collect()
+}
+
 /// Team state of DESIGN 4.2: a rating, the usual lineup it was earned with, and
 /// the count and date of the rated games behind it.
 pub struct TeamsS2 {
@@ -66,10 +112,28 @@ struct Entry {
     fc: f64,
     qbar: f64,
     place: f64,
+    score: Option<f64>,
     mu_before: f64,
     games: f64,
     gap_days: i32,
     rated: bool,
+}
+
+/// The outcome of one pair, `y_AB` of DESIGN 4.3 step 2. Win/lose when
+/// `margin_g` is zero, otherwise the score gap on a scale of `margin_g`
+/// questions.
+fn outcome(a: &Entry, b: &Entry, p: &S2) -> f64 {
+    let plain = if a.place < b.place { 1.0 } else { 0.0 };
+    if p.margin_g <= 0.0 {
+        return plain;
+    }
+    let (Some(sa), Some(sb)) = (a.score, b.score) else {
+        return plain;
+    };
+    match p.margin_shape {
+        MarginShape::Linear => (0.5 + (sa - sb) / (2.0 * p.margin_g)).clamp(0.0, 1.0),
+        MarginShape::Logistic => 1.0 / (1.0 + 10f64.powf(-(sa - sb) / p.margin_g)),
+    }
 }
 
 impl TeamsS2 {
@@ -93,23 +157,29 @@ impl TeamsS2 {
 
     /// One tournament: DESIGN 4.3. Player states must be the pre-tournament ones.
     pub fn step(&mut self, t: &Tournament, players: &Players, cfg: &Config) -> Vec<TeamEvent> {
-        let p = &cfg.team.s2;
-        let vbar = players.editor_mean(t);
-        let mut es: Vec<Entry> = Vec::with_capacity(t.teams.len());
-        for (ri, res) in t.teams.iter().enumerate() {
+        let rows = rows_of(t, players, cfg);
+        self.step_rows(t.day, t.weight, t.format, &rows, &cfg.team.s2)
+    }
+
+    /// The team rules alone, over lineup strengths already computed. `fit` and
+    /// the parameter sweep run this same code.
+    pub fn step_rows(
+        &mut self,
+        day: i32,
+        weight: f64,
+        format: Format,
+        rows: &[Row],
+        p: &S2,
+    ) -> Vec<TeamEvent> {
+        let mut es: Vec<Entry> = Vec::with_capacity(rows.len());
+        for (ri, res) in rows.iter().enumerate() {
             let idx = res.team as usize;
-            let rs: Vec<f64> = res
-                .members
-                .iter()
-                .map(|&i| {
-                    let i = i as usize;
-                    player_rating(players.theta(i) + players.affinity(i, &vbar), cfg)
-                })
-                .collect();
             let known = self.r[idx].is_finite();
             // A team with neither a lineup nor a rating cannot be placed in the field.
-            let Some(q) = (!rs.is_empty())
-                .then(|| lineup_strength(&rs, p))
+            let Some(q) = res
+                .q
+                .is_finite()
+                .then_some(res.q)
                 .or(known.then_some(f64::NAN))
             else {
                 continue;
@@ -136,10 +206,11 @@ impl TeamsS2 {
                 } else {
                     f64::INFINITY
                 },
+                score: res.score,
                 mu_before: self.r[idx],
                 games: self.games[idx],
                 gap_days: (self.last[idx] > i32::MIN / 2)
-                    .then(|| t.day - self.last[idx])
+                    .then(|| day - self.last[idx])
                     .unwrap_or(0),
                 rated: res.rated && res.position > 0.0,
             });
@@ -174,25 +245,64 @@ impl TeamsS2 {
             }
             let above = (n - j - 1) as f64;
             for &a in &ord[i..=j] {
+                // Every pair that is not a shared place, by whichever outcome rule
+                // is in force; the shipped one is 1 above, 0 below, which is just
+                // the count of the teams that finished lower.
+                let ysum: f64 = if p.margin_g <= 0.0 {
+                    above
+                } else {
+                    (0..n)
+                        .filter(|&b| !ord[i..=j].contains(&b))
+                        .map(|b| outcome(&es[a], &es[b], p))
+                        .sum()
+                };
                 let tied: f64 = ord[i..=j]
                     .iter()
                     .filter(|&&b| b != a)
                     .map(|&b| win(es[a].f, es[b].f))
                     .sum();
-                spair[a] = (above - psum[a] + tied) / ((n - 1) as f64).max(1.0);
+                spair[a] = (ysum - psum[a] + tied) / ((n - 1) as f64).max(1.0);
             }
             i = j + 1;
         }
 
+        // The team side may weigh the formats differently from the player side.
+        let w = match format {
+            Format::Sync => p.w_sync.unwrap_or(weight),
+            Format::StrictSync => p.w_strict_sync.unwrap_or(weight),
+            _ => weight,
+        };
+        // The field's first place, for the floor of principle 2.
+        let best = es
+            .iter()
+            .filter(|e| e.place.is_finite())
+            .map(|e| e.place)
+            .fold(f64::INFINITY, f64::min);
         let mut out = Vec::with_capacity(n);
         for (k, e) in es.iter().enumerate() {
             if e.rated {
-                self.r[e.idx] += p.k * t.weight * p.d * spair[k];
+                let before = self.r[e.idx];
+                // A provisional team moves faster: K_n = K max(1, n0 / n).
+                let kn = p.k * (p.n0 / e.games.max(1.0)).max(1.0);
+                self.r[e.idx] += kn * w * p.d * spair[k];
+                // The pull towards what the players who turned up are worth.
+                if p.k_r > 0.0 {
+                    let target = match p.k_r_target {
+                        PullTarget::Lineup => e.q,
+                        PullTarget::Usual => e.qbar,
+                    };
+                    if target.is_finite() {
+                        self.r[e.idx] += p.k_r * w * (target - self.r[e.idx]);
+                    }
+                }
+                if p.winner_floor && e.place == best && self.r[e.idx] < before {
+                    self.r[e.idx] = before;
+                }
                 if e.q.is_finite() {
                     self.qbar[e.idx] += p.k_q * (e.q - self.qbar[e.idx]);
                 }
                 self.games[e.idx] += 1.0;
-                self.last[e.idx] = t.day;
+                self.last[e.idx] = day;
             }
             out.push(TeamEvent {
                 team: e.idx as u32,
@@ -206,8 +316,8 @@ impl TeamsS2 {
                 forecast: e.fc,
                 forecast_place: fplace[k],
                 expected_place: n as f64 - psum[k],
-                actual_place: t.teams[e.ri].position,
-                pred_place: t.teams[e.ri].pred_pos,
+                actual_place: rows[e.ri].position,
+                pred_place: rows[e.ri].pred_pos,
                 s_r: e.q,
                 s_pair: spair[k],
                 i_pair: 1.0,

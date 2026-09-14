@@ -63,8 +63,27 @@ fn kalman_engine() -> TeamEngine {
     TeamEngine::Kalman
 }
 
-/// Model S2's five constants and the affine map that puts a player's `theta` on
-/// the team display scale.
+/// How the score gap enters the pairwise outcome of DESIGN 4.3.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarginShape {
+    Linear,
+    Logistic,
+}
+
+/// What the rating is pulled towards once a rated game is scored.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PullTarget {
+    /// The strength of the lineup that turned up today.
+    Lineup,
+    /// The usual lineup, the running average of the ones before it.
+    Usual,
+}
+
+/// Model S2's constants and the affine map that puts a player's `theta` on the
+/// team display scale. Everything below `k_q` is a switch of DESIGN 4.8, each
+/// shipped at the value that leaves the model of DESIGN 4.3 unchanged.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct S2 {
@@ -78,6 +97,20 @@ pub struct S2 {
     pub lineup: S2Lineup,
     pub player_scale: f64,
     pub player_zero: f64,
+    /// Questions of score gap worth a whole win; 0 is the win/lose rule.
+    pub margin_g: f64,
+    pub margin_shape: MarginShape,
+    /// Fraction of the gap to the players' worth the rating takes per rated game.
+    pub k_r: f64,
+    pub k_r_target: PullTarget,
+    /// Rated games below which the step is enlarged to `K n0 / n`; 0 is off.
+    pub n0: f64,
+    /// The team side's own format weights; absent means the shared `[data]` ones.
+    pub w_sync: Option<f64>,
+    pub w_strict_sync: Option<f64>,
+    /// Principle 2 as a floor: a team that finished first keeps at least the
+    /// rating it came with. Under the shipped constants it never binds.
+    pub winner_floor: bool,
 }
 
 impl Default for S2 {
@@ -90,6 +123,14 @@ impl Default for S2 {
             lineup: S2Lineup::Mean,
             player_scale: 2454.8828,
             player_zero: 6000.0,
+            margin_g: 0.0,
+            margin_shape: MarginShape::Linear,
+            k_r: 0.0,
+            k_r_target: PullTarget::Lineup,
+            n0: 0.0,
+            w_sync: None,
+            w_strict_sync: None,
+            winner_floor: true,
         }
     }
 }
