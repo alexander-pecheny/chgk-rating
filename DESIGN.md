@@ -379,6 +379,33 @@ the tune window at every gate measured, with an interior optimum; the shipped
 point is +0.0015 +/- 0.0010 of weighted tune NDCG and +0.0007 +/- 0.0008 on the
 test window, +0.0028 and +0.0035 at 3.
 
+Round 4 took the memory apart along its other three axes and put every one of
+them back where round 3 had it (`out/q_ndcg/round4.md`, 23 fits).
+
+- **The key.** `ed_key = "team_editor"` keeps one memory per table instead of one
+  per player; the residual likes it about as much as the player key (+0.052
+  against +0.048 in the strongest fifth) over a third fewer results, and it is
+  -0.0019 +/- 0.0013 of tune NDCG at `kappa_e = 1250` and worse at 2000 and 3000.
+  `ed_key = "player_set"` keys the whole set of a tournament's editors, which the
+  exact set repeating twice makes rare: it covers **0.3%** of the results and
+  scores what the memory switched off scores.
+- **Forgetting.** `ed_half_life` decays an entry by half every so many years.
+  The residual check asks for it — the strongest twentieth reads +0.093 at a
+  two-year half-life against +0.038 without — and the sweep refuses it, -0.0010
+  at two years and -0.0007 at four. An editor a player read well in 2018 is an
+  editor they still read well.
+- **The channel.** `ed_phi` adds the memory to a player's strength the way the
+  format effect of section 3.7 does, so it reaches `Q(L)`, the pull and the
+  rating. It is -0.0017 +/- 0.0010 at rates of 0.05, 0.1 and 0.25 alike, which is
+  what the memory switched off costs: in `phi` the term buys nothing at all.
+  Section 4.4's restriction is therefore not conservatism, it is the measurement.
+- **The grid.** `editor_memory` x `ed_gate` x `ed_min_n` over 750 to 2000, 0.05 to
+  0.3 and 1 to 4. One cell beats round 3's on the tune window, `(1500, 0.15)` at
+  +0.0005 +/- 0.0004, and it is a spike rather than a ridge — its neighbours at
+  `(1500, 0.12)` and `(1550, 0.15)` are -0.0005 and -0.0001 — and it is
+  -0.0013 +/- 0.0009 on the test window. `ed_min_n` is flat at 2 and 3 and worse
+  at 1 and 4.
+
 ### 4.9 Reserved extensions
 
 Four team-side switches are implemented, measured against section 7.3 and
@@ -400,6 +427,64 @@ switched off. All ship at the value that leaves 4.3 unchanged.
 - **Pull target** (`team.s2.k_r_target = "usual"`) pulls towards `Q̄` instead of
   `Q(L)`. It does nothing at any `K_r`, which is what a hundred-game average of
   a quantity the rating already tracks should do.
+
+### 4.10 The order, the geography and the load
+
+Round 4 added four more forecast-side switches, measured them against section 7.4
+and switched them all off. `out/q_ndcg/round4.md` has the sweeps.
+
+**Ordering by expected relevance** (`team.s2.rank_rule`). The metric of section
+7.4 pays `1 / place`, which is convex, so two lineups of the same mean strength
+are not worth the same: the one with the wider posterior has the better chance of
+the first place and the places it loses instead are cheap. `rank_rule = "erel"`
+draws every lineup `rank_draws` times at `Q(L) ± rank_sd · sd(Q(L))`, ranks each
+draw and orders the field by the mean of `1 / place`; `"p_first"` orders by the
+share of draws led; `"erel_d"` adds a Gumbel of scale `D / ln 10` to each draw,
+which makes one draw a Plackett-Luce ranking at exactly the pairwise scale of
+section 4.3. `rank_gap` confines the sampling to fields whose 1st-to-4th gap is
+narrow, which is the only place the residual says the spread buys anything.
+
+The mechanism is there and it is small. Among the four highest forecasts of a
+bunched field the wider half of the lineups wins 0.241 of the time against the
+narrower half's 0.203; in a field with a clear favourite the same comparison is
+0.173 against 0.318, because there a wide lineup is simply an unmeasured one.
+Re-ordering the tune window offline at a range of multipliers on `sd(Q(L))` has
+an interior maximum at **half** the propagated sd, 0.8965 against the mean
+ordering's 0.8963: the sd is about twice what an ordering can use. In a fit that
++0.0002 becomes -0.0006 +/- 0.0004, and the difference is a feedback rather than
+the ordering: with the editor memory switched off on both sides the sampled order
+costs 0.0001, because the order is also what the memory's residuals of section
+4.8 are measured against, and a noisier order makes a worse memory. `"erel_d"`,
+the one variant whose noise is the model's own, is the worst of the family at
+-0.0043. The mean ordering of section 4.1 stands.
+
+**Home and away** (`home_bonus`, `home_min`, `home_team_bonus`). `tournaments`
+carries the town a tournament was played in and `tournament_results` the town a
+team was registered in on the day; a player has no town in the mirror, so a
+player's town is the one they have played out of most often in the results before
+today, advanced after each field like everything else on this side. The id-to-name
+map the two sides need is `data/towns.csv`, fetched once by `tools/fetch_towns.py`.
+
+The residual separates the two at four standard errors and in the direction
+nobody expects: a team **at home** finishes 0.0054 +/- 0.0017 of a field worse
+than its forecast and a visitor 0.0047 +/- 0.0015 better, and the gap holds in the
+strongest fifth of fields and among the four highest forecasts. Travelling is a
+choice a team in form makes; turning out at home is what everyone does. It buys
+nothing: every bonus at both signs and both readings of "home" loses on the tune
+window, and the best any linear bonus on the feature could do, with the
+coefficient chosen in hindsight on the window it is scored on, is 0.8966 against
+0.8963 — at the *positive* sign, which the residual says is wrong.
+
+**Load** (`load_7`, `load_30`). In-person tournaments each player has already
+played in the trailing week and month, averaged over the lineup, as display points
+on the forecast. The residual reads +0.007 and +0.023 — the wrong sign for fatigue
+and far under the 0.10 the round-3 diagnosis calls a signal — and every setting is
+at or below zero. A championship weekend's third field is not worse than its first.
+
+**Season timing.** Measured and not implemented. The residual by month of the
+season, over the 17 392 results of the tune window, has a largest deviation of
+**0.0003** against a typical standard error of 0.0038. August rust and May fatigue
+are not in the data, and there is nothing for a switch to fit.
 
 ## 5. Display scale
 

@@ -1,0 +1,25 @@
+# Lever 1, second reading. The sampled order loses everywhere; the residual
+# check said it should only ever help where the top of the field is bunched, so
+# here it is restricted to exactly that, and read once at five times the draws
+# to show the loss is not Monte Carlo noise.
+erel_g600     team.s2.rank_rule="erel" team.s2.rank_gap=600.0
+erel_g1000    team.s2.rank_rule="erel" team.s2.rank_gap=1000.0
+erel_g300     team.s2.rank_rule="erel" team.s2.rank_gap=300.0
+pfirst_g600   team.s2.rank_rule="p_first" team.s2.rank_gap=600.0
+erel_d1000    team.s2.rank_rule="erel" team.s2.rank_draws=1000
+# Lever 6, the finer grid around the one cell that was positive on either
+# window: a harsher quantile in a field with a clear favourite.
+tg1000_l25    team.s2.tight_gap=1000.0 team.s2.sigma_c_tight=1.5 team.s2.sigma_c_loose=2.5
+tg1500_l20    team.s2.tight_gap=1500.0 team.s2.sigma_c_tight=1.5 team.s2.sigma_c_loose=2.0
+tg700_l20     team.s2.tight_gap=700.0 team.s2.sigma_c_tight=1.5 team.s2.sigma_c_loose=2.0
+tg1000_l175   team.s2.tight_gap=1000.0 team.s2.sigma_c_tight=1.5 team.s2.sigma_c_loose=1.75
+# The control the field-conditional rule needs: is a harsher quantile in a loose
+# field anything more than a harsher quantile everywhere?
+sc125         team.s2.sigma_c=1.25
+sc175         team.s2.sigma_c=1.75
+sc200         team.s2.sigma_c=2.0
+# Lever 5, the finer grid around the only positive cell of the memory sweep.
+ed_1400_g01   team.s2.editor_memory=1400.0 team.s2.ed_gate=0.1
+ed_1500_g015  team.s2.editor_memory=1500.0 team.s2.ed_gate=0.15
+ed_1500_g005  team.s2.editor_memory=1500.0 team.s2.ed_gate=0.05
+ed_1600_g01   team.s2.editor_memory=1600.0 team.s2.ed_gate=0.1

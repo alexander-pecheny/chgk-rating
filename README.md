@@ -14,7 +14,7 @@ Every Thursday is a release: the player gauge is re-centred on the established p
 
 ## Data
 
-`buff.db` in the repo root is a mirror of rating.chgk.info (tournaments, results with masks and lineups, players, the old system's releases). It is read-only and never written to. Calibration inputs from other systems live in `data/external/`: the old system's 2019 team and player releases, and player tables exported from chgk.quest and rating.chgk.fun.
+`buff.db` in the repo root is a mirror of rating.chgk.info (tournaments, results with masks and lineups, players, the old system's releases). It is read-only and never written to. Calibration inputs from other systems live in `data/external/`: the old system's 2019 team and player releases, and player tables exported from chgk.quest and rating.chgk.fun. `data/towns.csv` is the old system's town table, fetched once by `tools/fetch_towns.py`: the mirror gives a tournament its town as an id and a team its town as a name, and only this file brings the two onto one index.
 
 ## Build
 
@@ -91,6 +91,7 @@ uv run tools/q_ndcg_sweep.py out/q_ndcg/batch/glue.txt --jobs 2   # a config swe
 uv run tools/q_ndcg_sweep.py --dir out/q3 out/q_ndcg/batch3/edmem.txt   # elsewhere
 uv run tools/compare_ndcg.py --list          # every system in one table
 uv run tools/compare_ndcg.py "ours=out/final.db" "ours, rating=out/final.db:mu"
+uv run tools/compare_ndcg.py ... --window tune    # the window decisions are made on
 ```
 
 Three tools read the residual rather than the score, and all three want a
@@ -102,6 +103,8 @@ uv run tools/q_diag.py out/ratings.db --teams 6 --cohorts   # the worst fields
 uv run tools/q_feat.py out/ratings.db [--top 3]             # features vs residual
 uv run tools/q_vs.py out/ratings.db out/ext/fun.db          # where they beat us
 uv run tools/q_mech.py out/ratings.db --lever 7             # one mechanism at a time
+uv run tools/q_mech4.py out/ratings.db --lever 2            # round 4's mechanisms
+uv run tools/q_diag4.py out/ratings.db --what within        # and why they buy nothing
 ```
 
 `q_diag` ranks fields by `weight x (1 - NDCG)`, then prints the teams inside the
@@ -112,8 +115,15 @@ removing the part that is a function of where the forecast put the team.
 `q_vs` is the difference against another system, field by field and by cohort.
 `q_mech` takes one proposed mechanism at a time and asks the residual whether it
 is there before any sweep is run; its seventh lever is the one that found the
-editor effect of DESIGN 4.8. `out/q_ndcg/round2.md` and `out/q_ndcg/round3.md`
-are what they found.
+editor effect of DESIGN 4.8. `q_mech4` is round 4's six, on a residual derived
+from ranks on both sides so that a cohort *mean* of it means something — the
+older object scores a shortened field against full places and is safe only in a
+correlation. `q_diag4` answers the question round 4 turned on: when the residual
+says a feature is real and the metric does not move, it reports how much of the
+feature lives inside a field and the best NDCG any bonus on it could buy, and it
+re-orders the tune window by expected relevance at a range of scales on the
+lineups' own sd. `out/q_ndcg/round2.md`, `round3.md` and `round4.md` are what
+they found.
 
 `tools/compare_ndcg.py` scores each database twice over the same tournaments: a
 *player based* row ranks the field by the forecast, a *team based* row (`:mu`) by

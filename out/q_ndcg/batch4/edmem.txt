@@ -1,0 +1,35 @@
+# Lever 5: the editor memory, tuned properly. Round 3 shipped it at the first
+# interior optimum it found; these are the cells of the memory x gate grid it
+# did not measure, the two history thresholds around ed_min_n 2, a memory that
+# forgets, the team key, the editors'-set key, and the memory in phi.
+ed_750_g01    team.s2.editor_memory=750.0 team.s2.ed_gate=0.1
+ed_750_g02    team.s2.editor_memory=750.0 team.s2.ed_gate=0.2
+ed_750_g03    team.s2.editor_memory=750.0 team.s2.ed_gate=0.3
+ed_1000_g01   team.s2.editor_memory=1000.0 team.s2.ed_gate=0.1
+ed_1000_g03   team.s2.editor_memory=1000.0 team.s2.ed_gate=0.3
+ed_1500_g01   team.s2.editor_memory=1500.0 team.s2.ed_gate=0.1
+ed_2000_g01   team.s2.editor_memory=2000.0 team.s2.ed_gate=0.1
+ed_2000_g03   team.s2.editor_memory=2000.0 team.s2.ed_gate=0.3
+ed_1250_n1    team.s2.ed_min_n=1.0
+ed_1250_n3    team.s2.ed_min_n=3.0
+ed_1250_n4    team.s2.ed_min_n=4.0
+# A memory that forgets. The residual check likes it -- the strongest twentieth
+# reads +0.093 at two years against +0.038 without -- which is the one place in
+# this round where the check disagrees with round 3's rule.
+ed_half2      team.s2.ed_half_life=2.0
+ed_half4      team.s2.ed_half_life=4.0
+ed_half2_2000 team.s2.ed_half_life=2.0 team.s2.editor_memory=2000.0
+ed_half4_2000 team.s2.ed_half_life=4.0 team.s2.editor_memory=2000.0
+# The team instead of its players: one memory per table, +0.052 in the
+# strongest fifth against the player key's +0.013, over 35% of the results
+# rather than 51%.
+ed_team_1250  team.s2.ed_key="team_editor"
+ed_team_2000  team.s2.ed_key="team_editor" team.s2.editor_memory=2000.0
+ed_team_3000  team.s2.ed_key="team_editor" team.s2.editor_memory=3000.0
+# The editors' set, which the check says covers 0.3% of the results.
+ed_set        team.s2.ed_key="player_set"
+# The memory in phi rather than on the forecast: the one form of it that
+# reaches the rating.
+ed_phi005     team.s2.ed_phi=0.05 team.s2.editor_memory=0.0
+ed_phi01      team.s2.ed_phi=0.1 team.s2.editor_memory=0.0
+ed_phi025     team.s2.ed_phi=0.25 team.s2.editor_memory=0.0

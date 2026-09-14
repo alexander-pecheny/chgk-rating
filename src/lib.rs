@@ -5,6 +5,7 @@ pub mod difficulty;
 pub mod display;
 pub mod editor_memory;
 pub mod gauge;
+pub mod geography;
 pub mod ndcg;
 pub mod output;
 pub mod question_model;

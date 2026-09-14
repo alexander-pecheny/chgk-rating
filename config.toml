@@ -165,6 +165,15 @@ tau_spread = 0.0
 # the roster estimate. Measured and off: sd(Q(L)) correlates 0.93 with the mean
 # sigma the per-player rule already reads, so there is nothing new in it.
 q_sigma_c = 0.0
+# A quantile that depends on the field: below a 1st-to-4th forecast gap of
+# tight_gap display points the forecast reads each player at sigma_c_tight and
+# above it at sigma_c_loose, leaving Q(L) and the rating at sigma_c either way.
+# Measured and off: the best cell is 0.0000 +/- 0.0004 on tune, and a global
+# sigma_c of 1.25, 1.75 or 2.0 is worse than 1.5, so 1.5 is where the data puts
+# it and one number is enough.
+tight_gap = 0.0
+sigma_c_tight = 1.5
+sigma_c_loose = 1.5
 delta = 150.0
 # theta -> the team scale: player_zero + player_scale * (theta + ln 6 + roster_bias).
 player_scale = 2454.8828
@@ -193,6 +202,38 @@ ed_min_n = 2.0
 # residual says the effect is a property of a strong lineup, and 0.2 is where the
 # tune window puts it: 0 (every player) is +0.0010 against this row's +0.0015.
 ed_gate = 0.2
+# Years after which an entry counts for half; 0 never forgets. Measured and off:
+# -0.0010 at two years and -0.0007 at four, against a residual check that
+# expected the opposite.
+ed_half_life = 0.0
+# What the memory is keyed on: "player_editor" is the shipped rule,
+# "team_editor" one memory per table and "player_set" the editors' whole set.
+# Measured and off: the team key is -0.0019 at this constant and worse at larger
+# ones, and the set key covers 0.3% of the results.
+ed_key = "player_editor"
+# How much of the memory the in-person format effect takes, which is the one
+# form of it that reaches the rating. Measured and off: -0.0017 at every rate.
+ed_phi = 0.0
+# How the forecast orders a field: "mean" by each lineup's strength, "erel" by
+# E[1/place] under draws of the lineups' own uncertainty, "p_first" by the share
+# of draws won, "erel_d" by E[1/place] with the pairwise noise of D added.
+# Measured and off. rank_sd scales the sd before the draws and rank_gap confines
+# the sampling to fields whose 1st-to-4th gap is under that many points.
+rank_rule = "mean"
+rank_draws = 200
+rank_sd = 1.0
+rank_gap = 0.0
+# Display points the forecast gains when at least home_min of a lineup has
+# played out of the tournament's own town before, and the same for the town the
+# team itself is registered in. Measured and off at both signs, although the
+# residual separates home from away at four standard errors.
+home_bonus = 0.0
+home_min = 0.5
+home_team_bonus = 0.0
+# Display points per in-person tournament each player has already played in the
+# trailing 7 and 30 days, averaged over the lineup. Measured and off.
+load_7 = 0.0
+load_30 = 0.0
 # The chemistry of DESIGN 4.9: display points per unit of T(L), the mean over the
 # pairs of a lineup of log(1 + rated games together). Measured and off, and the
 # worst-behaved thing in this round: negative at every strength and both signs.

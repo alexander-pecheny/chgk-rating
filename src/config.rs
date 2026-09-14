@@ -79,6 +79,36 @@ pub enum MarginShape {
     Logistic,
 }
 
+/// What the editor memory of DESIGN 4.8 is keyed on.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EdKey {
+    /// Each `(player, editor)` pair; round 3's rule.
+    PlayerEditor,
+    /// The `(team, editor)` pair: a property of the team rather than of whoever
+    /// happens to sit at the table.
+    TeamEditor,
+    /// The player against the whole set of a tournament's editors, so a package
+    /// written by two people is its own author.
+    PlayerSet,
+}
+
+/// How the forecast turns the lineups of a field into an order.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RankRule {
+    /// By each lineup's mean strength; the rule of DESIGN 4.1.
+    Mean,
+    /// By `E[1/place]`, the relevance the metric pays, under draws of every
+    /// lineup's strength from its own posterior.
+    Erel,
+    /// By `P(place = 1)` under the same draws.
+    PFirst,
+    /// `Erel` with the pairwise noise of the Elo scale `D` added to each draw,
+    /// which makes one draw a Plackett-Luce ranking of the field.
+    ErelD,
+}
+
 /// What the rating is pulled towards once a rated game is scored.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -151,6 +181,53 @@ pub struct S2 {
     /// all; 0 is every player. The residual check says the effect is a property
     /// of a strong lineup, and this is the switch that says so.
     pub ed_gate: f64,
+    /// Years after which an entry of the editor memory counts for half. 0 never
+    /// forgets, which is round 3's rule.
+    pub ed_half_life: f64,
+    /// What the memory is keyed on: each `(player, editor)` pair, the
+    /// `(team, editor)` pair, or the player against the whole set of a
+    /// tournament's editors.
+    pub ed_key: EdKey,
+    /// How much of the memory the in-person format effect takes per field, as a
+    /// share of the residual. 0 leaves `phi` alone, which is round 3's rule and
+    /// the only setting whose blast radius is the forecast alone.
+    pub ed_phi: f64,
+    /// How the forecast orders a field: by the mean strength of each lineup, or
+    /// by the relevance the metric pays, `E[1/place]` or `P(place = 1)` under
+    /// the lineups' own uncertainty. `erel_d` adds the pairwise noise of `D` on
+    /// top, which makes the draw a Plackett-Luce ranking at the Elo scale.
+    pub rank_rule: RankRule,
+    /// Draws per field when `rank_rule` samples. 0 falls back to the mean.
+    pub rank_draws: usize,
+    /// Sample only where the residual says the spread of a lineup buys
+    /// anything: fields whose 1st-to-4th forecast gap is under this many
+    /// display points. 0 samples every field.
+    pub rank_gap: f64,
+    /// Multiplies every lineup's sd before the draws. The offline re-ranking of
+    /// `tools/q_diag4.py` puts the tune window's optimum near 0.5, which says
+    /// the propagated sd is about twice what the ordering can use; 1 is the sd
+    /// at face value.
+    pub rank_sd: f64,
+    /// Display points a lineup's forecast gains when at least `home_min` of its
+    /// players have played out of the tournament's own town before. The residual
+    /// says the sign is negative: the visitors are the ones who beat the
+    /// forecast. 0 is off.
+    pub home_bonus: f64,
+    pub home_min: f64,
+    /// The same for the town the team itself is registered in. 0 is off.
+    pub home_team_bonus: f64,
+    /// Display points per in-person tournament each player has already played in
+    /// the trailing 7 and 30 days, averaged over the lineup. 0 is off.
+    pub load_7: f64,
+    pub load_30: f64,
+    /// A quantile that depends on how bunched the field is. When `tight_gap` is
+    /// positive the forecast -- and the forecast alone -- reads each player at
+    /// `sigma_c_tight` in a field whose 1st-to-4th forecast gap is below
+    /// `tight_gap` display points and at `sigma_c_loose` above it. 0 is off and
+    /// leaves `sigma_c` in force everywhere.
+    pub tight_gap: f64,
+    pub sigma_c_tight: f64,
+    pub sigma_c_loose: f64,
     pub player_scale: f64,
     pub player_zero: f64,
     /// Questions of score gap worth a whole win; 0 is the win/lose rule.
@@ -191,6 +268,21 @@ impl Default for S2 {
             editor_memory: 0.0,
             ed_min_n: 2.0,
             ed_gate: 0.0,
+            ed_half_life: 0.0,
+            ed_key: EdKey::PlayerEditor,
+            ed_phi: 0.0,
+            rank_rule: RankRule::Mean,
+            rank_draws: 200,
+            rank_gap: 0.0,
+            rank_sd: 1.0,
+            home_bonus: 0.0,
+            home_min: 0.5,
+            home_team_bonus: 0.0,
+            load_7: 0.0,
+            load_30: 0.0,
+            tight_gap: 0.0,
+            sigma_c_tight: 1.5,
+            sigma_c_loose: 1.5,
             player_scale: 2454.8828,
             player_zero: 6000.0,
             margin_g: 0.0,

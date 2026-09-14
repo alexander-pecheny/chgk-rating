@@ -149,7 +149,7 @@ fn replay(cache: &[Cached], arena: &Arena, qual: &HashSet<(i64, i64)>, p: &Point
         shared: 0,
     };
     for t in cache {
-        let evs = teams.step_rows(t.day, t.weight, t.format, &t.rows, &p.s2);
+        let evs = teams.step_rows(t.id, t.day, t.weight, t.format, &t.rows, &p.s2);
         // The winner rule: a team that finished first never loses points.
         let best = evs
             .iter()
@@ -282,7 +282,9 @@ fn build_cache(arena: &Arena, cfg: &Config) -> Vec<Cached> {
         // forecast reads; it never scores a difficulty-aware forecast.
         let mut chem = Chemistry::new(cfg.question.chem_u != 0.0 || cfg.team.s2.chemistry != 0.0);
         let diff = Difficulties::new(false);
-        let edmem = EditorMemory::new(false, 0.0);
+        let edmem = EditorMemory::new(false, 0.0, cfg.team.s2.ed_key, 0.0);
+        let geo = chgk_rating::geography::Geography::new(false);
+        let load = chgk_rating::geography::PlayerLoad::new(false);
         for (n, t) in arena.tournaments.iter().enumerate() {
             if snap.is_empty() && t.day >= warm_until {
                 snap = players.snapshot();
@@ -310,6 +312,8 @@ fn build_cache(arena: &Arena, cfg: &Config) -> Vec<Cached> {
                             chem: &chem,
                             diff: &diff,
                             edmem: &edmem,
+                            geo: &geo,
+                            load: &load,
                         },
                         cfg,
                     ),

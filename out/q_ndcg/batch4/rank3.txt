@@ -1,0 +1,9 @@
+# Lever 1, third reading. The offline re-ranking of tools/q_diag4.py has an
+# interior maximum at half the propagated sd -- 0.8965 against the mean
+# ordering's 0.8963 -- so the mechanism is real and the sd is about twice what
+# the ordering can use. These rows put that number in a fit, at 1000 draws so
+# the estimator's own noise is under the effect.
+erel_sd05    team.s2.rank_rule="erel" team.s2.rank_sd=0.5 team.s2.rank_draws=1000
+erel_sd025   team.s2.rank_rule="erel" team.s2.rank_sd=0.25 team.s2.rank_draws=1000
+erel_sd075   team.s2.rank_rule="erel" team.s2.rank_sd=0.75 team.s2.rank_draws=1000
+erel_sd05_g  team.s2.rank_rule="erel" team.s2.rank_sd=0.5 team.s2.rank_draws=1000 team.s2.rank_gap=1000.0
