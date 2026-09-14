@@ -1,0 +1,11 @@
+# Lever 1: chemistry. The forecast bonus first, then the likelihood.
+chem_f50    team.s2.chemistry=50.0
+chem_f100   team.s2.chemistry=100.0
+chem_f200   team.s2.chemistry=200.0
+chem_f400   team.s2.chemistry=400.0
+chem_fm100  team.s2.chemistry=-100.0
+chem_u005   question.chem_u=0.05
+chem_u01    question.chem_u=0.1
+chem_u02    question.chem_u=0.2
+chem_um01   question.chem_u=-0.1
+chem_u01f100 question.chem_u=0.1 team.s2.chemistry=100.0

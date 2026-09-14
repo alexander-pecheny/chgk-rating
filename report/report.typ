@@ -87,7 +87,7 @@
 #let k_ll_cross   = [0.4899]
 #let k_ll_2526    = [0.5160]
 #let k_ll_quest   = [0.501]
-#let k_sp_new     = [0.8527]
+#let k_sp_new     = [0.8528]
 #let k_sp_old     = [0.8177]
 #let k_sp_new_s   = [0.8182]
 #let k_sp_old_s   = [0.7892]
@@ -376,13 +376,17 @@
 
 #p[Inactivity does not change a team rating: nothing happens to a team state between tournaments. A change of lineup does not change a team's rating on the day it is announced either: a team that changes its roster and plays nothing keeps its number. What a changed lineup changes at once is the tournament strength of #rf(<field>); from the next rated tournament on, the rating follows the real lineup through the pull and the usual lineup follows it through $K_q$, the first over roughly three tournaments and the second over roughly ten.]
 
-#p[The constants $D$, $K$, $K_r$ and $K_q$ are set outside the publication loop (#rf(<offline>)).]
+#p[The constants $D$, $K$, $K_r$, $K_q$ and $kappa_e$ are set outside the publication loop (#rf(<offline>)).]
 
 #sect[Forecast]
 
 #p[The forecast is an object separate from the rating: an estimate of the strength with which a team will play a given tournament with a given lineup. The forecast takes no part in the rating update and has no effect on it.]
 
-#p(tag: <forecast>)[The forecast strength of a team is the lineup estimate of its lineup, $Q(L)$ (#rf(<lineup>)); with no lineup, its tournament strength $F_T$ (#rf(<field>)).]
+#p(tag: <forecast>)[The forecast strength of a team is the lineup estimate of its lineup, $Q(L)$ (#rf(<lineup>)), plus the editor correction $E(L)$ below at an in-person tournament; with no lineup, its tournament strength $F_T$ (#rf(<field>)).]
+
+#p(tag: <edmem>)[For every pair of a player and an editor the system keeps the mean, over the in-person tournaments that player has played under that editor, of the difference between the player's forecast place and actual place divided by the size of the field. The editor correction $E(L)$ of a lineup at an in-person tournament is $kappa_e$ times the mean of those over the pairs of a member of $L$ and an editor of this package, counting only members whose strength is in the top fifth of the established players and only pairs with at least two shared tournaments; $kappa_e$ is a constant. With no such pair, $E(L) = 0$. At any other format $E(L) = 0$.]
+
+#p[The correction is added after a tournament has been forecast and never before, so no result takes part in its own forecast. It enters the forecast and nothing else: no rating, no usual lineup, no individual rating and no question difficulty reads it, and no forecast outside an in-person tournament reads it. It is the only place in the Rules where the identity of the editors changes an expectation, and it exists because a player's record under an editor predicts their result under that editor only for the strongest players, and for them clearly.]
 
 #p[The forecast place of a team is its place in the ordering of the field by forecast strength in descending order; first place is the largest forecast strength, and equal values share the mean of their places.]
 
@@ -473,7 +477,7 @@
 
 #p[The top-#k_ov_n overlap test is failed. The threshold of #k_ov_need of #k_ov_n is above what mature external systems reach with each other: chgk.quest and rating.chgk.fun agree on #k_ov_mutual of #k_ov_n. The rank correlation of the strength of players with at least #k_corr_games tournaments is #k_corr_quest with chgk.quest and #k_corr_fun with rating.chgk.fun.]
 
-#p(tag: <offline>)[Outside the publication loop the following are set: the correction $delta_0$~– as the mean difference between a team's realised strength and the uncorrected sum of its players' strengths over full six-player lineups on in-person tournaments of 2015–2024; the constant $D$~– as the maximum-likelihood value for the pairwise outcomes, the likelihood being flat from 900 to 2400; the step $K$~– as the maximum of the mean Spearman rank correlation of the forecast on in-person tournaments from #k_tune_from to #k_tune_to over the grid 0.2, 0.3, 0.4 and 0.6; the pull $K_r$ and the usual-lineup step $K_q$~– as the maximum, over the same tournaments, of the mean quality of the order the rating alone imposes on a field of teams playing in their base rosters, each tournament weighted by the strength of its ten strongest lineups#[;] the constants of the individual scale~– from the 2019 Release (#rf(<display>)).]
+#p(tag: <offline>)[Outside the publication loop the following are set: the correction $delta_0$~– as the mean difference between a team's realised strength and the uncorrected sum of its players' strengths over full six-player lineups on in-person tournaments of 2015–2024; the constant $D$~– as the maximum-likelihood value for the pairwise outcomes, the likelihood being flat from 900 to 2400; the step $K$~– as the maximum of the mean Spearman rank correlation of the forecast on in-person tournaments from #k_tune_from to #k_tune_to over the grid 0.2, 0.3, 0.4 and 0.6; the pull $K_r$ and the usual-lineup step $K_q$~– as the maximum, over the same tournaments, of the mean quality of the order the rating alone imposes on a field of teams playing in their base rosters, each tournament weighted by the strength of its ten strongest lineups#[;] the editor coefficient $kappa_e$~– as the maximum, over the same tournaments, of that same weighted quality of the forecast order, together with the share of the established players the correction is given to#[;] the constants of the individual scale~– from the 2019 Release (#rf(<display>)).]
 
 #p(tag: <honest>)[The honesty requirement on uncertainty is the condition that the standardised residuals $z_i$ have unit variance on in-person tournaments from 2018 onwards. This requirement sets the discount $d_"info"$. It does not apply to the team rating: Model S2 neither estimates nor publishes an uncertainty.]
 

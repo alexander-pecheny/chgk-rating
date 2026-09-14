@@ -1,4 +1,5 @@
-use crate::config::{Config, FormatEffect, PUpdate, QFit, QGradient};
+use crate::chemistry::Chemistry;
+use crate::config::{AffStrength, Config, FormatEffect, PUpdate, QFit, QGradient};
 use crate::data::{Format, Tournament, CORRECT, SKIP};
 use rayon::prelude::*;
 
@@ -31,6 +32,19 @@ pub struct Field {
     pub by_q: Vec<Vec<u32>>,
     pub n_q: usize,
     pub weight: f64,
+    /// The global discrimination this tournament's questions are read at:
+    /// `question.a_in_person` at an in-person table, 1 anywhere else.
+    pub a_fix: f64,
+    /// The global collaboration exponent, `question.m_fixed`.
+    pub m_fix: f64,
+}
+
+/// `question.a_in_person` where it applies, 1 elsewhere.
+pub fn a_of(f: Format, cfg: &Config) -> f64 {
+    match f {
+        Format::InPerson => cfg.question.a_in_person,
+        _ => 1.0,
+    }
 }
 
 pub struct PlayerState {
@@ -80,6 +94,16 @@ pub struct Players {
     pub fmt: FormatEffect,
     /// Count, sum and sum of squares of the standardised surprise.
     pub zstat: (f64, f64, f64),
+    /// Whether the editor affinity is a property of every player or of a strong
+    /// one, and the `theta` the gate stands at; the gate is recomputed at each
+    /// release from the established panel.
+    pub aff_strength: AffStrength,
+    pub aff_kappa: f64,
+    pub aff_s_max: f64,
+    pub aff_gate_theta: f64,
+    /// The same cut point for the editor memory of the team side, which has its
+    /// own share and is read by the forecast only.
+    pub ed_gate_theta: f64,
 }
 
 /// The format indicator `phi` is multiplied by: DESIGN 3.7.
@@ -148,7 +172,52 @@ impl Players {
             free,
             fmt,
             zstat: (0.0, 0.0, 0.0),
+            aff_strength: cfg.question.aff_strength,
+            aff_kappa: cfg.question.aff_kappa,
+            aff_s_max: cfg.question.aff_s_max,
+            // Nothing is above the gate until the first release sets it.
+            aff_gate_theta: f64::INFINITY,
+            ed_gate_theta: f64::NEG_INFINITY,
         }
+    }
+
+    /// How much of a player's editor affinity counts. The gauge centres the
+    /// established panel at `theta = 0`, so `scale` is 1 for a player of average
+    /// strength and grows with `theta`; `gate` is 1 above the panel's cut point
+    /// and 0 below it. The format effect is never scaled: it is a property of
+    /// the player, not a claim about how well they read an editor.
+    pub fn aff_scale(&self, i: usize) -> f64 {
+        match self.aff_strength {
+            AffStrength::None => 1.0,
+            AffStrength::Scale => {
+                (self.aff_kappa * self.theta(i)).exp().clamp(0.0, self.aff_s_max)
+            }
+            AffStrength::Gate => (self.theta(i) >= self.aff_gate_theta) as u8 as f64,
+        }
+    }
+
+    /// The `1 − share` quantile of `theta` over the established panel; `None`
+    /// when there is no panel yet or no share is asked for.
+    pub fn quantile(panel: &mut [f64], share: f64) -> Option<f64> {
+        if panel.is_empty() || share <= 0.0 {
+            return None;
+        }
+        panel.sort_by(f64::total_cmp);
+        let k = ((1.0 - share) * (panel.len() - 1) as f64).round() as usize;
+        Some(panel[k.min(panel.len() - 1)])
+    }
+
+    /// The affinity gate's cut point, recomputed at each release.
+    pub fn set_gate(&mut self, panel: &mut [f64], share: f64) {
+        if self.aff_strength != AffStrength::Gate {
+            return;
+        }
+        self.aff_gate_theta = Players::quantile(panel, share).unwrap_or(f64::INFINITY);
+    }
+
+    /// The editor memory's cut point; below it a player contributes nothing.
+    pub fn set_ed_gate(&mut self, panel: &mut [f64], share: f64) {
+        self.ed_gate_theta = Players::quantile(panel, share).unwrap_or(f64::NEG_INFINITY);
     }
 
     /// Prior variance of every affinity column: each pinned one has its own
@@ -231,8 +300,21 @@ impl Players {
         v
     }
 
+    /// What a tournament adds to a player's strength: the pinned format columns
+    /// as they stand, plus the editor columns times `aff_scale`.
     pub fn affinity(&self, i: usize, vbar: &[f64]) -> f64 {
-        self.state[i].aff.iter().zip(vbar).map(|(a, v)| a * v).sum()
+        let s = &self.state[i];
+        let n_pin = self.pins.len();
+        let pinned: f64 = s.aff[..n_pin].iter().zip(vbar).map(|(a, v)| a * v).sum();
+        if self.free == 0 {
+            return pinned;
+        }
+        let free: f64 = s.aff[n_pin..]
+            .iter()
+            .zip(&vbar[n_pin..])
+            .map(|(a, v)| a * v)
+            .sum();
+        pinned + self.aff_scale(i) * free
     }
 
     /// Restarts the chronology with the players of `snap` already at strength,
@@ -340,6 +422,15 @@ impl Players {
         );
         let vbar = self.editor_mean(t);
         let mut ed_grad = vec![0.0; self.free];
+        // The affinity multiplier as the tournament read it, before the update.
+        let aff_sc: std::collections::HashMap<usize, f64> = if free_aff {
+            grads
+                .iter()
+                .map(|&(i, _, _)| (i as usize, self.aff_scale(i as usize)))
+                .collect()
+        } else {
+            std::collections::HashMap::new()
+        };
         for &(i, g, info) in grads {
             let s = &mut self.state[i as usize];
             let dt = ((t.day - s.last_day).max(0) as f64) / 365.25;
@@ -411,14 +502,21 @@ impl Players {
                 s.last_ip = t.day;
             }
             if free_aff {
+                // `theta` has already moved, so read the multiplier off the value
+                // the tournament was scored at.
+                let sc = aff_sc.get(&(i as usize)).copied().unwrap_or(1.0);
                 #[allow(clippy::needless_range_loop)]
                 for k in 0..self.free {
                     let j = n_pin + k;
-                    ed_grad[k] += g * s.aff[j];
+                    ed_grad[k] += g * sc * s.aff[j];
                     let av = &mut s.aff_var[j];
                     *av += tau_aff2 * dt;
-                    let p = 1.0 / *av + t.weight * info * vbar[j] * vbar[j];
-                    s.aff[j] = (s.aff[j] + t.weight * g * vbar[j] / p).clamp(-clamp, clamp);
+                    // The column enters the strength as `sc * aff * vbar`, so the
+                    // chain rule puts `sc` in the gradient and `sc^2` in the
+                    // information; a gated-out player has neither and never moves.
+                    let p = 1.0 / *av + t.weight * info * (sc * vbar[j]) * (sc * vbar[j]);
+                    s.aff[j] =
+                        (s.aff[j] + t.weight * g * sc * vbar[j] / p).clamp(-clamp, clamp);
                     *av = 1.0 / p;
                 }
             }
@@ -614,11 +712,9 @@ fn clamp_params(p: &mut QParams, cfg: &Config, free_m: bool) {
     let n = &cfg.numeric;
     p.b = p.b.clamp(n.b_min, n.b_max);
     p.la = p.la.clamp(n.a_min.ln(), n.a_max.ln());
-    p.lm = if free_m {
-        p.lm.clamp(n.m_min.ln(), n.m_max.ln())
-    } else {
-        0.0
-    };
+    if free_m {
+        p.lm = p.lm.clamp(n.m_min.ln(), n.m_max.ln());
+    }
 }
 
 fn objective(
@@ -642,13 +738,14 @@ fn objective(
 }
 
 fn init_params(field: &Field, q: usize, sel: Option<u8>, cfg: &Config) -> QParams {
+    let (a, la, lm) = (field.a_fix, field.a_fix.ln(), field.m_fix.ln());
     let (mut sum_s, mut n, mut hits) = (0.0f64, 0.0f64, 0.0f64);
     for &ti in &field.by_q[q] {
         let t = &field.teams[ti as usize];
         if sel.is_some_and(|s| t.half != s) {
             continue;
         }
-        sum_s += intensity(&t.z, 1.0, 0.0, cfg).max(1e-12).ln();
+        sum_s += intensity(&t.z, a, 0.0, cfg).max(1e-12).ln();
         n += 1.0;
         if t.mask[q] == CORRECT {
             hits += 1.0;
@@ -657,15 +754,18 @@ fn init_params(field: &Field, q: usize, sel: Option<u8>, cfg: &Config) -> QParam
     if n == 0.0 {
         return QParams {
             b: cfg.question.b_bar,
-            la: 0.0,
-            lm: 0.0,
+            la,
+            lm,
         };
     }
-    let phat = (hits / n).clamp(0.02, 0.98);
+    // The take rate the lineups that saw this question managed. Under
+    // `P = (1 − e^{−u})^m` the step's own rate is `r^{1/m}`, so that is what the
+    // difficulty is solved from; at `m = 1` this is the closed form of DESIGN 3.3.
+    let phat = (hits / n).clamp(0.02, 0.98).powf(1.0 / field.m_fix);
     let mut p = QParams {
-        b: sum_s / n - (-(1.0 - phat).ln()).ln(),
-        la: 0.0,
-        lm: 0.0,
+        b: (sum_s / n - (-(1.0 - phat).ln()).ln()) / a,
+        la,
+        lm,
     };
     clamp_params(&mut p, cfg, false);
     p
@@ -922,15 +1022,25 @@ fn share_grads(field: &Field, params: &[QParams], cfg: &Config) -> Vec<(u32, f64
 }
 
 /// Builds the per-question view of a tournament, with the crossfit halves assigned.
-pub fn build_field(t: &Tournament, players: &Players, cfg: &Config) -> Field {
+pub fn build_field(t: &Tournament, players: &Players, chem: &Chemistry, cfg: &Config) -> Field {
     let vbar = players.editor_mean(t);
+    let a_fix = a_of(t.format, cfg);
     let mut rng = crate::util::Rng::new(cfg.numeric.crossfit_seed ^ (t.id as u64));
     let mut teams = Vec::with_capacity(t.teams.len());
     for tr in &t.teams {
+        // Chemistry multiplies the team's whole intensity by `exp(chem_u T)`.
+        // Because `u = Σ exp(a(z_i − b))`, that is exactly `chem_u T / a` added
+        // to every member's strength, so it needs no new term anywhere else —
+        // and it reaches the difficulties and the player gradients for free.
+        let bonus = if cfg.question.chem_u != 0.0 {
+            cfg.question.chem_u * chem.t(&tr.members) / a_fix
+        } else {
+            0.0
+        };
         let z = tr
             .members
             .iter()
-            .map(|&i| players.theta(i as usize) + players.affinity(i as usize, &vbar))
+            .map(|&i| players.theta(i as usize) + players.affinity(i as usize, &vbar) + bonus)
             .collect::<Vec<_>>();
         teams.push(TeamObs {
             z,
@@ -955,5 +1065,7 @@ pub fn build_field(t: &Tournament, players: &Players, cfg: &Config) -> Field {
         by_q,
         n_q: t.n_q,
         weight: t.weight,
+        a_fix,
+        m_fix: cfg.question.m_fixed,
     }
 }

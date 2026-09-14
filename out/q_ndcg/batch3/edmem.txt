@@ -1,0 +1,16 @@
+# The editor effect where the residual check finds it: in the outcomes, read by
+# the forecast alone, and gated on the strength of the player who carries it.
+ed500       team.s2.editor_memory=500.0
+ed1000      team.s2.editor_memory=1000.0
+ed2000      team.s2.editor_memory=2000.0
+ed4000      team.s2.editor_memory=4000.0
+edm1000     team.s2.editor_memory=-1000.0
+ed1000_g20  team.s2.editor_memory=1000.0 team.s2.ed_gate=0.2
+ed2000_g20  team.s2.editor_memory=2000.0 team.s2.ed_gate=0.2
+ed4000_g20  team.s2.editor_memory=4000.0 team.s2.ed_gate=0.2
+ed2000_g05  team.s2.editor_memory=2000.0 team.s2.ed_gate=0.05
+ed4000_g05  team.s2.editor_memory=4000.0 team.s2.ed_gate=0.05
+ed8000_g05  team.s2.editor_memory=8000.0 team.s2.ed_gate=0.05
+ed2000_n4   team.s2.editor_memory=2000.0 team.s2.ed_min_n=4.0
+ed2000_n1   team.s2.editor_memory=2000.0 team.s2.ed_min_n=1.0
+ed4000_g20n4 team.s2.editor_memory=4000.0 team.s2.ed_gate=0.2 team.s2.ed_min_n=4.0

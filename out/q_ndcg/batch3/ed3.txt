@@ -1,0 +1,7 @@
+# Pinning the optimum of the editor memory with the gate the residual asks for.
+ed1500_g20   team.s2.editor_memory=1500.0 team.s2.ed_gate=0.2
+ed1750_g20   team.s2.editor_memory=1750.0 team.s2.ed_gate=0.2
+ed1250_g30   team.s2.editor_memory=1250.0 team.s2.ed_gate=0.3
+ed1250_g10   team.s2.editor_memory=1250.0 team.s2.ed_gate=0.1
+ed1250_g20n3 team.s2.editor_memory=1250.0 team.s2.ed_gate=0.2 team.s2.ed_min_n=3.0
+ed1500_g30   team.s2.editor_memory=1500.0 team.s2.ed_gate=0.3

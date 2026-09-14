@@ -1,0 +1,9 @@
+# Is a tight gate better because strong players' affinity is real, or only
+# because a tight gate is nearly no affinity at all? If it is real, the few
+# who carry a vector should want a wider prior, not a narrower one.
+aff_g05_w   question.aff_rank=1 question.aff_strength="gate" question.aff_gate=0.05 question.s_aff=0.6
+aff_g05_n   question.aff_rank=1 question.aff_strength="gate" question.aff_gate=0.05 question.s_aff=0.15
+aff_g02     question.aff_rank=1 question.aff_strength="gate" question.aff_gate=0.02
+aff_g01     question.aff_rank=1 question.aff_strength="gate" question.aff_gate=0.01
+aff_g05_eta question.aff_rank=1 question.aff_strength="gate" question.aff_gate=0.05 question.eta_v=0.5
+aff_sc03    question.aff_rank=1 question.aff_strength="scale" question.aff_kappa=0.3

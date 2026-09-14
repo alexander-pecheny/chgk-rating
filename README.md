@@ -7,7 +7,7 @@ A team-first rating for sports ChGK. `DESIGN.md` is the specification; this file
 One chronological pass over the tournaments, in `fit`. Per tournament, in order:
 
 1. **Questions.** Each question's difficulty is set from the take rate of the lineups that played it, given their strengths as they stood this morning.
-2. **Teams.** Model S2 — Elo in a field, on the published scale. A team stands at its rating shifted by how much stronger today's lineup is than its usual one, gains or loses `K · w · D ·` (actual minus expected wins over the field), then takes `K_r` of the way towards what the lineup that turned up is worth, and never ends a tournament it won below where it started. Lineup strength is the tempered roster estimate, with every player read at `θ − σ_c · σ`. The forecast published beside the result is the strength of the lineup alone.
+2. **Teams.** Model S2 — Elo in a field, on the published scale. A team stands at its rating shifted by how much stronger today's lineup is than its usual one, gains or loses `K · w · D ·` (actual minus expected wins over the field), then takes `K_r` of the way towards what the lineup that turned up is worth, and never ends a tournament it won below where it started. Lineup strength is the tempered roster estimate, with every player read at `θ − σ_c · σ`. The forecast published beside the result is the strength of the lineup, plus at an in-person tournament a small correction for how its strongest players have fared under these editors before; nothing else in the model reads that correction.
 3. **Players.** A Kalman step on `θ` from the question model's gradient and Fisher information, then a small pull towards the lineup mean. A second Kalman step tracks `φ`, how much stronger the player is at an in-person table than elsewhere.
 
 Every Thursday is a release: the player gauge is re-centred on the established players and the two tables are written out. The team engine is `[team] engine` — `s2` ships, `kalman` is the filter it replaced and still runs from the same config. `DESIGN.md` sections 3, 4 and 8.3.
@@ -88,7 +88,7 @@ databases:
 uv run tools/ndcg.py out/ratings.db out/ext/fun.db --common [--k 3] [--unweighted]
 uv run tools/ndcg.py out/ratings.db out/ext/fun.db --common --paired
 uv run tools/q_ndcg_sweep.py out/q_ndcg/batch/glue.txt --jobs 2   # a config sweep
-uv run tools/q_ndcg_sweep.py --dir out/q2 out/q_ndcg/batch2/glue.txt   # elsewhere
+uv run tools/q_ndcg_sweep.py --dir out/q3 out/q_ndcg/batch3/edmem.txt   # elsewhere
 uv run tools/compare_ndcg.py --list          # every system in one table
 uv run tools/compare_ndcg.py "ours=out/final.db" "ours, rating=out/final.db:mu"
 ```
@@ -101,6 +101,7 @@ record what the forecast saw:
 uv run tools/q_diag.py out/ratings.db --teams 6 --cohorts   # the worst fields
 uv run tools/q_feat.py out/ratings.db [--top 3]             # features vs residual
 uv run tools/q_vs.py out/ratings.db out/ext/fun.db          # where they beat us
+uv run tools/q_mech.py out/ratings.db --lever 7             # one mechanism at a time
 ```
 
 `q_diag` ranks fields by `weight x (1 - NDCG)`, then prints the teams inside the
@@ -109,7 +110,10 @@ split by cohort of lineup, and the loss against how far apart the top of the
 field is. `q_feat` regresses the residual on what the lineup looked like, after
 removing the part that is a function of where the forecast put the team.
 `q_vs` is the difference against another system, field by field and by cohort.
-`out/q_ndcg/round2.md` is what they found.
+`q_mech` takes one proposed mechanism at a time and asks the residual whether it
+is there before any sweep is run; its seventh lever is the one that found the
+editor effect of DESIGN 4.8. `out/q_ndcg/round2.md` and `out/q_ndcg/round3.md`
+are what they found.
 
 `tools/compare_ndcg.py` scores each database twice over the same tournaments: a
 *player based* row ranks the field by the forecast, a *team based* row (`:mu`) by
