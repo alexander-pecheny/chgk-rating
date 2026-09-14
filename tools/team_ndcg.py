@@ -12,8 +12,9 @@ who was free that Saturday.
     uv run tools/team_ndcg.py a.db b.db --boot 2000          # paired SE against a.db
     uv run tools/team_ndcg.py out/ratings.db --window tune   # 2018-09-01..2024-08-29
 
-The headline is the **weighted** mean over tournaments, weights frozen in
-`data/tournament_weights.csv`; `--unweighted` prints the plain mean instead.
+Both means are printed side by side; the headline is the **weighted** one, with
+the weights frozen in `data/tournament_weights.csv`. `--unweighted` sets every
+weight to one, so the two columns agree.
 """
 
 import csv
@@ -260,8 +261,9 @@ def weights():
 
 
 def wmean(d, tids, w):
-    num = sum(w.get(t, 0.0) * d[t] for t in tids if t in d)
-    den = sum(w.get(t, 0.0) for t in tids if t in d)
+    """An empty weight table means every tournament counts once."""
+    num = sum(w.get(t, 1.0 if not w else 0.0) * d[t] for t in tids if t in d)
+    den = sum(w.get(t, 1.0 if not w else 0.0) for t in tids if t in d)
     return num / den if den > 0 else float("nan")
 
 
@@ -294,7 +296,8 @@ def boot(a, b, tids, w, n=2000, seed=20260914):
 def main():
     args = sys.argv[1:]
     frm, to = WINDOWS["test"]
-    dbs, common, use_old, nboot, column, rule, rebuild = [], False, False, 0, "mu_before", "maii", False
+    dbs, common, use_old, nboot = [], False, False, 0
+    column, rule, rebuild, unweighted = "mu_before", "maii", False, False
     i = 0
     while i < len(args):
         a = args[i]
@@ -303,7 +306,7 @@ def main():
         elif a == "--old":
             use_old, i = True, i + 1
         elif a == "--unweighted":
-            i += 1  # both means are always printed; kept for compatibility
+            unweighted, i = True, i + 1
         elif a == "--rebuild":
             rebuild, i = True, i + 1
         elif a == "--window":
@@ -324,7 +327,7 @@ def main():
             i += 1
 
     qual = load_qualify(rule, rebuild)
-    w = weights()
+    w = {} if unweighted else weights()
     runs = {}
     for db in dbs:
         val, place = per_tournament(db, qual, frm, to, column)

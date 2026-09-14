@@ -88,7 +88,7 @@ fn apply(p: &Point, spec: &str) -> Result<Point, String> {
     Ok(q)
 }
 
-/// The levers of plan 4, one at a time from the shipped defaults.
+/// The levers of plan 4, one at a time from whatever the config holds.
 const LEVERS: &[&str] = &[
     "margin_g=2,4,8,16",
     "margin_g=4,8,16;margin_shape=logistic",
@@ -346,7 +346,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut out = String::new();
     out.push_str(&header());
-    out.push_str(&line("shipped (base)", &base_run, None, &w, 0));
+    out.push_str(&line("base (the config, plus --base)", &base_run, None, &w, 0));
 
     let axes = args_all("--axis");
     let points = args_all("--point");
