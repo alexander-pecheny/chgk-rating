@@ -103,7 +103,7 @@ delta = 150.0
 # theta -> the team scale: player_zero + player_scale * (theta + ln 6 + roster_bias).
 player_scale = 2454.8828
 player_zero = 6000.0
-# The pull of DESIGN 4.3 step 4: per rated game the rating takes this much of the
+# The pull of DESIGN 4.3 step 3: per rated game the rating takes this much of the
 # gap to what the lineup that turned up is worth. Tuned on the weighted team NDCG,
 # 2018-09-01 to 2024-08-29; see out/team_ndcg/report.md. 0 is the rule it replaced.
 k_r = 0.3
