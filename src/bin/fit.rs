@@ -296,21 +296,43 @@ fn run_pass(
             .collect();
         lineup.sort_unstable();
         lineup.dedup();
-        let before: Vec<f64> = lineup.iter().map(|&i| players.theta(i as usize)).collect();
+        // The state the forecast read this morning, before the update moves it.
+        let before: Vec<(f64, f64, f64, i64, i64)> = lineup
+            .iter()
+            .map(|&i| {
+                let i = i as usize;
+                let s = &players.state[i];
+                (
+                    players.theta(i),
+                    players.phi(i),
+                    players.sigma_at(i, t.day, cfg),
+                    s.games_ip as i64,
+                    if s.games_ip > 0 {
+                        (t.day - s.last_ip) as i64
+                    } else {
+                        -1
+                    },
+                )
+            })
+            .collect();
         players.absorb(t, &grads, &mut ed_seen, collect, cfg);
         players.shrink_to_lineups(t, cfg);
         if let Some(w) = w {
-            let rows: Vec<(i64, f64, f64, f64)> = lineup
+            let rows: Vec<chgk_rating::output::PlayerEvent> = lineup
                 .iter()
                 .zip(&before)
-                .map(|(&i, &b)| {
+                .map(|(&i, b)| {
                     let i = i as usize;
-                    (
-                        arena.player_ids[i],
-                        b,
-                        players.theta(i),
-                        players.sigma_at(i, t.day, cfg),
-                    )
+                    chgk_rating::output::PlayerEvent {
+                        player: arena.player_ids[i],
+                        theta_before: b.0,
+                        theta_after: players.theta(i),
+                        sigma_after: players.sigma_at(i, t.day, cfg),
+                        phi_before: b.1,
+                        sigma_before: b.2,
+                        games_ip: b.3,
+                        days_ip: b.4,
+                    }
                 })
                 .collect();
             w.player_events(t.id, &rows)?;

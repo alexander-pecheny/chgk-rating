@@ -608,16 +608,21 @@ fn run_tournament(t: &Tour, arena: &Arena, st: &mut State, w: &Writer) -> rusqli
         });
     }
 
-    let mut prows: Vec<(i64, f64, f64, f64)> = Vec::new();
+    let mut prows: Vec<chgk_rating::output::PlayerEvent> = Vec::new();
     for r in &t.res {
         for &p in &r.members {
             let d = pdelta.get(&p).copied();
-            prows.push((
-                arena.player_ids[p],
-                st.pr[p],
-                st.pr[p] + d.unwrap_or(0.0),
-                0.0,
-            ));
+            // The mirror of another system carries none of the diagnostic state.
+            prows.push(chgk_rating::output::PlayerEvent {
+                player: arena.player_ids[p],
+                theta_before: st.pr[p],
+                theta_after: st.pr[p] + d.unwrap_or(0.0),
+                sigma_after: 0.0,
+                phi_before: 0.0,
+                sigma_before: 0.0,
+                games_ip: 0,
+                days_ip: -1,
+            });
             if let Some(d) = d {
                 st.add(p, d, t.rated);
             }

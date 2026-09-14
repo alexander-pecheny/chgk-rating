@@ -367,7 +367,7 @@ fn run(
         // The field's first place, for the floor of rule 9.
         let best = place.iter().cloned().fold(f64::INFINITY, f64::min);
         let mut evs = Vec::with_capacity(if w.is_some() { n } else { 0 });
-        let mut prows: Vec<(i64, f64, f64, f64)> = Vec::new();
+        let mut prows: Vec<chgk_rating::output::PlayerEvent> = Vec::new();
         for (k, &ri) in idx.iter().enumerate() {
             let res = &t.teams[ri];
             let ti = res.team as usize;
@@ -427,7 +427,18 @@ fn run(
                     }
                 }
                 if w.is_some() {
-                    prows.push((arena.player_ids[m], before, st.pr[m], 0.0));
+                    // Model S keeps no format effect and no uncertainty, so the
+                    // diagnostic columns stay empty here.
+                    prows.push(chgk_rating::output::PlayerEvent {
+                        player: arena.player_ids[m],
+                        theta_before: before,
+                        theta_after: st.pr[m],
+                        sigma_after: 0.0,
+                        phi_before: 0.0,
+                        sigma_before: 0.0,
+                        games_ip: 0,
+                        days_ip: -1,
+                    });
                 }
                 if rated {
                     st.pgames[m] += 1.0;

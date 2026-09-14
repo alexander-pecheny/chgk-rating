@@ -8,6 +8,9 @@ twenty-five.
 
     uv run tools/q_ndcg_sweep.py out/q_ndcg/batch/format.txt [--jobs 2] [--keep name,name]
 
+`--dir D` moves the working directory (base config, scratch databases, results
+table) somewhere else, which is how plan 5 keeps its runs apart from plan 3's.
+
 A batch file holds one experiment per line:
 
     w_sync_025  data.w_sync=0.25
@@ -23,14 +26,16 @@ import re
 import subprocess
 import sys
 
-BASE = "out/q_ndcg/base.toml"
 DIR = "out/q_ndcg"
-RESULTS = f"{DIR}/results.tsv"
+
+
+def paths():
+    return f"{DIR}/base.toml", f"{DIR}/results.tsv"
 
 
 def write_config(name, overrides):
     """Base config with `section.key = value` replaced, or appended to the section."""
-    lines = open(BASE, encoding="utf-8").read().splitlines()
+    lines = open(paths()[0], encoding="utf-8").read().splitlines()
     want = {}
     for o in overrides:
         k, v = o.split("=", 1)
@@ -91,11 +96,15 @@ def run_one(name, overrides, keep):
 
 
 def main():
+    global DIR
     args = [a for a in sys.argv[1:]]
     jobs, keep, batches = 2, set(), []
     i = 0
     while i < len(args):
-        if args[i] == "--jobs":
+        if args[i] == "--dir":
+            DIR = args[i + 1].rstrip("/")
+            i += 2
+        elif args[i] == "--jobs":
             jobs = int(args[i + 1])
             i += 2
         elif args[i] == "--keep":
@@ -110,9 +119,10 @@ def main():
             line = line.split("#")[0].split()
             if line:
                 todo.append((line[0], line[1:]))
+    _, results = paths()
     os.makedirs(DIR, exist_ok=True)
-    new = not os.path.exists(RESULTS)
-    with open(RESULTS, "a", encoding="utf-8") as f:
+    new = not os.path.exists(results)
+    with open(results, "a", encoding="utf-8") as f:
         if new:
             f.write(
                 "name\ttune\ttune@3\tutune\tutune@3\ttest\ttest@3\tutest\tutest@3"

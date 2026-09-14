@@ -4,12 +4,27 @@ pub struct Writer {
     pub conn: Connection,
 }
 
+/// One player's state around one tournament: what the update moved, and what the
+/// forecast read before it.
+pub struct PlayerEvent {
+    pub player: i64,
+    pub theta_before: f64,
+    pub theta_after: f64,
+    pub sigma_after: f64,
+    /// The format effect, the uncertainty the forecast used, and how much of the
+    /// player's evidence was in person on the morning of the tournament.
+    pub phi_before: f64,
+    pub sigma_before: f64,
+    pub games_ip: i64,
+    pub days_ip: i64,
+}
+
 const SCHEMA: &str = "
 CREATE TABLE releases (id INTEGER PRIMARY KEY, date TEXT, shift REAL, shift_cum REAL, n_players INTEGER);
 CREATE TABLE player_ratings (release_id INTEGER, player_id INTEGER, theta REAL, sigma REAL, games_365 INTEGER, display REAL, change REAL);
 CREATE TABLE team_ratings (release_id INTEGER, team_id INTEGER, mu REAL, sigma REAL, core_strength REAL, evidence REAL, display REAL, listed INTEGER, change REAL);
 CREATE TABLE team_events (tournament_id INTEGER, date TEXT, team_id INTEGER, c REAL, delta_l REAL, x REAL, s_r REAL, forecast REAL, forecast_place REAL, actual_place REAL, s_pair REAL, i_pair REAL, mu_before REAL, mu_after REAL, sigma_before REAL, sigma_after REAL, evidence REAL, gap_days INTEGER, var_diff REAL, lost_prev REAL, rated INTEGER, z REAL, expected_place REAL);
-CREATE TABLE player_events (tournament_id INTEGER, player_id INTEGER, theta_before REAL, theta_after REAL, sigma_after REAL);
+CREATE TABLE player_events (tournament_id INTEGER, player_id INTEGER, theta_before REAL, theta_after REAL, sigma_after REAL, phi_before REAL, sigma_before REAL, games_ip INTEGER, days_ip INTEGER);
 CREATE TABLE question_params (tournament_id INTEGER, q INTEGER, b REAL, a REAL, m REAL);
 CREATE TABLE tournament_metrics (tournament_id INTEGER PRIMARY KEY, date TEXT, type TEXT, weight REAL, n_teams INTEGER, n_q INTEGER, n_obs INTEGER, logloss_insample REAL, logloss_crossfit REAL, spearman_forecast REAL, spearman_old_system REAL, truedl REAL);
 ";
@@ -129,12 +144,25 @@ impl Writer {
         Ok(())
     }
 
-    pub fn player_events(&self, tid: i64, rows: &[(i64, f64, f64, f64)]) -> rusqlite::Result<()> {
+    /// One row per player per tournament. The first three numbers are the state
+    /// the update moved; the last four are the state the forecast read, which is
+    /// what a residual diagnosis needs.
+    pub fn player_events(&self, tid: i64, rows: &[PlayerEvent]) -> rusqlite::Result<()> {
         let mut st = self
             .conn
-            .prepare_cached("INSERT INTO player_events VALUES (?1,?2,?3,?4,?5)")?;
-        for (pid, before, after, sigma) in rows {
-            st.execute(params![tid, pid, before, after, sigma])?;
+            .prepare_cached("INSERT INTO player_events VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)")?;
+        for e in rows {
+            st.execute(params![
+                tid,
+                e.player,
+                e.theta_before,
+                e.theta_after,
+                e.sigma_after,
+                e.phi_before,
+                e.sigma_before,
+                e.games_ip,
+                e.days_ip
+            ])?;
         }
         Ok(())
     }

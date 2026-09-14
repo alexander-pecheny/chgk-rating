@@ -42,6 +42,11 @@ pub struct PlayerState {
     pub aff_var: Vec<f64>,
     pub games: u32,
     pub last_day: i32,
+    /// In-person tournaments absorbed, and the day of the last one. How much of
+    /// a player's evidence is in person is what the format-aware quantile of
+    /// DESIGN 4.1 asks, and this is the counter that answers it.
+    pub games_ip: u32,
+    pub last_ip: i32,
     pub seen: bool,
 }
 
@@ -95,6 +100,8 @@ impl Players {
                 aff_var: vec![prior; rank],
                 games: 0,
                 last_day: 0,
+                games_ip: 0,
+                last_ip: 0,
                 seen: false,
             })
             .collect();
@@ -110,6 +117,17 @@ impl Players {
 
     pub fn theta(&self, i: usize) -> f64 {
         self.state[i].theta_raw - self.shift_cum
+    }
+
+    /// The format effect itself, whatever today's format: zero when none is in
+    /// force, `phi_i` otherwise. `affinity` is what a tournament reads; this is
+    /// what the diagnosis and the published table want.
+    pub fn phi(&self, i: usize) -> f64 {
+        if self.fmt == FormatEffect::None {
+            0.0
+        } else {
+            self.state[i].aff[0]
+        }
     }
 
     /// Uncertainty as of `day`, including the diffusion since the last game.
@@ -163,6 +181,8 @@ impl Players {
         for (s, warm) in self.state.iter_mut().zip(snap) {
             s.games = 0;
             s.last_day = day;
+            s.games_ip = 0;
+            s.last_ip = day;
             // Nothing snapshots the affinity, so a later pass must not inherit
             // the value the first pass ended on: that is the future.
             s.aff.iter_mut().for_each(|a| *a = 0.0);
@@ -295,6 +315,10 @@ impl Players {
             }
             s.games += 1;
             s.last_day = t.day;
+            if t.format == Format::InPerson {
+                s.games_ip += 1;
+                s.last_ip = t.day;
+            }
             if free_aff {
                 #[allow(clippy::needless_range_loop)]
                 for k in 0..self.rank {
