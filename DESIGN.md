@@ -416,10 +416,17 @@ Two things neither database can answer with an index it already has — one
 player's games, which live behind a JSON blob in `buff.db` with no index, and
 the two ranking tables, which need the last release ordered by rating out of
 18.7 million rows — are precomputed once into `out/web.db` and rebuilt whenever
-`out/ratings.db` is newer. A team is named by `teams.name` there, not by the
-name on its last result, which is often a one-off; the played-as name is kept
-per result, shown next to the team on that tournament's page and indexed as an
-alias so a search for it still finds the team.
+`out/ratings.db` is newer.
+
+What a team is called is a question neither database answers. A result carries
+the name the team entered that one tournament under, which is often a one-off,
+and `buff.db`'s `teams` table is no better: the mirror rebuilds it from each
+team's latest result, so a team that alternates between two names alternates
+there too. The authority is the rating.chgk.info team listing, swept into
+`out/team_names.db` by `tools/fetch_team_names.py` and preferred by the index,
+with `teams` and then the last result behind it. The played-as name is kept per
+result, shown next to the team on that tournament's page when it differs, and
+indexed as an alias so a search for it still finds the team.
 
 Rating history is interactive: the chart carries its points in viewBox
 coordinates, and the crosshair is a nearest-x lookup that draws a vertical rule

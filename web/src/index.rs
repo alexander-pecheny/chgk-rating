@@ -14,13 +14,35 @@ use std::path::Path;
 
 /// Bumped whenever the index grows a table or column the server reads, so a
 /// deploy rebuilds it instead of serving a page with nothing behind it.
-pub const VERSION: &str = "7";
+pub const VERSION: &str = "8";
 
 /// How names compare when the question is "is this the same name": ignoring the
 /// padding people type and the case they type it in. SQLite's own `lower()` is
 /// ASCII-only, so this has to happen in Rust.
 pub fn fold(s: &str) -> String {
     s.trim().to_lowercase()
+}
+
+/// `id -> (name, town)` from a table of names, skipping rows with no name. A
+/// file that is not there, or has no such table, is not an error: it is one
+/// source of names missing, and the caller has others.
+fn read_names(path: &Path, sql: &str) -> HashMap<i64, (String, String)> {
+    let mut out = HashMap::new();
+    let Ok(db) = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+    else {
+        return out;
+    };
+    let Ok(mut st) = db.prepare(sql) else { return out };
+    let Ok(mut rows) = st.query([]) else { return out };
+    while let Ok(Some(x)) = rows.next() {
+        let Ok(id) = x.get::<_, i64>(0) else { continue };
+        let name: String = x.get::<_, Option<String>>(1).unwrap_or_default().unwrap_or_default();
+        let town: String = x.get::<_, Option<String>>(2).unwrap_or_default().unwrap_or_default();
+        if !name.trim().is_empty() {
+            out.insert(id, (name, town));
+        }
+    }
+    out
 }
 
 const SCHEMA: &str = "
@@ -73,7 +95,7 @@ pub fn ensure_ratings_indexes(path: &Path) {
     .expect("index out/ratings.db");
 }
 
-pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
+pub fn build(ratings: &Path, buff: &Path, names: &Path, out: &Path, d: &Display) {
     let t0 = std::time::Instant::now();
     let r = crate::data::open(ratings);
     let b = crate::data::open(buff);
@@ -167,32 +189,32 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
     }
     eprintln!("index: {} tournaments [{:.1}s]", tour_date.len(), t0.elapsed().as_secs_f64());
 
-    // ── the team's own name ──────────────────────────────────────────────────
+    // ── what a team is called ────────────────────────────────────────────────
     // A result carries the name a team entered that one tournament under, which
-    // is sometimes a joke and sometimes a sponsor. The name the team goes by is
-    // in `teams`, and that is the one a page should say.
-    let mut base: HashMap<i64, (String, String)> = HashMap::new();
-    {
-        let mut st = b.prepare("select id, name, town from teams").unwrap();
-        let mut rows = st.query([]).unwrap();
-        while let Some(x) = rows.next().unwrap() {
-            let id: i64 = x.get(0).unwrap();
-            let name: String = x.get::<_, Option<String>>(1).unwrap().unwrap_or_default();
-            let town: String = x.get::<_, Option<String>>(2).unwrap().unwrap_or_default();
-            if !name.trim().is_empty() {
-                base.insert(id, (name, town));
-            }
-        }
-    }
-    eprintln!("index: {} teams with a base name [{:.1}s]", base.len(), t0.elapsed().as_secs_f64());
+    // is sometimes a joke and sometimes a sponsor, so the last result is no
+    // answer — and neither is `buff.teams`, which the mirror rebuilds from each
+    // team's latest result and which therefore flips with it. The authority is
+    // rating.chgk.info's own team listing, fetched into `out/team_names.db` by
+    // `tools/fetch_team_names.py`. It may be missing or behind, so the mirror
+    // and then the last result stay behind it as fallbacks.
+    let api = read_names(names, "select id, name, town from team_names");
+    eprintln!(
+        "index: {} names from {} [{:.1}s]",
+        api.len(),
+        names.display(),
+        t0.elapsed().as_secs_f64()
+    );
+    let base = read_names(buff, "select id, name, town from teams");
+    eprintln!("index: {} names from buff.teams [{:.1}s]", base.len(), t0.elapsed().as_secs_f64());
 
     // ── one pass over the results: rosters, team names, scores ───────────────
     // No index on `tournament_results`, so this is a single scan and everything
     // that needs it is collected in the same loop.
     let mut team_last: HashMap<i64, (String, String, String, i64)> = HashMap::new();
     let mut player_last: HashMap<i64, (String, i64)> = HashMap::new();
-    // Every name a team played under other than its own, kept as (folded, shown)
-    // so the same name in another case is not filed twice.
+    // Every name a team ever played under, kept as (folded, shown) so the same
+    // name in another case is not filed twice. Which of them is the team's own
+    // is decided below, once; the rest become search aliases.
     let mut alias: HashMap<i64, Vec<(String, String)>> = HashMap::new();
     {
         let mut st = b
@@ -231,11 +253,9 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
                 e.3 += 1;
                 // A one-off name is still a name people search for.
                 let f = fold(&name);
-                if base.get(&team_id).is_none_or(|x| fold(&x.0) != f) {
-                    let v = alias.entry(team_id).or_default();
-                    if !v.iter().any(|x| x.0 == f) {
-                        v.push((f, name.clone()));
-                    }
+                let v = alias.entry(team_id).or_default();
+                if !v.iter().any(|x| x.0 == f) {
+                    v.push((f, name.clone()));
                 }
             }
             rs.execute(params![tid, team_id, score, name]).unwrap();
@@ -282,26 +302,50 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
         let mut fts = w
             .prepare("insert into team_fts(rowid, name, town, aliases) values (?1,?2,?3,?4)")
             .unwrap();
-        let mut renamed = 0;
+        // How many teams each source of names ends up naming, and how many are
+        // now called something other than what their last result called them.
+        let (mut from_api, mut from_buff, mut from_last, mut renamed) = (0, 0, 0, 0);
         for (id, (last_name, last_town, last, games)) in &team_last {
-            // The base name wins; an empty town there is no reason to lose the
-            // town the team last entered under.
-            let (name, town) = match base.get(id) {
-                Some((n, t)) if t.trim().is_empty() => (n, last_town),
-                Some((n, t)) => (n, t),
-                None => (last_name, last_town),
+            let (name, town) = match (api.get(id), base.get(id)) {
+                (Some((n, t)), _) => {
+                    from_api += 1;
+                    (n, t)
+                }
+                (None, Some((n, t))) => {
+                    from_buff += 1;
+                    (n, t)
+                }
+                (None, None) => {
+                    from_last += 1;
+                    (last_name, last_town)
+                }
             };
+            // An empty town in the source is no reason to lose the town the team
+            // last entered under.
+            let town = if town.trim().is_empty() { last_town } else { town };
             if name != last_name {
                 renamed += 1;
             }
+            // Every other name the team has played under, so a search for the
+            // one-off still lands on the team.
+            let f = fold(name);
             let aliases = alias
                 .get(id)
-                .map(|v| v.iter().map(|x| x.1.as_str()).collect::<Vec<_>>().join(" "))
+                .map(|v| {
+                    v.iter()
+                        .filter(|x| x.0 != f)
+                        .map(|x| x.1.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
                 .unwrap_or_default();
             ins.execute(params![id, name, town, games, last]).unwrap();
             fts.execute(params![id, name, town, aliases]).unwrap();
         }
-        eprintln!("index: {renamed} teams shown under their own name, not their last one");
+        eprintln!(
+            "index: team names — {from_api} from the API, {from_buff} from buff.teams, \
+             {from_last} from the last result; {renamed} differ from the last result"
+        );
     }
 
     // ── the two ranking tables of the last release ───────────────────────────
