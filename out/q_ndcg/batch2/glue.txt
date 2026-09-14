@@ -1,0 +1,15 @@
+# Lever 7: the temperature against the quantile, on the finer grid. The
+# diagnosis says the loss is resolution at the top of a strong field, and these
+# two are the switches that set how sharply a lineup's best players count.
+g_t06_c10 team.s2.tau=0.6 team.s2.sigma_c=1.0
+g_t06_c15 team.s2.tau=0.6 team.s2.sigma_c=1.5
+g_t06_c20 team.s2.tau=0.6 team.s2.sigma_c=2.0
+g_t07_c10 team.s2.tau=0.7 team.s2.sigma_c=1.0
+g_t07_c20 team.s2.tau=0.7 team.s2.sigma_c=2.0
+g_t08_c10 team.s2.tau=0.8 team.s2.sigma_c=1.0
+g_t08_c15 team.s2.tau=0.8 team.s2.sigma_c=1.5
+g_t08_c20 team.s2.tau=0.8 team.s2.sigma_c=2.0
+g_t05_c15 team.s2.tau=0.5 team.s2.sigma_c=1.5
+g_t04_c15 team.s2.tau=0.4 team.s2.sigma_c=1.5
+g_t05_c20 team.s2.tau=0.5 team.s2.sigma_c=2.0
+g_t06_c25 team.s2.tau=0.6 team.s2.sigma_c=2.5

@@ -1,0 +1,21 @@
+# Lever 2: the format effect and the editors together, now that the affinity
+# state has a pinned column and free ones.
+aff1      question.aff_rank=1
+aff2      question.aff_rank=2
+aff1_s02  question.aff_rank=1 question.s_aff=0.2
+# Lever 1: a quantile that knows how much of a player's evidence is in person.
+ip_a1     team.s2.sigma_ip=1.0
+ip_a3     team.s2.sigma_ip=3.0
+ip_a10    team.s2.sigma_ip=10.0
+ip_a3_c10 team.s2.sigma_ip=3.0 team.s2.sigma_c=1.0
+# Lever 4: a synchronous scalar of its own.
+psi03     question.sync_effect=true
+psi015    question.sync_effect=true question.s_psi=0.15
+psi06     question.sync_effect=true question.s_psi=0.6
+psi03_ph06 question.sync_effect=true question.s_phi=0.6
+# Lever 6: a shorter memory for the in-person strength.
+own       player.tau_phi_own=true
+own_t02   player.tau_phi_own=true player.tau_phi=0.2
+tau_phi0  player.tau_phi=0.0
+tau_phi02 player.tau_phi=0.2
+tau_phi04 player.tau_phi=0.4

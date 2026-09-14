@@ -1,0 +1,20 @@
+# The diagnosis says the loss is resolution among strong, well-measured
+# lineups, so these are the constants that set how far apart the model may put
+# two strong players: the difficulty prior, the information one tournament
+# carries, and how much a player is allowed to move.
+s_b10       question.s_b=1.0
+s_b15       question.s_b=1.5
+s_b30       question.s_b=3.0
+b_bar10     question.b_bar=1.0
+b_bar20     question.b_bar=2.0
+s_a035      question.s_a=0.35
+s_a075      question.s_a=0.75
+info040     player.info_scale=0.40
+info055     player.info_scale=0.55
+info065     player.info_scale=0.65
+vmin010     player.v_min=0.10
+vmin015     player.v_min=0.15
+shrink000   player.teammate_shrink=0.0
+shrink002   player.teammate_shrink=0.002
+shrink010   player.teammate_shrink=0.01
+vmax10      player.v_max=1.0

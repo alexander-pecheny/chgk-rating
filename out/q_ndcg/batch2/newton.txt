@@ -1,0 +1,12 @@
+# Lever 3: the Newton question fit, on top of the round-1 winner, with the
+# finer grid plan 5 asks for.
+nw_m025_a05  question.fit="newton" question.s_m=0.25
+nw_m05_a05   question.fit="newton" question.s_m=0.5
+nw_m10_a05   question.fit="newton" question.s_m=1.0
+nw_m025_a025 question.fit="newton" question.s_m=0.25 question.s_a=0.25
+nw_m05_a025  question.fit="newton" question.s_m=0.5 question.s_a=0.25
+nw_m10_a025  question.fit="newton" question.s_m=1.0 question.s_a=0.25
+nw_m00_a05   question.fit="newton" question.s_m=0.0
+# The take-rate fit with a free multiplicity, to separate the two changes.
+tr_m05       question.s_m=0.5
+tr_a025      question.s_a=0.25
