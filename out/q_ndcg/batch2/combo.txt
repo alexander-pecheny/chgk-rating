@@ -1,0 +1,13 @@
+# The three rows whose tune and test windows agree in sign, alone and together.
+sh0015    player.teammate_shrink=0.0015
+sh0025    player.teammate_shrink=0.0025
+sh0030    player.teammate_shrink=0.003
+info050   player.info_scale=0.50
+info052   player.info_scale=0.52
+c_sh_info player.teammate_shrink=0.002 player.info_scale=0.55
+c_sh_nw   player.teammate_shrink=0.002 question.fit="newton" question.s_m=1.0 question.s_a=0.25
+c_info_nw player.info_scale=0.55 question.fit="newton" question.s_m=1.0 question.s_a=0.25
+c_all     player.teammate_shrink=0.002 player.info_scale=0.55 question.fit="newton" question.s_m=1.0 question.s_a=0.25
+c_sh_g    player.teammate_shrink=0.002 team.s2.tau=0.6 team.s2.sigma_c=2.0
+c_all_g   player.teammate_shrink=0.002 player.info_scale=0.55 question.fit="newton" question.s_m=1.0 question.s_a=0.25 team.s2.tau=0.6 team.s2.sigma_c=2.0
+c_sh_info_g player.teammate_shrink=0.002 player.info_scale=0.55 team.s2.tau=0.6 team.s2.sigma_c=2.0

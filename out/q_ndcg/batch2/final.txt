@@ -1,0 +1,15 @@
+# The three rows that gain on both windows, in combination: the retuned
+# teammate shrinkage, the Newton question fit at `s_m = 1`, the information
+# discount, and the strictly-synchronous weight.
+f_sh25_nw     player.teammate_shrink=0.0025 question.fit="newton" question.s_m=1.0 question.s_a=0.25
+f_sh30_nw     player.teammate_shrink=0.003 question.fit="newton" question.s_m=1.0 question.s_a=0.25
+f_sh25_nw35   player.teammate_shrink=0.0025 question.fit="newton" question.s_m=1.0 question.s_a=0.35
+f_sh25_info   player.teammate_shrink=0.0025 player.info_scale=0.55
+f_sh30_info   player.teammate_shrink=0.003 player.info_scale=0.55
+f_sh25_g      player.teammate_shrink=0.0025 team.s2.tau=0.6 team.s2.sigma_c=2.0
+f_sh25_nw_inf player.teammate_shrink=0.0025 question.fit="newton" question.s_m=1.0 question.s_a=0.25 player.info_scale=0.55
+f_sh25_ws     player.teammate_shrink=0.0025 data.w_strict_sync=1.0
+f_nw_ws       question.fit="newton" question.s_m=1.0 question.s_a=0.25 data.w_strict_sync=1.0
+f_sh25_ip     player.teammate_shrink=0.0025 team.s2.sigma_ip=1.0
+f_sh25_tp0    player.teammate_shrink=0.0025 player.tau_phi=0.0
+f_sh25_nw_ws  player.teammate_shrink=0.0025 question.fit="newton" question.s_m=1.0 question.s_a=0.25 data.w_strict_sync=1.0

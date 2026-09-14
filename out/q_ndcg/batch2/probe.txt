@@ -1,0 +1,22 @@
+# The likelihood saturates when a table is much stronger than the questions:
+# `u_scale` caps one observation at `u_max` nats, which is exactly where the
+# top of a strong field stops separating. These are the numeric limits that
+# decide how far two strong players may be told apart.
+umax08   numeric.u_max=8.0
+umax30   numeric.u_max=30.0
+umax60   numeric.u_max=60.0
+amax50   numeric.a_max=5.0
+amin015  numeric.a_min=0.15
+step30   numeric.theta_max_step=3.0
+ifloor4  numeric.info_floor=1e-4
+# The gauge the published scale is centred on.
+gauge16  gauge.n_est=16
+gauge04  gauge.n_est=4
+# The backfill, on the merged model.
+warm03   player.warm_sigma=0.3
+warm07   player.warm_sigma=0.7
+warm2018 player.warm_until="2018-01-01"
+# The format weights, again on the merged model.
+wsync075 data.w_sync=0.75
+wsync035 data.w_sync=0.35
+wstrict10 data.w_strict_sync=1.0

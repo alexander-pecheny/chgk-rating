@@ -1,0 +1,8 @@
+# Is the leader on a plateau or a spike? The neighbourhood of
+# `teammate_shrink = 0.0025` with the Newton fit at `s_m = 1`.
+x_sh35_nw    player.teammate_shrink=0.0035 question.fit="newton" question.s_m=1.0 question.s_a=0.25
+x_sh25_m090  player.teammate_shrink=0.0025 question.fit="newton" question.s_m=0.9 question.s_a=0.25
+x_sh25_m125  player.teammate_shrink=0.0025 question.fit="newton" question.s_m=1.25 question.s_a=0.25
+x_sh25_a030  player.teammate_shrink=0.0025 question.fit="newton" question.s_m=1.0 question.s_a=0.30
+x_sh25_nw_ip player.teammate_shrink=0.0025 question.fit="newton" question.s_m=1.0 question.s_a=0.25 team.s2.sigma_ip=1.0
+x_sh25_nw_tp player.teammate_shrink=0.0025 question.fit="newton" question.s_m=1.0 question.s_a=0.25 player.tau_phi=0.0

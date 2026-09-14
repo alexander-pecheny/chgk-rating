@@ -1,0 +1,15 @@
+# `s_m = 1.0` is the first Newton point whose tune and test windows agree in
+# sign, which is what plan 5 asks of it. This is the grid around it.
+nw2_m075_a05  question.fit="newton" question.s_m=0.75
+nw2_m150_a05  question.fit="newton" question.s_m=1.5
+nw2_m200_a05  question.fit="newton" question.s_m=2.0
+nw2_m075_a025 question.fit="newton" question.s_m=0.75 question.s_a=0.25
+nw2_m150_a025 question.fit="newton" question.s_m=1.5 question.s_a=0.25
+nw2_m200_a025 question.fit="newton" question.s_m=2.0 question.s_a=0.25
+nw2_m100_a075 question.fit="newton" question.s_m=1.0 question.s_a=0.75
+nw2_m150_a075 question.fit="newton" question.s_m=1.5 question.s_a=0.75
+nw2_m100_a035 question.fit="newton" question.s_m=1.0 question.s_a=0.35
+# The free step count with the take-rate difficulty is inert, so the two
+# changes can only be told apart by the iteration count.
+nw2_m100_it24 question.fit="newton" question.s_m=1.0 numeric.newton_iters=24
+nw2_m100_mmax8 question.fit="newton" question.s_m=1.0 numeric.m_max=8.0

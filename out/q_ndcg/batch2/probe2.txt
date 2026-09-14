@@ -1,0 +1,2 @@
+z_sh_tp player.teammate_shrink=0.0025 player.tau_phi=0.0
+z_ip team.s2.sigma_ip=1.0

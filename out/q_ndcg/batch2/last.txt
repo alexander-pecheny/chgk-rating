@@ -1,0 +1,5 @@
+# The two additions that survive on top of the leader, together and apart.
+y_ip_tp   player.teammate_shrink=0.0025 question.fit="newton" question.s_m=1.0 question.s_a=0.25 team.s2.sigma_ip=1.0 player.tau_phi=0.0
+y_ip05    player.teammate_shrink=0.0025 question.fit="newton" question.s_m=1.0 question.s_a=0.25 team.s2.sigma_ip=0.5
+y_ip20    player.teammate_shrink=0.0025 question.fit="newton" question.s_m=1.0 question.s_a=0.25 team.s2.sigma_ip=2.0
+y_ip_notn player.teammate_shrink=0.0025 team.s2.sigma_ip=1.0 player.tau_phi=0.0

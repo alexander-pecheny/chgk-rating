@@ -1,0 +1,2 @@
+pub_phi1 display.player_phi=1.0
+pub_phi05 display.player_phi=0.5
