@@ -34,7 +34,7 @@ pub fn roster(rs: &[f64], scale: f64) -> f64 {
 }
 
 /// Strength of the lineup that turned up, by whichever rule of DESIGN 4.1 is in
-/// force. Both agree on a full lineup of six equal players.
+/// force. All four agree on a full lineup of six equal players.
 pub fn lineup_strength(rs: &[f64], p: &S2) -> f64 {
     match p.lineup {
         S2Lineup::Mean => {
@@ -42,6 +42,25 @@ pub fn lineup_strength(rs: &[f64], p: &S2) -> f64 {
                 - p.delta * (6.0 - rs.len() as f64).max(0.0)
         }
         S2Lineup::Roster => roster(rs, p.player_scale),
+        // The same soft maximum at temperature tau: tau -> 0 is the best player,
+        // tau -> infinity the mean plus the log of the count.
+        S2Lineup::Tempered => roster(rs, p.player_scale * p.tau),
+        // chgk.gg's rule: the sorted lineup under weights 1, 5/6 ... 1/6,
+        // normalised, with each seat short of six filled at the weakest player
+        // less `delta`.
+        S2Lineup::Best6 => {
+            let mut v = rs.to_vec();
+            v.sort_by(|a, b| b.total_cmp(a));
+            let fill = v[v.len() - 1] - p.delta;
+            v.resize(6, fill);
+            let w: f64 = (1..=6).map(|k| (7 - k) as f64).sum();
+            v.iter()
+                .take(6)
+                .enumerate()
+                .map(|(k, x)| (6 - k) as f64 * x)
+                .sum::<f64>()
+                / w
+        }
     }
 }
 
@@ -103,7 +122,10 @@ impl TeamsS2 {
                 .iter()
                 .map(|&i| {
                     let i = i as usize;
-                    player_rating(players.theta(i) + players.affinity(i, &vbar), cfg)
+                    // `sigma_c > 0` reads each player at a pessimistic quantile,
+                    // so an unknown in the lineup lowers the forecast.
+                    let pess = p.sigma_c * players.sigma_at(i, t.day, cfg);
+                    player_rating(players.theta(i) + players.affinity(i, &vbar) - pess, cfg)
                 })
                 .collect();
             let known = self.r[idx].is_finite();

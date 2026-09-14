@@ -38,12 +38,16 @@ pub struct Simple {
 }
 
 /// How a lineup's strength is estimated: the mean of the players' ratings less
-/// a penalty per empty seat, or the roster estimate of DESIGN 4.1.
+/// a penalty per empty seat, the roster estimate of DESIGN 4.1, the roster
+/// estimate tempered by `tau`, or chgk.gg's weighted best six. All four agree on
+/// a full lineup of six equal players.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum S2Lineup {
     Mean,
     Roster,
+    Tempered,
+    Best6,
 }
 
 fn mean_lineup() -> S2Lineup {
@@ -73,9 +77,15 @@ pub struct S2 {
     #[serde(rename = "K")]
     pub k: f64,
     pub k_q: f64,
-    /// `lineup = "mean"`: points a lineup loses per seat short of six.
+    /// `lineup = "mean"` and `"best6"`: points a lineup loses per seat short of six.
     pub delta: f64,
     pub lineup: S2Lineup,
+    /// `lineup = "tempered"`: the temperature of the soft maximum. 1 is the
+    /// roster estimate, larger flattens towards the mean.
+    pub tau: f64,
+    /// A pessimistic lineup: each player enters at `theta - sigma_c * sigma`, so
+    /// a newcomer or a player long unseen counts for less. 0 is the shipped rule.
+    pub sigma_c: f64,
     pub player_scale: f64,
     pub player_zero: f64,
 }
@@ -88,6 +98,8 @@ impl Default for S2 {
             k_q: 0.01,
             delta: 150.0,
             lineup: S2Lineup::Mean,
+            tau: 1.0,
+            sigma_c: 0.0,
             player_scale: 2454.8828,
             player_zero: 6000.0,
         }
@@ -175,6 +187,22 @@ pub enum QFit {
     TakeRate,
 }
 
+/// The per-player format effect `phi_i` of DESIGN 3.7. `none` ships. `in_person`
+/// gives a player the strength `theta_i + phi_i` at an in-person table and
+/// `theta_i` anywhere else; `signed` makes the synchronous strength
+/// `theta_i - phi_i`, so `phi` is half the gap between the two formats.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FormatEffect {
+    None,
+    InPerson,
+    Signed,
+}
+
+fn no_format_effect() -> FormatEffect {
+    FormatEffect::None
+}
+
 /// How a question's outcome is shared out among the lineup: the exact noisy-OR
 /// gradient, or credit in proportion to each player's chance of knowing it.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -198,6 +226,15 @@ pub struct Question {
     pub fit: QFit,
     #[serde(default = "exact")]
     pub gradient: QGradient,
+    #[serde(default = "no_format_effect")]
+    pub format_effect: FormatEffect,
+    /// Prior width of `phi`, the per-player format effect.
+    #[serde(default = "s_phi")]
+    pub s_phi: f64,
+}
+
+fn s_phi() -> f64 {
+    0.3
 }
 
 fn newton() -> QFit {
@@ -240,6 +277,9 @@ pub struct Player {
     pub warm_until: String,
     pub tau_p: f64,
     pub tau_aff: f64,
+    /// Diffusion of `phi` between a player's tournaments.
+    #[serde(default = "tau_phi")]
+    pub tau_phi: f64,
     #[serde(default = "kalman")]
     pub update: PUpdate,
     /// `update = "schedule"`: step `eta0 / sqrt(c0 + games)`.
@@ -247,6 +287,10 @@ pub struct Player {
     pub eta0: f64,
     #[serde(default = "c0")]
     pub c0: f64,
+}
+
+fn tau_phi() -> f64 {
+    0.05
 }
 
 fn eta0() -> f64 {
