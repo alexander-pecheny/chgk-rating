@@ -2,13 +2,15 @@
 db_path = "buff.db"
 out_path = "out/ratings.db"
 from = "2013-01-01"
-to = "2026-09-05"
+# No `to`: the window ends today (UTC), so the daily run picks up new tournaments.
+# `--to` on the command line still overrides it.
 w_in_person = 1.0
 w_strict_sync = 0.6666666666666666
 w_sync = 0.5
 w_async = 0.0
 # Per-player and per-team rows are written every Nth weekly release (plus the last one);
-# releases and their listed counts stay weekly. 1 is every release.
+# releases and their listed counts stay weekly. 1 is every release, 0 the last one only.
+# This is the only config that keeps the history; the research configs use 0.
 rows_every = 1
 passes = 2
 

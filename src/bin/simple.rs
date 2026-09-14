@@ -7,7 +7,9 @@ use chgk_rating::gauge::Activity;
 use chgk_rating::output::Writer;
 use chgk_rating::team_model::TeamEvent;
 use chgk_rating::team_s2::lineup_strength;
-use chgk_rating::util::{avg_ranks, format_date, next_thursday, parse_date, spearman};
+use chgk_rating::util::{
+    avg_ranks, format_date, last_thursday, next_thursday, parse_date, spearman,
+};
 use rusqlite::Connection;
 use std::collections::HashMap;
 
@@ -160,12 +162,20 @@ impl State {
         arena: &Arena,
         cfg: &Config,
         anchor: Anchor,
+        rows: bool,
     ) -> rusqlite::Result<()> {
         self.pact.expire_before(day - 365);
         self.tact.expire_before(day - 365);
         let shift = self.anchor(anchor);
         self.shift_cum += shift;
         let Some(w) = w else { return Ok(()) };
+        let listed = (0..arena.n_players())
+            .filter(|&i| self.pact.count[i] > 0)
+            .count();
+        w.release(id, &format_date(day), shift, self.shift_cum, listed)?;
+        if !rows {
+            return Ok(());
+        }
         let prows: Vec<(i64, f64, f64, u32, f64)> = (0..arena.n_players())
             .filter(|&i| self.pact.count[i] > 0)
             .map(|i| {
@@ -203,7 +213,6 @@ impl State {
                 )
             })
             .collect();
-        w.release(id, &format_date(day), shift, self.shift_cum, prows.len())?;
         w.player_ratings(id, &prows, |t| chgk_rating::display::player(t, cfg))?;
         w.team_ratings(id, &trows, |m| chgk_rating::display::team(m, cfg))
     }
@@ -231,6 +240,7 @@ fn run(
     let to_day = parse_date(&cfg.data.to).ok_or("bad to")?;
     let mut next_rel = next_thursday(from_day);
     let mut release_id: i64 = 0;
+    let final_rel = last_thursday(to_day);
     // The hybrid's players are anchored by the question model's own gauge, and
     // rescaling the team side would leave the two scales inconsistent.
     let anchor = if ext.is_some() { Anchor::None } else { p.anchor };
@@ -241,7 +251,8 @@ fn run(
     for t in &arena.tournaments {
         while next_rel <= t.day {
             release_id += 1;
-            st.release(w, release_id, next_rel, arena, cfg, anchor)?;
+            let rows = cfg.data.write_rows(release_id, next_rel == final_rel);
+            st.release(w, release_id, next_rel, arena, cfg, anchor, rows)?;
             next_rel += 7;
             if let Some(w) = w {
                 if release_id % 50 == 0 {
@@ -496,7 +507,8 @@ fn run(
     if w.is_some() {
         while next_rel <= to_day {
             release_id += 1;
-            st.release(w, release_id, next_rel, arena, cfg, anchor)?;
+            let rows = cfg.data.write_rows(release_id, next_rel == final_rel);
+            st.release(w, release_id, next_rel, arena, cfg, anchor, rows)?;
             next_rel += 7;
         }
     }
@@ -658,6 +670,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cfg = Config::load(&cfg_path)?;
     if let Some(v) = arg("--out") {
         cfg.data.out_path = v;
+    }
+    if let Some(v) = arg("--rows-every") {
+        cfg.data.rows_every = v.parse().map_err(|_| "bad --rows-every")?;
     }
     let mut p = cfg.simple.clone().ok_or("config has no [simple] section")?;
     if let Some(v) = arg("--perf") {

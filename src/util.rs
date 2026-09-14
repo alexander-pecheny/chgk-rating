@@ -48,9 +48,23 @@ pub fn format_date(day: i32) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+/// Today in UTC as `YYYY-MM-DD`, from the system clock.
+pub fn today_utc() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    format_date((secs / 86_400) as i32)
+}
+
 /// 1970-01-01 was a Thursday, so Thursdays are exactly the days divisible by 7.
 pub fn next_thursday(day: i32) -> i32 {
     day + ((7 - day.rem_euclid(7)) % 7)
+}
+
+/// The last Thursday on or before `day`, which is the last release of a window
+/// that ends there.
+pub fn last_thursday(day: i32) -> i32 {
+    day - day.rem_euclid(7)
 }
 
 pub struct Rng(u64);

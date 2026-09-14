@@ -753,7 +753,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        if release_id % rows_every == 0 || day + 7 > to_day {
+        if (rows_every > 0 && release_id % rows_every == 0) || day + 7 > to_day {
             let mut trows = Vec::new();
             for &i in live.iter().filter(|&&i| listed[i]) {
                 let t = teams[i].unwrap();

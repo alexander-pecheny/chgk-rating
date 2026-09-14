@@ -264,7 +264,7 @@ A rating with `σ > provisional_sigma` (tunable, default 0.3) is published as pr
 
 ## 6. Outputs
 
-`out/ratings.db` (SQLite). Per-player and per-team rows are written every `rows_every` releases and always on the last; releases and their counts are weekly regardless.
+`out/ratings.db` (SQLite). Per-player and per-team rows are written every `rows_every` releases and always on the last; `rows_every = 0` writes them at the last release only, which is what the research configs do. Releases and their counts are weekly regardless.
 
 - `releases(id, date, shift, shift_cum, n_players)`
 - `player_ratings(release_id, player_id, theta, sigma, games_365, display, change)`

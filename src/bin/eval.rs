@@ -156,15 +156,87 @@ fn innovation_acf(conn: &Connection, extra: &str) -> rusqlite::Result<(usize, f6
     Ok((n, cov / (va * vb).sqrt()))
 }
 
+/// Whether the database carries a row per release or only the last one.
+/// `rows_every = 0` keeps the last release only, and every section that reads an
+/// earlier release has nothing to read.
+fn has_history(conn: &Connection) -> rusqlite::Result<bool> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(DISTINCT release_id) FROM team_ratings",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(n > 1)
+}
+
+const NO_HISTORY: &str = "n/a (rows only at the last release)";
+
+/// Test 4: the display value of the 50th team each September, which needs a row
+/// per release.
+fn inflation(conn: &Connection, prov: f64) -> rusqlite::Result<()> {
+    println!("| release | date | rated teams | display of 50th |");
+    println!("|---:|---|---:|---:|");
+    let mut find =
+        conn.prepare("SELECT id, date FROM releases WHERE date LIKE ?1 ORDER BY date LIMIT 1")?;
+    let mut nth = conn.prepare(
+        "SELECT display FROM team_ratings WHERE release_id = ?1 AND sigma <= ?2
+         ORDER BY mu DESC LIMIT 1 OFFSET 49",
+    )?;
+    let mut cnt =
+        conn.prepare("SELECT COUNT(*) FROM team_ratings WHERE release_id = ?1 AND sigma <= ?2")?;
+    let mut band: Vec<f64> = Vec::new();
+    for y in 2015..=2026 {
+        let Ok((id, date)) = find.query_row([format!("{y}-09%")], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+        }) else {
+            continue;
+        };
+        let n: i64 = cnt.query_row(rusqlite::params![id, prov], |r| r.get(0))?;
+        let mu: Option<f64> = nth
+            .query_row(rusqlite::params![id, prov], |r| r.get(0))
+            .ok();
+        if let Some(m) = mu {
+            // A September with almost no rated teams is a hole in the data, not inflation.
+            if n >= 200 {
+                band.push(m);
+            }
+            println!("| {id} | {date} | {n} | {m:.0} |");
+        }
+    }
+    if !band.is_empty() {
+        let mean = band.iter().sum::<f64>() / band.len() as f64;
+        let dev = band
+            .iter()
+            .map(|v| ((v - mean) / mean).abs())
+            .fold(0.0, f64::max);
+        println!(
+            "\nOver the {} Septembers with at least 200 rated teams: mean {mean:.0}, largest deviation {:.1}% -- {}.",
+            band.len(),
+            100.0 * dev,
+            if dev <= 0.10 {
+                "**within the +/-10% band**"
+            } else {
+                "**outside the +/-10% band**"
+            }
+        );
+    }
+    Ok(())
+}
+
 /// The two teams of the falling-too-slowly case: where they stand and how far
 /// three tournaments moved them, in display points.
-fn case_rows(conn: &Connection, b_team: f64) -> rusqlite::Result<Vec<(i64, Vec<String>)>> {
+fn case_rows(
+    conn: &Connection,
+    b_team: f64,
+    history: bool,
+) -> rusqlite::Result<Vec<(i64, Vec<String>)>> {
     let mut near = conn
         .prepare("SELECT id FROM releases ORDER BY ABS(julianday(date)-julianday(?1)) LIMIT 1")?;
     let last: i64 = conn.query_row("SELECT MAX(id) FROM releases", [], |r| r.get(0))?;
     let mut rel = vec![last, last, last];
-    for (i, d) in ["2025-09-05", "2026-03-05"].iter().enumerate() {
-        rel[i] = near.query_row([d], |r| r.get(0))?;
+    if history {
+        for (i, d) in ["2025-09-05", "2026-03-05"].iter().enumerate() {
+            rel[i] = near.query_row([d], |r| r.get(0))?;
+        }
     }
     let mut disp =
         conn.prepare("SELECT display FROM team_ratings WHERE release_id = ?1 AND team_id = ?2")?;
@@ -174,7 +246,11 @@ fn case_rows(conn: &Connection, b_team: f64) -> rusqlite::Result<Vec<(i64, Vec<S
     let mut out = Vec::new();
     for team in [45556i64, 86405] {
         let mut cells = Vec::new();
-        for r in &rel {
+        for (i, r) in rel.iter().enumerate() {
+            if !history && i < 2 {
+                cells.push("n/a".into());
+                continue;
+            }
             let v: Option<f64> = disp
                 .query_row(rusqlite::params![r, team], |x| x.get(0))
                 .ok();
@@ -276,6 +352,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // S2 keeps no variance, so everything the uncertainty calibration reads is a
     // placeholder under it.
     let kalman = cfg.team.engine == TeamEngine::Kalman;
+    // `rows_every = 0` keeps per-entity rows at the last release only.
+    let history = has_history(&conn)?;
 
     if flag("--brief") {
         let (sole, _shared) = violations(&conn)?;
@@ -309,7 +387,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             col("in-person", 1),
             col("sync", 1)
         );
-        for (team, cells) in case_rows(&conn, cfg.display.b_team)? {
+        for (team, cells) in case_rows(&conn, cfg.display.b_team, history)? {
             println!("team {team}: {}", cells.join(" "));
         }
         return Ok(());
@@ -375,8 +453,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Display value at three releases, then the display step at three tournaments.\n");
     println!("| team | 2025-09 | 2026-03 | last | 13917 | 12826 | 13444 |");
     println!("|---|---:|---:|---:|---:|---:|---:|");
-    for (team, cells) in case_rows(&conn, cfg.display.b_team)? {
+    for (team, cells) in case_rows(&conn, cfg.display.b_team, history)? {
         println!("| {team} | {} |", cells.join(" | "));
+    }
+    if !history {
+        println!("\nThe 2025-09 and 2026-03 columns are {NO_HISTORY}.");
     }
 
     // Test 6.
@@ -410,51 +491,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test 4.
     println!("\n### Inflation of the 50th team, September releases (test 4)\n");
-    println!("| release | date | rated teams | display of 50th |");
-    println!("|---:|---|---:|---:|");
-    let mut find =
-        conn.prepare("SELECT id, date FROM releases WHERE date LIKE ?1 ORDER BY date LIMIT 1")?;
-    let mut nth = conn.prepare(
-        "SELECT display FROM team_ratings WHERE release_id = ?1 AND sigma <= ?2
-         ORDER BY mu DESC LIMIT 1 OFFSET 49",
-    )?;
-    let mut cnt =
-        conn.prepare("SELECT COUNT(*) FROM team_ratings WHERE release_id = ?1 AND sigma <= ?2")?;
-    let mut band: Vec<f64> = Vec::new();
-    for y in 2015..=2026 {
-        let Ok((id, date)) = find.query_row([format!("{y}-09%")], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
-        }) else {
-            continue;
-        };
-        let n: i64 = cnt.query_row(rusqlite::params![id, prov], |r| r.get(0))?;
-        let mu: Option<f64> = nth
-            .query_row(rusqlite::params![id, prov], |r| r.get(0))
-            .ok();
-        if let Some(m) = mu {
-            // A September with almost no rated teams is a hole in the data, not inflation.
-            if n >= 200 {
-                band.push(m);
-            }
-            println!("| {id} | {date} | {n} | {m:.0} |");
-        }
-    }
-    if !band.is_empty() {
-        let mean = band.iter().sum::<f64>() / band.len() as f64;
-        let dev = band
-            .iter()
-            .map(|v| ((v - mean) / mean).abs())
-            .fold(0.0, f64::max);
-        println!(
-            "\nOver the {} Septembers with at least 200 rated teams: mean {mean:.0}, largest deviation {:.1}% -- {}.",
-            band.len(),
-            100.0 * dev,
-            if dev <= 0.10 {
-                "**within the +/-10% band**"
-            } else {
-                "**outside the +/-10% band**"
-            }
-        );
+    if history {
+        inflation(&conn, prov)?;
+    } else {
+        println!("{NO_HISTORY}.");
     }
 
     // Test 5.
@@ -466,13 +506,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             [&date],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        let (n, mx): (i64, f64) = conn.query_row(
-            "SELECT COUNT(*), COALESCE(MAX(ABS(a.mu-b.mu)),0) FROM team_ratings a
-             JOIN sw.team_ratings b ON b.release_id=a.release_id AND b.team_id=a.team_id
-             WHERE a.release_id=?1 AND ABS(a.mu-b.mu) > 1e-9",
-            [rid],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )?;
+        let moved = history
+            .then(|| {
+                conn.query_row(
+                    "SELECT COUNT(*), COALESCE(MAX(ABS(a.mu-b.mu)),0) FROM team_ratings a
+                     JOIN sw.team_ratings b ON b.release_id=a.release_id AND b.team_id=a.team_id
+                     WHERE a.release_id=?1 AND ABS(a.mu-b.mu) > 1e-9",
+                    [rid],
+                    |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)),
+                )
+            })
+            .transpose()?;
         let fc: i64 = conn.query_row(
             "SELECT COUNT(*) FROM team_events a
              JOIN sw.team_events b ON b.tournament_id=a.tournament_id AND b.team_id=a.team_id
@@ -482,7 +526,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             |r| r.get(0),
         )?;
         println!("Swap date {date}, first release after it: {rid} of {rdate}.");
-        println!("Teams whose `mu` moved: **{n}** (max |delta| {mx:.2e}).");
+        match moved {
+            Some((n, mx)) => {
+                println!("Teams whose `mu` moved: **{n}** (max |delta| {mx:.2e}).")
+            }
+            None => println!("Teams whose `mu` moved: {NO_HISTORY}."),
+        }
         println!("Team events on or after the swap whose forecast moved: {fc}.");
     }
 
@@ -681,8 +730,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             |r| r.get(0),
         )
     };
-    let (rt19, rp19) = (near("2019-09-05")?, near("2019-10-03")?);
-    for (label, rt, rp) in [("2019", rt19, rp19), ("latest", rid, rid)] {
+    let mut rels = Vec::new();
+    if history {
+        rels.push(("2019", near("2019-09-05")?, near("2019-10-03")?));
+    }
+    rels.push(("latest", rid, rid));
+    for (label, rt, rp) in rels {
         for (what, st, r) in [("teams", &mut at, rt), ("players", &mut ap, rp)] {
             let mut line = format!("| {label} | {what} |");
             for n in [1i64, 10, 50, 100, 500, 1000] {
@@ -693,6 +746,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             println!("{line}");
         }
+    }
+    if !history {
+        println!("\nThe 2019 rows are {NO_HISTORY}.");
     }
 
     // Top players.

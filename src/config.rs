@@ -137,6 +137,9 @@ pub struct Data {
     pub db_path: String,
     pub out_path: String,
     pub from: String,
+    /// The last day of the window. Absent, or the literal `"today"`, means the
+    /// current UTC date; `Config::load` resolves it.
+    #[serde(default = "today")]
     pub to: String,
     pub w_in_person: f64,
     pub w_sync: f64,
@@ -145,8 +148,22 @@ pub struct Data {
     /// Tournaments the official system leaves out; chgk.quest trains on them.
     #[serde(default)]
     pub include_unrated: bool,
+    /// Per-entity rows are written every Nth release and always on the last;
+    /// `0` means the last release only.
     pub rows_every: i64,
     pub passes: usize,
+}
+
+fn today() -> String {
+    "today".into()
+}
+
+impl Data {
+    /// Whether release `release_id` gets `player_ratings` and `team_ratings`
+    /// rows. `rows_every = 0` keeps rows at the last release only.
+    pub fn write_rows(&self, release_id: i64, last: bool) -> bool {
+        last || (self.rows_every > 0 && release_id % self.rows_every == 0)
+    }
 }
 
 /// How a question's parameters are found: Newton on the penalised likelihood,
@@ -346,6 +363,10 @@ pub struct Numeric {
 impl Config {
     pub fn load(path: &str) -> Result<Config, String> {
         let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
-        toml::from_str(&text).map_err(|e| format!("{path}: {e}"))
+        let mut cfg: Config = toml::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
+        if cfg.data.to == "today" {
+            cfg.data.to = crate::util::today_utc();
+        }
+        Ok(cfg)
     }
 }

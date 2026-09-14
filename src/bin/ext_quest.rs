@@ -628,7 +628,7 @@ impl Release<'_> {
             m.shift_cum,
             active.len(),
         )?;
-        if !self.last && self.id % cfg.data.rows_every != 0 {
+        if !cfg.data.write_rows(self.id, self.last) {
             return Ok(());
         }
         let rows: Vec<(i64, f64, f64, u32, f64)> = active

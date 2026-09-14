@@ -30,9 +30,21 @@ Runs the chronological pass and writes `out/ratings.db` (about 1.4 GB, under a m
 ./target/release/fit
 ./target/release/fit --config config.toml --from 2013-01-01 --to 2026-09-05 --out out/ratings.db
 ./target/release/fit --passes 1                       # skip the warm-start backfill sweep
+./target/release/fit --rows-every 0                   # rows at the last release only
 ./target/release/fit --diag-player 24850              # per-release uncertainty decomposition
 ./target/release/fit --swap 28751:49804,16329:168@2018-12-22 --out out/swap.db
 ```
+
+`data.to` is optional: absent, or the literal `"today"`, means the current UTC
+date, which is what the daily run uses. `--to` still overrides it, and `fit`
+prints the resolved window on its first line.
+
+`data.rows_every` says how often a row per player and per team is written: 1,
+every release, is the production setting and the reason `out/ratings.db` is 1.4
+GB; 0 writes rows at the last release only and leaves the file near 220 MB. The
+research configs use 0, because their scores come from `team_events`,
+`player_events` and the last release. The `releases` table stays weekly either
+way. `--rows-every N` overrides the config.
 
 `--diag-player` and the uncertainty machinery it prints belong to `engine = "kalman"`.
 
@@ -70,6 +82,9 @@ the numbers against the shipped model.
 ./target/release/simple --config config_simple.toml --calibrate-d   # D by log-loss
 ./target/release/simple --config config_simple.toml --dry      # scores only, nothing written
 ```
+
+`simple` takes `--rows-every` too, and the `config_simple*.toml` files set
+`rows_every = 0`, so a run writes rows at the last release only.
 
 `[simple].lineup` picks the lineup rule of DESIGN 4.1 — `roster`, the shipped
 one, or `mean`, the average less `delta` per empty seat — and `--lineup`

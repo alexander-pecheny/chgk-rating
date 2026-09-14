@@ -68,9 +68,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             *slot = v;
         }
     }
+    if let Some(v) = arg("--rows-every") {
+        cfg.data.rows_every = v.parse().map_err(|_| "bad --rows-every")?;
+    }
     let start = Instant::now();
     let from_day = parse_date(&cfg.data.from).ok_or("bad --from")?;
     let to_day = parse_date(&cfg.data.to).ok_or("bad --to")?;
+    println!(
+        "window {} to {}, rows {}",
+        cfg.data.from,
+        cfg.data.to,
+        match cfg.data.rows_every {
+            0 => "at the last release only".to_string(),
+            1 => "every release".to_string(),
+            n => format!("every {n} releases"),
+        }
+    );
 
     let mut arena = chgk_rating::data::load(&cfg, &cfg.data.from, &cfg.data.to)?;
     if let Some(s) = arg("--swap") {
@@ -434,7 +447,7 @@ fn emit_release(
         players.shift_cum,
         rows.len(),
     )?;
-    if last || release_id % cfg.data.rows_every == 0 {
+    if cfg.data.write_rows(release_id, last) {
         let prows: Vec<(i64, f64, f64, u32, f64)> = rows
             .iter()
             .map(|&(id, theta, sigma, c, i)| {

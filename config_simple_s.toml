@@ -7,9 +7,10 @@ w_in_person = 1.0
 w_strict_sync = 0.6666666666666666
 w_sync = 0.5
 w_async = 0.0
-# Per-player and per-team rows are written every Nth weekly release (plus the last one);
-# releases and their listed counts stay weekly. 1 is every release.
-rows_every = 1
+# Per-player and per-team rows are written at the last release only; the
+# scores read team_events and player_events, not the history. 1 keeps every
+# release, as config.toml does.
+rows_every = 0
 passes = 2
 
 [question]

@@ -10,9 +10,10 @@ w_async = 1.0
 # chgk.quest trains on every format, so nothing is dropped here; its own
 # per-parameter format weights live in src/bin/ext_quest.rs.
 include_unrated = true
-# Per-player and per-team rows are written every Nth weekly release (plus the last one);
-# releases and their listed counts stay weekly. 1 is every release.
-rows_every = 4
+# Per-player and per-team rows are written at the last release only; the
+# scores read team_events and player_events, not the history. 1 keeps every
+# release, as config.toml does.
+rows_every = 0
 passes = 1
 
 [question]
