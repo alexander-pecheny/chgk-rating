@@ -1,4 +1,5 @@
 use chgk_rating::config::{Config, TeamEngine};
+use chgk_rating::ndcg;
 use chgk_rating::util::{csv_rows, spearman};
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -342,6 +343,44 @@ fn external(
     v
 }
 
+/// The plan-3 metric on both windows: NDCG and NDCG@3 of the `forecast` column
+/// over in-person tournaments, weighted by the frozen tournament weights, with
+/// the unweighted mean beside it. `--paired other.db` adds the paired bootstrap
+/// standard error of the difference against that database, over the tournaments
+/// both forecast.
+fn ndcg_lines(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
+    let table = ndcg::weights(&arg("--weights").unwrap_or_else(|| ndcg::WEIGHTS.into()));
+    let w = (!flag("--unweighted")).then_some(&table);
+    let windows = [("tune", ndcg::TUNE), ("test", ndcg::TEST)];
+    let mut scored = Vec::new();
+    for (name, (from, to)) in windows {
+        let v = ndcg::per_tournament(conn, from, to)?;
+        // `--dump` is the four-decimal check against tools/ndcg_check.py.
+        if flag("--dump") {
+            for s in &v {
+                println!("{name}\t{}\t{:.6}\t{:.6}", s.tid, s.ndcg, s.ndcg3);
+            }
+        }
+        let (a, b) = ndcg::summary(&v, w);
+        let (ua, ub) = ndcg::summary(&v, None);
+        println!(
+            "ndcg {name} {a:.4} @3 {b:.4}  unweighted {ua:.4} @3 {ub:.4}  ({} tournaments)",
+            v.len()
+        );
+        scored.push((name, v));
+    }
+    if let Some(other) = arg("--paired") {
+        let o = Connection::open_with_flags(&other, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        for ((name, v), (_, (from, to))) in scored.iter().zip(windows) {
+            let ov = ndcg::per_tournament(&o, from, to)?;
+            let (se, d) = ndcg::paired_se(v, &ov, w, 2000, |s| s.ndcg);
+            let (se3, d3) = ndcg::paired_se(v, &ov, w, 2000, |s| s.ndcg3);
+            println!("paired {name} minus {other}: {d:+.4} se {se:.4}  @3 {d3:+.4} se {se3:.4}");
+        }
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cfg_path = arg("--config").unwrap_or_else(|| "config.toml".into());
     let cfg = Config::load(&cfg_path)?;
@@ -354,6 +393,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let kalman = cfg.team.engine == TeamEngine::Kalman;
     // `rows_every = 0` keeps per-entity rows at the last release only.
     let history = has_history(&conn)?;
+
+    // The forecast metric alone: what a parameter sweep pays for.
+    if flag("--ndcg") {
+        return ndcg_lines(&conn);
+    }
 
     if flag("--brief") {
         let (sole, _shared) = violations(&conn)?;
@@ -390,7 +434,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for (team, cells) in case_rows(&conn, cfg.display.b_team, history)? {
             println!("team {team}: {}", cells.join(" "));
         }
-        return Ok(());
+        return ndcg_lines(&conn);
     }
 
     println!("# Rating report\n\n`{db}` with `{cfg_path}`");
