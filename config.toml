@@ -13,6 +13,12 @@ w_async = 0.0
 # This is the only config that keeps the history; the research configs use 0.
 rows_every = 1
 passes = 2
+# The tournaments the official system leaves out, for the player side only: they
+# move theta and phi, open no team state, write no team event and enter no
+# metric. Measured and off: +0.0002 +/- 0.0018 on tune and -0.0037 +/- 0.0019 on
+# test, over the same 650 and 284 fields, with 1126 extra tournaments trained on.
+train_unrated = false
+w_unrated = 0.5
 
 [question]
 b_bar = 1.5
@@ -35,6 +41,25 @@ s_phi = 0.3
 # to "signed". Measured and off; it costs 0.0035 of weighted tune NDCG.
 sync_effect = false
 s_psi = 0.3
+# One global collaboration exponent: P = (1 - e^-u)^m, with the take-rate
+# difficulty solved from r^(1/m). 1 is the noisy-OR. The optimum on the tune
+# window is 1.1 and it is worth +0.0004 +/- 0.0005, which is nothing.
+m_fixed = 1.0
+# One global discrimination at an in-person table, with the take-rate difficulty
+# solved at that a. Measured and off: negative on both sides of 1.
+a_in_person = 1.0
+# Lineup chemistry inside the likelihood: u -> u * exp(chem_u * T(L)).
+# Measured and off; -0.0018 at 0.05 and -0.031 at 0.2.
+chem_u = 0.0
+# Whether the editor affinity is a property of every player ("none") or of a
+# strong one ("scale", multiplied by exp(aff_kappa*theta); "gate", only the top
+# aff_gate of the established panel). Measured and off: every variant loses, and
+# the tighter the gate the less it loses, which is the shape of "the best amount
+# of this affinity is none". See DESIGN 8.2.
+aff_strength = "none"
+aff_kappa = 1.0
+aff_s_max = 5.0
+aff_gate = 0.0
 
 [player]
 mu_new = -1.0
@@ -125,6 +150,10 @@ sigma_c = 1.5
 # 1 + sigma_ip / (1 + n_in_person). Measured and off: it buys nothing the
 # residual asks for and costs 0.010 of the synchronous forecast Spearman.
 sigma_ip = 0.0
+# The same discount taken once for the whole lineup, as a multiple of the sd of
+# the roster estimate. Measured and off: sd(Q(L)) correlates 0.93 with the mean
+# sigma the per-player rule already reads, so there is nothing new in it.
+q_sigma_c = 0.0
 delta = 150.0
 # theta -> the team scale: player_zero + player_scale * (theta + ln 6 + roster_bias).
 player_scale = 2454.8828
@@ -138,6 +167,33 @@ k_r_target = "lineup"
 # A team that finished first keeps at least the rating it came with. Without the
 # pull the Elo step alone already guarantees it and the floor never binds.
 winner_floor = true
+
+# The editor memory of DESIGN 4.9. For every pair of a player and an editor the
+# engine keeps the mean of (forecast place - actual place) / n over the in-person
+# fields that player has played under that editor, and a lineup's forecast gains
+# `editor_memory` display points per unit of the mean of those. It is read at an
+# in-person table only and by the forecast only: no rating, no usual lineup, no
+# player strength and no question difficulty sees it, and every synchronous
+# forecast is what it was without it.
+editor_memory = 1250.0
+# Past results a (player, editor) pair needs before it counts.
+ed_min_n = 2.0
+# Only players in the top fifth of the established panel carry a memory. The
+# residual says the effect is a property of a strong lineup, and 0.2 is where the
+# tune window puts it: 0 (every player) is +0.0010 against this row's +0.0015.
+ed_gate = 0.2
+# The chemistry of DESIGN 4.8: display points per unit of T(L), the mean over the
+# pairs of a lineup of log(1 + rated games together). Measured and off, and the
+# worst-behaved thing in this round: negative at every strength and both signs.
+chemistry = 0.0
+# Rank a field by the expected answers on a package of the difficulty a field of
+# this strength usually gets, instead of by Q(L). Measured and off.
+difficulty_forecast = false
+# Display points per unit of a team's mean surprise over its last series_k
+# in-person results. Measured and off: positive on tune at a negative kappa and
+# negative on test, which is what noise looks like.
+kappa_s = 0.0
+series_k = 5
 # The switches of DESIGN 4.8, all at the value that changes nothing.
 # Questions of score gap worth a whole win; 0 is the win/lose rule.
 margin_g = 0.0

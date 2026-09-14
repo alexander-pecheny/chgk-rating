@@ -115,6 +115,10 @@ pub struct Row {
     /// The forecast, when it is not `q`: the expected number of answers on a
     /// package of the difficulty this field usually gets. NaN otherwise.
     pub e_ans: f64,
+    /// Display points added to the forecast and to nothing else: the editor
+    /// memory. `q` is left alone, so the rating, the pull and the usual lineup
+    /// never see it and DESIGN 4.3 is unchanged.
+    pub fc_bonus: f64,
 }
 
 /// Everything the team rules of a tournament read off the player states, which
@@ -149,25 +153,28 @@ pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -
             let q = if rs.is_empty() {
                 f64::NAN
             } else {
-                // Chemistry raises what the lineup is worth, the lineup's own sd
-                // lowers it, and the editor memory moves it either way; all three
-                // are display points on top of `Q(L)`.
-                let ed = if ctx.edmem.on() {
-                    let th: Vec<f64> = res
-                        .members
-                        .iter()
-                        .map(|&i| players.theta(i as usize))
-                        .collect();
-                    p.editor_memory
-                        * ctx
-                            .edmem
-                            .bonus(&res.members, &t.editors, &th, players.ed_gate_theta)
-                } else {
-                    0.0
-                };
+                // Chemistry raises what the lineup is worth and the lineup's own
+                // sd lowers it; both are display points on top of `Q(L)`, so both
+                // reach the rating through the pull of DESIGN 4.3.
                 lineup_strength(&rs, p) + p.chemistry * chem.t(&res.members)
                     - p.q_sigma_c * roster_sd(&rs, &sigmas, p)
-                    + ed
+            };
+            // The editor memory is read at an in-person table and nowhere else --
+            // it is made of in-person residuals -- and it moves the forecast
+            // alone, so every synchronous forecast and every team rating stay
+            // exactly what they were without it.
+            let fc_bonus = if ctx.edmem.on() && t.format == Format::InPerson && !rs.is_empty() {
+                let th: Vec<f64> = res
+                    .members
+                    .iter()
+                    .map(|&i| players.theta(i as usize))
+                    .collect();
+                p.editor_memory
+                    * ctx
+                        .edmem
+                        .bonus(&res.members, &t.editors, &th, players.ed_gate_theta)
+            } else {
+                0.0
             };
             Row {
                 team: res.team,
@@ -177,6 +184,7 @@ pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -
                 rated: res.rated,
                 q,
                 e_ans: f64::NAN,
+                fc_bonus,
             }
         })
         .collect();
@@ -363,7 +371,7 @@ impl TeamsS2 {
             } else if q.is_nan() {
                 f
             } else {
-                q
+                q + res.fc_bonus
             };
             let fc = fc
                 + if p.kappa_s != 0.0 && format == Format::InPerson {
