@@ -506,8 +506,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "SELECT r.team_id, r.mu, r.sigma, r.evidence, r.core_strength,
                 (SELECT e.s_r FROM team_events e WHERE e.team_id=r.team_id AND e.s_r IS NOT NULL
                  ORDER BY e.rowid DESC LIMIT 1),
-                (SELECT x.team_current_name FROM buff.tournament_results x
-                 WHERE x.team_id=r.team_id ORDER BY x.id DESC LIMIT 1)
+                COALESCE((SELECT NULLIF(TRIM(t.name), '') FROM buff.teams t WHERE t.id=r.team_id),
+                         (SELECT x.team_current_name FROM buff.tournament_results x
+                          WHERE x.team_id=r.team_id ORDER BY x.id DESC LIMIT 1))
          FROM team_ratings r WHERE r.release_id = ?1 AND r.sigma <= ?2
          ORDER BY r.mu DESC LIMIT 10",
     )?;
@@ -549,8 +550,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
              SELECT r.team_id, r.sigma, COUNT(*),
                     AVG(sb*sb - sa*sa), AVG(vd),
                     AVG(sb*sb - pa*pa - vd),
-                    (SELECT x.team_current_name FROM buff.tournament_results x
-                     WHERE x.team_id = r.team_id ORDER BY x.id DESC LIMIT 1)
+                    COALESCE((SELECT NULLIF(TRIM(t.name), '') FROM buff.teams t WHERE t.id = r.team_id),
+                             (SELECT x.team_current_name FROM buff.tournament_results x
+                              WHERE x.team_id = r.team_id ORDER BY x.id DESC LIMIT 1))
              FROM team_ratings r JOIN e ON e.tid = r.team_id AND e.pa IS NOT NULL
              WHERE r.release_id = ?1 AND r.sigma <= ?2
              GROUP BY r.team_id ORDER BY r.mu DESC LIMIT 20",

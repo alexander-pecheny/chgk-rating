@@ -103,7 +103,10 @@ cd web && cargo build --release
 
 On start it builds `out/web.db`, the serving index — rosters, names, the two
 ranking tables and a full-text index — and rebuilds it whenever `out/ratings.db`
-is newer. `--rebuild` forces it; the build takes about ten seconds.
+is newer. `--rebuild` forces it; the build takes about ten seconds. A team is
+named by `teams.name` in `buff.db`, not by the name on its last result; the name
+it entered a tournament under is kept per result and shown on that tournament's
+page and in search.
 
 Live at https://rating2.pecheny.me: `chgk-rating.service` runs the binary on
 port 9684 and Caddy proxies to it. After a refit, `sudo systemctl restart

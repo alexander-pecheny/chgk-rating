@@ -14,7 +14,14 @@ use std::path::Path;
 
 /// Bumped whenever the index grows a table or column the server reads, so a
 /// deploy rebuilds it instead of serving a page with nothing behind it.
-pub const VERSION: &str = "6";
+pub const VERSION: &str = "7";
+
+/// How names compare when the question is "is this the same name": ignoring the
+/// padding people type and the case they type it in. SQLite's own `lower()` is
+/// ASCII-only, so this has to happen in Rust.
+pub fn fold(s: &str) -> String {
+    s.trim().to_lowercase()
+}
 
 const SCHEMA: &str = "
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
@@ -27,7 +34,7 @@ CREATE TABLE tournament (id INTEGER PRIMARY KEY, name TEXT, date TEXT, type TEXT
                          sp_forecast REAL, sp_old REAL, truedl REAL);
 CREATE TABLE player_game (player_id INTEGER, tournament_id INTEGER, team_id INTEGER,
                           position REAL, score INTEGER);
-CREATE TABLE result_ (tournament_id INTEGER, team_id INTEGER, score INTEGER);
+CREATE TABLE result_ (tournament_id INTEGER, team_id INTEGER, score INTEGER, name TEXT);
 CREATE TABLE player_rank (rank INTEGER PRIMARY KEY, player_id INTEGER, display REAL, sigma REAL,
                           games INTEGER, change REAL, provisional INTEGER);
 CREATE TABLE team_rank (rank INTEGER PRIMARY KEY, team_id INTEGER, display REAL, sigma REAL,
@@ -37,7 +44,7 @@ CREATE TABLE anomaly (rank INTEGER PRIMARY KEY, player_id INTEGER, k REAL, k_f R
                       m_ip INTEGER);
 CREATE TABLE place_hist (kind INTEGER, id INTEGER, places BLOB, PRIMARY KEY (kind, id)) WITHOUT ROWID;
 CREATE VIRTUAL TABLE player_fts USING fts5(name, tokenize='unicode61 remove_diacritics 0');
-CREATE VIRTUAL TABLE team_fts USING fts5(name, town, tokenize='unicode61 remove_diacritics 0');
+CREATE VIRTUAL TABLE team_fts USING fts5(name, town, aliases, tokenize='unicode61 remove_diacritics 0');
 ";
 
 const INDEXES: &str = "
@@ -160,11 +167,33 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
     }
     eprintln!("index: {} tournaments [{:.1}s]", tour_date.len(), t0.elapsed().as_secs_f64());
 
+    // ── the team's own name ──────────────────────────────────────────────────
+    // A result carries the name a team entered that one tournament under, which
+    // is sometimes a joke and sometimes a sponsor. The name the team goes by is
+    // in `teams`, and that is the one a page should say.
+    let mut base: HashMap<i64, (String, String)> = HashMap::new();
+    {
+        let mut st = b.prepare("select id, name, town from teams").unwrap();
+        let mut rows = st.query([]).unwrap();
+        while let Some(x) = rows.next().unwrap() {
+            let id: i64 = x.get(0).unwrap();
+            let name: String = x.get::<_, Option<String>>(1).unwrap().unwrap_or_default();
+            let town: String = x.get::<_, Option<String>>(2).unwrap().unwrap_or_default();
+            if !name.trim().is_empty() {
+                base.insert(id, (name, town));
+            }
+        }
+    }
+    eprintln!("index: {} teams with a base name [{:.1}s]", base.len(), t0.elapsed().as_secs_f64());
+
     // ── one pass over the results: rosters, team names, scores ───────────────
     // No index on `tournament_results`, so this is a single scan and everything
     // that needs it is collected in the same loop.
     let mut team_last: HashMap<i64, (String, String, String, i64)> = HashMap::new();
     let mut player_last: HashMap<i64, (String, i64)> = HashMap::new();
+    // Every name a team played under other than its own, kept as (folded, shown)
+    // so the same name in another case is not filed twice.
+    let mut alias: HashMap<i64, Vec<(String, String)>> = HashMap::new();
     {
         let mut st = b
             .prepare(
@@ -173,7 +202,7 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
             )
             .unwrap();
         let mut pg = w.prepare("insert into player_game values (?1,?2,?3,?4,?5)").unwrap();
-        let mut rs = w.prepare("insert into result_ values (?1,?2,?3)").unwrap();
+        let mut rs = w.prepare("insert into result_ values (?1,?2,?3,?4)").unwrap();
         let mut rows = st.query([]).unwrap();
         while let Some(x) = rows.next().unwrap() {
             let tid: i64 = match x.get(0) {
@@ -197,11 +226,19 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
                     (name.clone(), town.clone(), date.clone(), 0)
                 });
                 if *date >= e.2 {
-                    *e = (name, town, date.clone(), e.3);
+                    *e = (name.clone(), town, date.clone(), e.3);
                 }
                 e.3 += 1;
+                // A one-off name is still a name people search for.
+                let f = fold(&name);
+                if base.get(&team_id).is_none_or(|x| fold(&x.0) != f) {
+                    let v = alias.entry(team_id).or_default();
+                    if !v.iter().any(|x| x.0 == f) {
+                        v.push((f, name.clone()));
+                    }
+                }
             }
-            rs.execute(params![tid, team_id, score]).unwrap();
+            rs.execute(params![tid, team_id, score, name]).unwrap();
             if let Some(members) = x.get::<_, Option<String>>(6).unwrap() {
                 if members.len() > 2 {
                     if let Ok(ids) = serde_json::from_str::<Vec<i64>>(&members) {
@@ -242,11 +279,29 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
             fts.execute(params![id, full]).unwrap();
         }
         let mut ins = w.prepare("insert into team values (?1,?2,?3,?4,?5)").unwrap();
-        let mut fts = w.prepare("insert into team_fts(rowid, name, town) values (?1,?2,?3)").unwrap();
-        for (id, (name, town, last, games)) in &team_last {
+        let mut fts = w
+            .prepare("insert into team_fts(rowid, name, town, aliases) values (?1,?2,?3,?4)")
+            .unwrap();
+        let mut renamed = 0;
+        for (id, (last_name, last_town, last, games)) in &team_last {
+            // The base name wins; an empty town there is no reason to lose the
+            // town the team last entered under.
+            let (name, town) = match base.get(id) {
+                Some((n, t)) if t.trim().is_empty() => (n, last_town),
+                Some((n, t)) => (n, t),
+                None => (last_name, last_town),
+            };
+            if name != last_name {
+                renamed += 1;
+            }
+            let aliases = alias
+                .get(id)
+                .map(|v| v.iter().map(|x| x.1.as_str()).collect::<Vec<_>>().join(" "))
+                .unwrap_or_default();
             ins.execute(params![id, name, town, games, last]).unwrap();
-            fts.execute(params![id, name, town]).unwrap();
+            fts.execute(params![id, name, town, aliases]).unwrap();
         }
+        eprintln!("index: {renamed} teams shown under their own name, not their last one");
     }
 
     // ── the two ranking tables of the last release ───────────────────────────

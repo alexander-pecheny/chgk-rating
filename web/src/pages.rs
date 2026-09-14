@@ -1020,12 +1020,22 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
     let mut st = c
         .prepare(
             "select v.team_id, m.name, v.forecast_place, v.actual_place, v.mu_before, v.mu_after, \
-             v.rated, r.score from team_events v left join x.team m on m.id = v.team_id \
+             v.rated, r.score, r.name from team_events v left join x.team m on m.id = v.team_id \
              left join x.result_ r on r.tournament_id = v.tournament_id and r.team_id = v.team_id \
              where v.tournament_id = ?1 order by v.actual_place",
         )
         .unwrap();
-    let evs: Vec<(i64, String, Option<f64>, Option<f64>, Option<f64>, Option<f64>, bool, Option<i64>)> = st
+    let evs: Vec<(
+        i64,
+        String,
+        Option<f64>,
+        Option<f64>,
+        Option<f64>,
+        Option<f64>,
+        bool,
+        Option<i64>,
+        String,
+    )> = st
         .query_map([id], |r| {
             Ok((
                 r.get(0)?,
@@ -1036,6 +1046,7 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
                 r.get(5)?,
                 r.get::<_, Option<i64>>(6)?.unwrap_or(1) != 0,
                 r.get(7)?,
+                r.get::<_, Option<String>>(8)?.unwrap_or_default(),
             ))
         })
         .unwrap()
@@ -1069,14 +1080,24 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
             (Some(f), Some(a)) if a > f + 0.5 => " place-worse",
             _ => "",
         };
+        // The link says the team's own name; the name it entered under, when it
+        // is a different one, goes next to it.
+        let shown = if v.1.is_empty() { &v.8 } else { &v.1 };
+        let played_as =
+            if !v.8.is_empty() && crate::index::fold(&v.8) != crate::index::fold(shown) {
+                format!(" <span class=\"muted\">(как {})</span>", e(&v.8))
+            } else {
+                String::new()
+            };
         let _ = write!(
             out,
             "<tr><td class=\"num{beat}\">{}</td><td class=\"num muted\">{}</td>\
-             <td><a href=\"/teams/{}/\">{}</a>{}</td><td class=\"num\">{}</td>{}</tr>",
+             <td><a href=\"/teams/{}/\">{}</a>{}{}</td><td class=\"num\">{}</td>{}</tr>",
             place(v.3),
             place(v.2),
             v.0,
-            e(if v.1.is_empty() { "—" } else { &v.1 }),
+            e(if shown.is_empty() { "—" } else { shown }),
+            played_as,
             unrated_tag(v.6),
             v.7.map(|x| x.to_string()).unwrap_or_else(|| "—".into()),
             step_cells(s.d.a_team, s.d.b_team, v.4, v.5),
