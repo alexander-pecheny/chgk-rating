@@ -168,7 +168,7 @@ k_r_target = "lineup"
 # pull the Elo step alone already guarantees it and the floor never binds.
 winner_floor = true
 
-# The editor memory of DESIGN 4.9. For every pair of a player and an editor the
+# The editor memory of DESIGN 4.8. For every pair of a player and an editor the
 # engine keeps the mean of (forecast place - actual place) / n over the in-person
 # fields that player has played under that editor, and a lineup's forecast gains
 # `editor_memory` display points per unit of the mean of those. It is read at an
@@ -182,7 +182,7 @@ ed_min_n = 2.0
 # residual says the effect is a property of a strong lineup, and 0.2 is where the
 # tune window puts it: 0 (every player) is +0.0010 against this row's +0.0015.
 ed_gate = 0.2
-# The chemistry of DESIGN 4.8: display points per unit of T(L), the mean over the
+# The chemistry of DESIGN 4.9: display points per unit of T(L), the mean over the
 # pairs of a lineup of log(1 + rated games together). Measured and off, and the
 # worst-behaved thing in this round: negative at every strength and both signs.
 chemistry = 0.0
@@ -194,7 +194,7 @@ difficulty_forecast = false
 # negative on test, which is what noise looks like.
 kappa_s = 0.0
 series_k = 5
-# The switches of DESIGN 4.8, all at the value that changes nothing.
+# The switches of DESIGN 4.9, all at the value that changes nothing.
 # Questions of score gap worth a whole win; 0 is the win/lose rule.
 margin_g = 0.0
 margin_shape = "linear"

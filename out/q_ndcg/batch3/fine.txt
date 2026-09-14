@@ -1,0 +1,11 @@
+# The two points that came out positive on tune, at a finer grid, and together.
+ksm250    team.s2.kappa_s=-250.0
+ksm1000   team.s2.kappa_s=-1000.0
+ksm2000   team.s2.kappa_s=-2000.0
+ksm500k10 team.s2.kappa_s=-500.0 team.s2.series_k=10
+ksm500k3  team.s2.kappa_s=-500.0 team.s2.series_k=3
+m105      question.m_fixed=1.05
+m115      question.m_fixed=1.15
+m12       question.m_fixed=1.2
+m11ksm500 question.m_fixed=1.1 team.s2.kappa_s=-500.0
+m11ksm250 question.m_fixed=1.1 team.s2.kappa_s=-250.0

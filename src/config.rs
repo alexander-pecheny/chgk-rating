@@ -90,7 +90,7 @@ pub enum PullTarget {
 }
 
 /// Model S2's constants and the affine map that puts a player's `theta` on the
-/// team display scale. Everything below `k_q` is a switch of DESIGN 4.8, each
+/// team display scale. Everything below `k_q` is a switch of DESIGN 4.9, each
 /// shipped at the value that leaves the model of DESIGN 4.3 unchanged.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields, default)]

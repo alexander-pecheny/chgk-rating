@@ -284,8 +284,9 @@ rated result.
 ### 4.4 Forecast
 
 The forecast for a team at a tournament is `Q(L)`, the strength of the lineup it
-declared, falling back to `F_T` when the result lists no lineup. Forecast places
-are the ranking of the field by it, ties sharing the mean place.
+declared, plus the editor memory of section 4.8 at an in-person tournament,
+falling back to `F_T` when the result lists no lineup. Forecast places are the
+ranking of the field by it, ties sharing the mean place.
 
 The forecast therefore reads no team state whatsoever. That is not a
 simplification but the measured result: over the in-person tournaments of the
@@ -325,7 +326,60 @@ truedl_t = 10 · ( 1 − mean over q of p_q ),   q ranging over questions with a
 
 NULL when no question of the tournament was answered by anyone. `θ* = 0.2368` is the roster strength of a balanced team at places 251-500 re-expressed as six equal players, which is the band the published TrueDL uses as its reference; the number therefore means what TrueDL claims it means — ten times the share of the package such a team would miss — while being computed from fitted difficulties rather than a band-ratio table.
 
-### 4.8 Reserved extensions
+### 4.8 The editor memory
+
+The forecast of section 4.4 carries one term that is not a property of today's
+lineup. For every pair of a player `i` and an editor `e` the engine keeps
+
+```
+n_i,e  = in-person fields i has played under e
+S_i,e  = mean over them of ( forecast place - actual place ) / N
+```
+
+and a lineup `L` at a tournament with editors `E` gains
+
+```
+kappa_e * mean over { (i,e) : i in L, e in E, theta_i >= g, n_i,e >= n_min } of S_i,e
+```
+
+display points, where `g` is the `theta` of the `ed_gate` quantile of the
+established panel of section 3.5, recomputed at each release. `kappa_e` is
+`team.s2.editor_memory` (1250), `ed_gate` is 0.2 and `ed_min_n` is 2. A pair with
+too little history, and a player below the gate, contribute nothing; a lineup
+with no qualifying pair gains nothing.
+
+Three restrictions make this the only term in the model whose blast radius is the
+forecast alone.
+
+- It is added to the **forecast** and not to `Q(L)`, so the field strength of
+  step 1, the pairwise stage, the pull, the usual lineup and every published
+  rating never see it, and section 4.3 is unchanged.
+- It is read at an **in-person** tournament only, because in-person residuals are
+  what it is made of; a synchronous forecast is what it would be with the switch
+  off.
+- It is advanced **after** a field has been forecast, so no result enters its own
+  forecast, and it is rebuilt from empty on every backfill pass of section 3.6,
+  so nothing crosses from one pass to the next.
+
+Why a strength gate. The residual diagnosis of section 7.4 finds that a lineup's
+mean past residual under today's editors predicts its residual there at +0.003
+among the weakest two fifths of lineups by mean `theta`, +0.000 in the middle two
+fifths, +0.055 in the strongest fifth and **+0.098 in the strongest twentieth**:
+a weak player misses a question whoever wrote it, and only a strong player has
+room to read one editor better than another. The gate is the model of that
+sentence, and the tune window puts it at the top fifth.
+
+This is not the editor affinity of section 3.6, which learns `u_i . v_e` from the
+question gradients and has now lost in three rounds and two parameterisations
+(section 8.2). The effect is in the outcomes and a single online pass over the
+question likelihood cannot see it.
+
+`out/q_ndcg/round3.md` has the sweep: `kappa_e` from 500 to 2000 is positive on
+the tune window at every gate measured, with an interior optimum; the shipped
+point is +0.0015 +/- 0.0010 of weighted tune NDCG and +0.0007 +/- 0.0008 on the
+test window, +0.0028 and +0.0035 at 3.
+
+### 4.9 Reserved extensions
 
 Four team-side switches are implemented, measured against section 7.3 and
 switched off. All ship at the value that leaves 4.3 unchanged.
@@ -487,7 +541,8 @@ On the 282 test tournaments all four databases forecast (`--common`), weighted:
 
 | | NDCG | NDCG@3 |
 |---|---:|---:|
-| **ours** | **0.9079** | **0.8076** |
+| **ours** | **0.9086** | **0.8111** |
+| ours at the end of round 2 | 0.9079 | 0.8076 |
 | rating.chgk.fun | 0.9040 | 0.7997 |
 | chgk.quest | 0.9011 | 0.7914 |
 | ours before this tuning | 0.8977 | 0.7799 |
@@ -496,10 +551,13 @@ On the 282 test tournaments all four databases forecast (`--common`), weighted:
 
 The switches that earned their place are the format effect of section 3.7, the
 pessimistic quantile `σ_c` and the tempered lineup `τ` of section 4.1 — each
-worth about a third of the gain, and they add — and then the retuned teammate
-shrinkage and `τ_φ = 0` of round 2. `out/q_ndcg/report.md` is the first round's
-protocol and levers; `out/q_ndcg/round2.md` is the second round's, and carries
-the residual diagnosis that says where the rest of the error is.
+worth about a third of the gain, and they add — then the retuned teammate
+shrinkage and `τ_φ = 0` of round 2, and then the editor memory of section 4.8.
+`out/q_ndcg/report.md` is the first round's protocol and levers;
+`out/q_ndcg/round2.md` is the second round's, and carries the residual diagnosis
+that says where the rest of the error is; `out/q_ndcg/round3.md` is the third
+round's, which found that the one thing the diagnosis pointed at is an outcome
+effect rather than a likelihood one.
 
 **Where the rest of the error is.** Ninety per cent of the weighted loss left on
 the tune window is on lineups with a median of ten or more in-person games
@@ -513,6 +571,18 @@ size — correlates with the residual above 0.10. The forecast is calibrated in
 every direction the state knows about; the remaining loss is resolution, not
 bias, which is why five of round 2's seven planned levers had nothing to find.
 
+**The one exception found so far** is not a property of a lineup at all. A
+lineup's mean past residual under the editors of today's package predicts its
+residual there at +0.003 among the weakest two fifths of lineups by mean `θ`,
++0.000 in the middle two fifths, +0.055 in the strongest fifth and +0.098 in the
+strongest twentieth. Reading an editor well is something only a strong player has
+room to do, and section 4.8 is the forecast term that uses it. Round 3 checked
+six other mechanisms the same way before sweeping them — lineup chemistry, the
+interaction of package difficulty with lineup shape, the unrated record, the
+lineup's own uncertainty, the calibration of the forecast gap, and a team's own
+run of surprises — and every one came back at or under 0.033, with the sweep
+agreeing in each case (`out/q_ndcg/round3.md`).
+
 The two metrics are different questions asked of the same database. Section 7.3
 hides the lineup and asks what the team number is worth alone; this one hands
 the lineup over and asks how well the field is ordered. The levers of section
@@ -523,17 +593,19 @@ scores every system on both.
 
 ## 8. Implementation
 
-Rust workspace, one library crate `chgk-rating` with modules `data`, `question_model`, `team_s2` (the shipped team engine), `team_model` (the legacy one), `gauge`, `display`, `output`, `util`, and binaries `fit` (online pass, writes `out/ratings.db`), `eval` (metrics report from the outputs), `calibrate` (`β`, `σ_model`, `roster_bias`, and the display constants). Both engines expose the same `step(tournament, players, config) -> Vec<TeamEvent>` and the same release rows, so `fit` differs only in which one it constructs. `src/bin/simple.rs` is the same S2 rules as a research tool, over player ratings of its own or from a finished `fit`; it stays the place tuning grids are run. Configuration in `config.toml`. Parallelism through rayon over questions within a tournament and over teams within a tournament's pairwise stage.
+Rust workspace, one library crate `chgk-rating` with modules `data`, `question_model`, `team_s2` (the shipped team engine), `team_model` (the legacy one), `chemistry` (the pair counter of the togetherness switch), `difficulty` (the sample of past difficulties), `editor_memory` (section 4.8), `gauge`, `display`, `output`, `util`, and binaries `fit` (online pass, writes `out/ratings.db`), `eval` (metrics report from the outputs), `calibrate` (`β`, `σ_model`, `roster_bias`, and the display constants). Both engines expose the same `step(tournament, players, config) -> Vec<TeamEvent>` and the same release rows, so `fit` differs only in which one it constructs; S2 also takes a `team_s2::Context`, the three forecast-side memories, which it advances only after a tournament has been scored. `src/bin/simple.rs` is the same S2 rules as a research tool, over player ratings of its own or from a finished `fit`; it stays the place tuning grids are run. Configuration in `config.toml`. Parallelism through rayon over questions within a tournament and over teams within a tournament's pairwise stage.
 
 `fit --swap PLAYER_A:TEAM_A,PLAYER_B:TEAM_B@DATE` exchanges two players between two teams from that date on, for test 5. `fit --diag-player ID` prints that player's uncertainty decomposition at every release.
 
 ### 8.1 Shipped constants
 
 ```
-[data]     w_in_person 1, w_strict_sync 2/3, w_sync 1/2, w_async 0, rows_every 1, passes 2
+[data]     w_in_person 1, w_strict_sync 2/3, w_sync 1/2, w_async 0, rows_every 1, passes 2,
+           include_unrated false, train_unrated false, w_unrated 0.5
 [question] b_bar 1.5, s_b 2.0, s_a 0.5, s_m 0, s_aff 0.3, aff_rank 0, eta_v 0.2,
            fit take_rate, gradient exact, format_effect in_person, s_phi 0.3,
-           sync_effect false, s_psi 0.3
+           sync_effect false, s_psi 0.3, m_fixed 1, a_in_person 1, chem_u 0,
+           aff_strength none, aff_kappa 1, aff_s_max 5, aff_gate 0
 [player]   mu_new −1.0, sigma_new 1.0, warm_sigma 0.5, warm_until 2016-01-01,
            info_scale 0.46, teammate_shrink 0.0025,
            tau_p 0.25, v_min 0.05, v_max 0.6, v_eta 0.15, tau_aff 0.05, tau_phi 0,
@@ -541,10 +613,12 @@ Rust workspace, one library crate `chgk-rating` with modules `data`, `question_m
 [gauge]    n_est 8, window_days 365
 [team]     engine s2, roster_bias −0.2427, sigma_model 0.3669
 [team.s2]  D 1200, K 0.4, k_r 0.3, k_q 0.1, winner_floor true,
-           lineup tempered, tau 0.7, sigma_c 1.5, sigma_ip 0,
+           lineup tempered, tau 0.7, sigma_c 1.5, sigma_ip 0, q_sigma_c 0,
+           editor_memory 1250, ed_gate 0.2, ed_min_n 2 (section 4.8),
+           chemistry 0, difficulty_forecast false, kappa_s 0, series_k 5,
            delta 150 (unused under tempered), player_scale 2454.8828, player_zero 6000,
            k_r_target lineup, margin_g 0, margin_shape linear, n0 0,
-           w_sync and w_strict_sync absent (section 4.8)
+           w_sync and w_strict_sync absent (section 4.9)
 [truedl]   theta_ref 0.2368
 [display]  a_team −7383.8881, b_team 1.2421, a_player 5738.6039, b_player 4269.2612,
            provisional_sigma 0.3, player_phi 1
@@ -580,6 +654,68 @@ The question model carries a third group, the simplification ladder of `out/ladd
 - `data.passes = 3` is a no-op by construction (section 3.6), and `data.w_async` is inert because every asynchronous tournament in the mirror carries `in_rating = 0` and never loads.
 - `question.gradient` (`exact`, shipped) replaces the noisy-OR gradient of step 2 with `share`: `g_i = (y - P) * p_i / sum_j p_j`, credit in proportion to `p_i = 1 - exp(-lambda_i)`. Rung Q3; it fails on the individual table, 102/200 against chgk.quest.
 - `player.update` (`kalman`, shipped) replaces the Kalman step with `schedule`: `theta_i += eta0/sqrt(c0 + games_i) * w_t * g_i`, no `sigma`, no volatility; a player under five games is provisional. Rung Q2; it costs 0.012 of forecast Spearman.
+
+Round 3 added seven more, and one of them ships (section 4.8). The other six are
+off, each with the residual check that said so before the sweep did
+(`out/q_ndcg/round3.md`).
+
+- `team.s2.chemistry` and `question.chem_u`, the togetherness `T(L)` of a lineup —
+  the mean over its pairs of `log(1 + rated games together)` — added to the
+  forecast in display points and multiplied into the team's intensity
+  respectively. Negative at every strength and **both signs**, −0.0003 at 50
+  display points and −0.0402 at 400, −0.0018 at `chem_u = 0.05` and −0.0314 at
+  0.2. The residual says why: the surprise winners of a field are settled lineups
+  (mean `T` 2.96 against 2.69) and so are the favourites who disappoint (2.99
+  against 2.90), so `T(L)` marks a lineup that can move in either direction and a
+  term linear in it is pushed both ways at once.
+- `question.m_fixed`, one global collaboration exponent with the take-rate
+  difficulty solved from `r^{1/m}`. Smooth with an interior optimum at 1.1 worth
+  +0.0004 ± 0.0005 on the tune window and exactly 0.0000 on the test window. The
+  free per-question `m_q` above makes the same trade and fails test 1; the global
+  one is simply too small to matter.
+- `team.s2.difficulty_forecast`, ranking a field by the expected number of
+  answers on a package of the difficulty a field of that strength usually gets,
+  instead of by `Q(L)`. −0.0023 ± 0.0013 even at `m = 1`, where it is only a
+  different monotone summary of the same lineup, and worse at every larger `m`.
+  The tempering of section 4.1 is doing work a package-level expectation undoes.
+- `data.train_unrated` with `w_unrated`, the tournaments the official system
+  leaves out, for the player side only: they move `θ` and `φ` and never open or
+  move a team state, produce a team event or enter `tournament_metrics`. It loads
+  6731 tournaments against 5605 and the metric still covers exactly 650 tune and
+  284 test fields, so the comparison is like for like — which is what round 2's
+  `include_unrated` could not claim. +0.0002 ± 0.0018 on tune and −0.0037 ±
+  0.0019 on test at `w_unrated = 0.5`, and −0.0051 at 1.0, round 2's number.
+- `team.s2.q_sigma_c`, the pessimistic quantile taken once for the whole lineup
+  as a multiple of the sd of the roster estimate rather than per player. Flat:
+  +0.0002 to +0.0004 on tune at every `c`, negative on test. `sd(Q(L))`
+  correlates with the mean `σ` the per-player rule already reads at **0.932**, so
+  the two rules are the same rule in different units.
+- `question.a_in_person`, one global discrimination at an in-person table, with
+  the take-rate difficulty solved at that `a`. −0.0015 at 0.8, −0.0022 at 1.2 and
+  −0.0061 at 1.5: `a = 1` is where the data puts it. The residual check agrees —
+  the probability that the field's favourite wins runs from 0.28 at a
+  first-to-second forecast gap of 28 points to 0.87 at 1468, which is what a
+  calibrated discrimination looks like.
+- `team.s2.kappa_s` with `series_k`, a team's mean surprise over its last `k`
+  in-person results added to its forecast. Every **positive** `kappa_s` loses,
+  which is the sign the residual predicts should win; `kappa_s = −500`, mean
+  reversion, is +0.0013 ± 0.0007 on tune and −0.0010 ± 0.0007 on test. The
+  residual correlation itself falls from +0.032 for teams with two in-person
+  results to +0.004 for teams with twenty, so it is an unsettled estimate rather
+  than a property of the team, and the two windows disagreeing in sign is what
+  that predicts.
+- `question.aff_strength` (`scale`, `gate`) with `aff_kappa`, `aff_s_max` and
+  `aff_gate`, the editor affinity of section 3.6 made a property of a strong
+  player: multiplied by `exp(aff_kappa · θ)`, or given only to the top `aff_gate`
+  of the established panel. Every variant loses, and the shape is the giveaway —
+  the tighter the gate the less it loses (−0.0048 at 0.5, −0.0040 at 0.2, −0.0024
+  at 0.05, −0.0001 at 0.02, +0.0004 at 0.01), and the limit of a tighter gate is
+  no affinity at all. The decisive probe is the prior width: if the few players
+  above a tight gate really carried a readable affinity they would want more room,
+  and at `gate = 0.05` a wider prior (`s_aff` 0.6) is −0.0043, the worst of the
+  family, while a narrower one (`s_aff` 0.15) is indistinguishable from off. The
+  effect the residual finds is real (section 7.4) and this estimator cannot reach
+  it; section 4.8 is the one that can.
 
 ### 8.3 The Kalman team engine (`team.engine = "kalman"`)
 

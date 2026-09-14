@@ -1,0 +1,20 @@
+# Lever 3: train on the unrated tournaments, score on the rated ones.
+tu05     data.train_unrated=true data.w_unrated=0.5
+tu10     data.train_unrated=true data.w_unrated=1.0
+tu025    data.train_unrated=true data.w_unrated=0.25
+# Lever 5: a global discrimination at an in-person table.
+a08      question.a_in_person=0.8
+a12      question.a_in_person=1.2
+a15      question.a_in_person=1.5
+# Lever 6: series memory.
+ks200    team.s2.kappa_s=200.0
+ks500    team.s2.kappa_s=500.0
+ks1000   team.s2.kappa_s=1000.0
+ks2000   team.s2.kappa_s=2000.0
+ksm500   team.s2.kappa_s=-500.0
+ks500k10 team.s2.kappa_s=500.0 team.s2.series_k=10
+ks500k3  team.s2.kappa_s=500.0 team.s2.series_k=3
+# Lever 4: the lineup's own quantile in place of each player's.
+qs10     team.s2.q_sigma_c=1.0 team.s2.sigma_c=0.75
+qs15     team.s2.q_sigma_c=1.5 team.s2.sigma_c=0.0
+qs05     team.s2.q_sigma_c=0.5

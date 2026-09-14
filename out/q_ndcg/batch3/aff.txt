@@ -1,0 +1,11 @@
+# Lever 7: editor affinity as a property of a strong player. The rank-1 slot
+# now sits beside the format effect, so this is affinity in place of nothing.
+aff_flat1    question.aff_rank=1
+aff_sc05     question.aff_rank=1 question.aff_strength="scale" question.aff_kappa=0.5
+aff_sc1      question.aff_rank=1 question.aff_strength="scale" question.aff_kappa=1.0
+aff_sc2      question.aff_rank=1 question.aff_strength="scale" question.aff_kappa=2.0
+aff_gate20   question.aff_rank=1 question.aff_strength="gate" question.aff_gate=0.2
+aff_gate05   question.aff_rank=1 question.aff_strength="gate" question.aff_gate=0.05
+aff_gate50   question.aff_rank=1 question.aff_strength="gate" question.aff_gate=0.5
+aff_gate20r2 question.aff_rank=2 question.aff_strength="gate" question.aff_gate=0.2
+aff_sc1r2    question.aff_rank=2 question.aff_strength="scale" question.aff_kappa=1.0

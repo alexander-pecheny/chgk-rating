@@ -1,0 +1,11 @@
+# Lever 2: one global collaboration constant, and the forecast that knows the package.
+m11      question.m_fixed=1.1
+m125     question.m_fixed=1.25
+m15      question.m_fixed=1.5
+m20      question.m_fixed=2.0
+m09      question.m_fixed=0.9
+df_m10   question.m_fixed=1.0 team.s2.difficulty_forecast=true
+df_m11   question.m_fixed=1.1 team.s2.difficulty_forecast=true
+df_m125  question.m_fixed=1.25 team.s2.difficulty_forecast=true
+df_m15   question.m_fixed=1.5 team.s2.difficulty_forecast=true
+df_m20   question.m_fixed=2.0 team.s2.difficulty_forecast=true
