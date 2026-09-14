@@ -229,7 +229,9 @@ fn run_pass(
                 diag,
                 &mut prev_p,
                 &mut prev_t,
-                false,
+                // The last release is the last Thursday before `to`, whether or
+                // not a tournament follows it; the trailing loop uses the same rule.
+                next_rel + 7 > to_day,
             )?;
             next_rel += 7;
             if release_id % 50 == 0 {
