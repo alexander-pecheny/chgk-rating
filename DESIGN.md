@@ -390,15 +390,15 @@ S2's own constants are not calibrated offline. `D` is the maximum-likelihood sca
 
 ### 7.2 Acceptance tests
 
-Results are from `out/q_ndcg/eval_winner.md`; the numbers in brackets are the model as it stood before section 7.4 retuned it.
+Results are from `out/final_eval.md`; the numbers in brackets are the model as it stood before sections 7.3 and 7.4 retuned it.
 
 1. **Cross-fitted log-loss** on in-person rated tournaments, per variant. A variant (step count, affinity rank, async weight, teammate shrinkage) stays only if it lowers the number. **Result: 0.4899 over all seasons, 0.5160 in 2025/26** (0.4900 and 0.5161). Passed.
 2. **Forecast rank correlation.** Spearman between forecast places and actual places per tournament, averaged over in-person tournaments of the last two seasons, against the old system's `predictedPosition`. Target: within 0.02 of the best external system. **Result: 0.8531 against 0.8177; sync 0.8186 against 0.7897** (0.8363 and 0.8194). Passed, and ahead rather than within.
 3. **Individual top-200 overlap with chgk.quest of at least 70%.** **Result: 112/200 against chgk.quest and 115/200 against rating.chgk.fun** (117 and 122). **Failed**, and by five and seven players more than before: the published `θ` is now the strength off an in-person table, and the format effect it no longer carries is part of what the external systems' numbers mean. For context those two systems agree with each other on 136/200, so the 140 threshold is above what mature external systems reach between themselves; the rank correlation of `θ` over players with at least 50 games is 0.89 against chgk.quest and 0.78 against rating.chgk.fun (0.90 and 0.79).
-4. **Inflation:** the display value of the 50th team at each September release from 2015 to 2026 stays within a band of ±10%. A September whose trailing year holds fewer than 200 rated teams is a hole in the data, not inflation, and is excluded from the band; only September 2021 is. **Result: largest deviation 1.7% over 11 Septembers (range 6902 to 7130 around a mean of 7020)** (6.3%, 6612 to 7416 around 6978). Passed.
+4. **Inflation:** the display value of the 50th team at each September release from 2015 to 2026 stays within a band of ±10%. A September whose trailing year holds fewer than 200 rated teams is a hole in the data, not inflation, and is excluded from the band; only September 2021 is. **Result: largest deviation 6.1% over 11 Septembers (range 6451 to 7242 around a mean of 6871)** (6.3%, 6612 to 7416 around 6978). Passed. The quantile `σ_c` on its own brought the deviation down to 1.7%; the pull of section 4.3 gives most of that back, because a rating that follows the lineups follows the level of the lineups too.
 5. **Transfer invariance:** swap the strongest player between two top teams in the input at a chosen date and confirm no team rating changes at that date. Forecasts must change. **Result: 0 teams moved, maximum difference exactly 0; 286 139 team events on or after the swap have a different forecast.** Passed.
 6. **Winner rule:** no team that finished first, sole or shared, has `mu_after < mu_before` anywhere in `team_events`. **Result: 0, sole and shared alike.** Passed.
-7. **The rating on its own.** The weighted team NDCG of section 7.3 must not be behind chgk.gg or the old system. **Result: 0.8987 against chgk.gg's 0.8893 and the old system's 0.8877 on the tune window, 0.9029 against 0.8901 and 0.8886 on the test window.** Passed. `eval --brief` prints it.
+7. **The rating on its own.** The weighted team NDCG of section 7.3 must not be behind chgk.gg or the old system. **Result: 0.8986 against chgk.gg's 0.8893 and the old system's 0.8877 on the tune window, 0.9037 against 0.8901 and 0.8886 on the test window.** Passed. `eval --brief` prints it.
 8. The user's read of the resulting tables.
 
 **The lineup rule.** Both rules of section 4.1 were run over the same players, tuned on the same window (`out/s2_grid_kq.md`). The roster estimate wins at each rule's own optimum and on both held-out formats, and `delta` goes with the rule it belongs to:
@@ -448,7 +448,7 @@ it.
 
 | weighted NDCG / NDCG@3 | tune | test |
 |---|---:|---:|
-| **ours** | **0.8987 / 0.8014** | **0.9029 / 0.8042** |
+| **ours** | **0.8986 / 0.8008** | **0.9037 / 0.8016** |
 | chgk.gg | 0.8893 / 0.7847 | 0.8901 / 0.7713 |
 | the old system | 0.8877 / 0.7845 | 0.8886 / 0.7686 |
 | rating.chgk.fun | 0.9058 / 0.8081 | 0.9137 / 0.8332 |
@@ -526,14 +526,16 @@ Rust workspace, one library crate `chgk-rating` with modules `data`, `question_m
            k_r_target lineup, margin_g 0, margin_shape linear, n0 0,
            w_sync and w_strict_sync absent (section 4.8)
 [truedl]   theta_ref 0.2368
-[display]  a_team −4394.7095, b_team 1.0678, a_player 5461.6007, b_player 4832.6752,
+[display]  a_team −7640.2986, b_team 1.2677, a_player 5461.6007, b_player 4832.6752,
            provisional_sigma 0.3
 [numeric]  newton_iters 12, a ∈ [0.3, 3], m ∈ [0.5, 4], b ∈ [−10, 12],
            info_floor 1e−3, theta_max_step 1.5, u_max 15
 ```
 
-The display map was refitted by `calibrate --display` after `σ_c` moved the level of
-the team scale; the 2019 anchors of section 5 are unchanged.
+The team display map was refitted by `calibrate --display` after `σ_c` moved the level
+of the team scale and the pull of section 4.3 changed its spread; the 2019 anchors of
+section 5 are unchanged, and so is the player map. Both changes are affine and neither
+moves a place in either table.
 
 The rest of `[team]` — `sigma_new_team 0.5, beta 0.3757, kappa_m 10, m_max 2, nu 2.6, e_cap 20, rho 0.8, miss_streak 3, gamma 2, tau_t 0.2, v_min 0.05, v_max 0.6, v_eta 0.15, sigma_floor 0.2` and the switches below — belongs to `engine = "kalman"` and is kept at the values that engine shipped with. `roster_bias` and `sigma_model` are read by both.
 

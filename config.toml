@@ -142,8 +142,8 @@ theta_ref = 0.2368
 # Fitted by `calibrate --display` so that the 50th and 1000th teams and players
 # of the 2019 releases match the old system; under engine = "kalman" the team
 # map was -209.5770 + 2454.8828 mu.
-a_team = -4394.7095
-b_team = 1.0678
+a_team = -7640.2986
+b_team = 1.2677
 a_player = 5461.6007
 b_player = 4832.6752
 provisional_sigma = 0.3

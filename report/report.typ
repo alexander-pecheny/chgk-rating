@@ -69,8 +69,8 @@
 #let k_band       = [251–500]
 
 // -- Section B.6: published quantities ---------------------------------------
-#let k_A_T        = [−4394.7095]
-#let k_B_T        = [1.0678]
+#let k_A_T        = [−7640.2986]
+#let k_B_T        = [1.2677]
 #let k_A_P        = [5461.6007]
 #let k_B_P        = [4832.6752]
 #let k_anchor_t   = [5 September 2019]
@@ -99,7 +99,7 @@
 #let k_corr_quest = [0.89]
 #let k_corr_fun   = [0.78]
 #let k_corr_games = [50]
-#let k_infl       = [1.7%]
+#let k_infl       = [6.1%]
 #let k_infl_band  = [±10%]
 #let k_infl_from  = [2015]
 #let k_infl_to    = [2026]

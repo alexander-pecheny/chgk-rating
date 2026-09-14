@@ -73,7 +73,15 @@ databases:
 uv run tools/ndcg.py out/ratings.db out/ext/fun.db --common [--k 3] [--unweighted]
 uv run tools/ndcg.py out/ratings.db out/ext/fun.db --common --paired
 uv run tools/q_ndcg_sweep.py out/q_ndcg/batch/glue.txt --jobs 2   # a config sweep
+uv run tools/compare_ndcg.py --list          # every system in one table
+uv run tools/compare_ndcg.py "ours=out/final.db" "ours, rating=out/final.db:mu"
 ```
+
+`tools/compare_ndcg.py` scores each database twice over the same tournaments: a
+*player based* row ranks the field by the forecast, a *team based* row (`:mu`) by
+`mu_before` with an unrated team last. `--list` is the table of
+`out/final_report.md`; `--paired LABEL` adds the paired bootstrap SE of that row
+against the others.
 
 ## simple
 
