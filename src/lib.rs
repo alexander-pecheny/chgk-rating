@@ -4,6 +4,7 @@ pub mod data;
 pub mod difficulty;
 pub mod display;
 pub mod editor_memory;
+pub mod features;
 pub mod gauge;
 pub mod geography;
 pub mod ndcg;

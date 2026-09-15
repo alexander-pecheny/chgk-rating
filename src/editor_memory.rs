@@ -161,6 +161,19 @@ impl EditorMemory {
         }
     }
 
+    /// The `(sum of past residuals, count)` of one `(player, editor)` pair, or
+    /// `None` when the two have no history that clears `min_n`. The feature
+    /// table of plan 8 wants the count as well as the mean, and wants it
+    /// without the gate. The count is the raw one: the reader has no day to
+    /// measure a half-life from, and at the shipped `ed_half_life` of 0 nothing
+    /// is forgotten anyway.
+    pub fn pair(&self, player: u32, editor: u32) -> Option<(f64, f64)> {
+        self.acc
+            .get(&key(player, editor))
+            .filter(|a| a.n >= self.min_n)
+            .map(|a| (a.sum, a.n))
+    }
+
     /// Records one scored in-person field. `res` is `(team index in t.teams,
     /// residual)`; the residual joins the memory only after the field has been
     /// forecast, so a result never predicts itself.

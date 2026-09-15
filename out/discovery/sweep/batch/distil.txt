@@ -1,0 +1,32 @@
+# Plan 8, step 3: the top-8 features of the ranker, as switches in the simple
+# model. Five of the eight are monotone transforms of Q(L) within a field and
+# are therefore already the shipped forecast; these are the three that are not.
+#
+# agg_phi_min: the weakest format effect at the table. The lineup strength reads
+# every player at theta + phi, so the mean is in and the minimum is not.
+phi_min_100   team.s2.phi_min=100.0
+phi_min_250   team.s2.phi_min=250.0
+phi_min_500   team.s2.phi_min=500.0
+phi_min_1000  team.s2.phi_min=1000.0
+phi_min_m250  team.s2.phi_min=-250.0
+phi_min_m500  team.s2.phi_min=-500.0
+# agg_thetaphi_sd: the spread of theta + phi inside the lineup. The linear
+# ranker puts a negative coefficient on it: a lopsided table is worth less than
+# the tempered estimate says.
+phi_sd_m250   team.s2.phi_spread=-250.0
+phi_sd_m500   team.s2.phi_spread=-500.0
+phi_sd_m1000  team.s2.phi_spread=-1000.0
+phi_sd_250    team.s2.phi_spread=250.0
+phi_sd_500    team.s2.phi_spread=500.0
+# The same statement through the knob that already exists: the temperature of
+# the tempered roster estimate is what decides how much a lopsided lineup loses.
+tau_060       team.s2.tau=0.6
+tau_065       team.s2.tau=0.65
+tau_075       team.s2.tau=0.75
+tau_080       team.s2.tau=0.8
+# agg_games_min and agg_vol_min, ranks 12 and 13: the least-measured player at
+# the table, which sigma_ip already widens the discount for.
+sigma_ip_05   team.s2.sigma_ip=0.5
+sigma_ip_20   team.s2.sigma_ip=2.0
+# The two together, at whatever each is worth alone.
+phi_both      team.s2.phi_min=250.0 team.s2.phi_spread=-500.0

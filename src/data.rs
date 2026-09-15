@@ -53,7 +53,8 @@ pub struct TeamResult {
     /// earns its team no rating, no evidence and no place in the table.
     pub rated: bool,
     /// The town the team was registered in on the day, as an index into
-    /// `Arena.towns`; `u32::MAX` when the mirror carries none.
+    /// `Arena.towns`; `u32::MAX` when the mirror carries none. `fit --features`
+    /// also compares it with the tournament's own town.
     pub town: u32,
     pub members: Vec<u32>,
     pub mask: Vec<u8>,
