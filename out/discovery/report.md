@@ -44,8 +44,9 @@ resamples.
 Every tune-window number below is **out of fold**. The 650 tune fields are split
 into five, and each fifth is predicted by a model trained on everything dated
 before the test window except that fifth — which includes the **1043 in-person
-fields of 2013 to 2018** that neither window scores, so the ranker trains on
-50 489 results and is judged on 18 651 it has not seen. The test window is
+fields of 2013 to 2018** that neither window scores. The pool is 50 489 results
+and each fold model sees about 46 800 of them; the 18 651 results of the tune
+window are every one of them scored by a model that did not see it. The test window is
 scored once, by a model retrained on everything before it.
 
 Two details had to be right before any of this meant anything, and both were
