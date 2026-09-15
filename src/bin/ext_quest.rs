@@ -552,6 +552,8 @@ fn write_events(w: &Writer, t: &Tournament, arena: &Arena, fit: &Fit) -> rusqlit
         .map(|k| {
             let sd = fit.var[k].max(1e-9).sqrt();
             TeamEvent {
+                d_place: f64::NAN,
+                d_pull: f64::NAN,
                 team: t.teams[k].team,
                 c: 0.0,
                 delta_l: 0.0,

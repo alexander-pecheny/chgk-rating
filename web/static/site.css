@@ -517,3 +517,60 @@ a:hover {
 .site-search input {
   padding-left: 30px;
 }
+
+/* ── lineups on the tournament page ─────────────────────── */
+
+/* A roster row is hidden until the reader asks, either for one team by the
+   small switch in its row or for every team by the switch above the table. */
+.roster-row {
+  display: none;
+}
+
+.section:has(.roster-toggle input:checked) .roster-row,
+tr:has(.roster-open input:checked) + .roster-row {
+  display: table-row;
+}
+
+.roster-open {
+  margin-left: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.roster-open input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.roster-open span {
+  border-bottom: 1px dotted currentColor;
+}
+
+tr:has(.roster-open input:checked) .roster-open span {
+  border-bottom-style: solid;
+}
+
+.roster-row td {
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-3);
+  background: var(--hover-bg);
+}
+
+.roster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
+  margin: 0;
+  padding: 0 0 0 var(--space-6);
+  list-style: none;
+  font-size: var(--text-sm);
+}
+
+.roster .num {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+}

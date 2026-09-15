@@ -78,6 +78,12 @@ pub struct TeamEvent {
     pub rated: bool,
     /// (realised strength - x) / sqrt(sigma_T^2 + sigma_model^2); should be unit variance.
     pub z: Option<f64>,
+    /// The two parts of `mu_after - mu_before` under S2, on the internal scale:
+    /// the placement step of DESIGN 4.3 step 3 and the pull towards the lineup.
+    /// Whatever is left is the winner's floor. NaN where the engine has no such
+    /// split, or the result took no update.
+    pub d_place: f64,
+    pub d_pull: f64,
 }
 
 /// What the pairwise stage needs, read off the pre-update states.
@@ -298,6 +304,8 @@ impl Teams {
             let members = &t.teams[e.ri].members;
             let Some(st) = self.state[e.idx].as_mut() else {
                 out.push(TeamEvent {
+                    d_place: f64::NAN,
+                    d_pull: f64::NAN,
                     team: e.idx as u32,
                     c: 0.0,
                     delta_l: 0.0,
@@ -409,6 +417,8 @@ impl Teams {
                 st.last_day = t.day;
             }
             out.push(TeamEvent {
+                d_place: f64::NAN,
+                d_pull: f64::NAN,
                 team: e.idx as u32,
                 c: e.c,
                 delta_l: e.delta,

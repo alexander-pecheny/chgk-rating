@@ -2,11 +2,13 @@
    crosshair on every history chart. Both degrade to nothing without JS. */
 
 (function () {
-  var cb = document.querySelector(".prov-toggle input");
-  if (!cb) return;
-  try { cb.checked = localStorage.getItem("showprov") === "1"; } catch (e) {}
-  cb.addEventListener("change", function () {
-    try { localStorage.setItem("showprov", cb.checked ? "1" : "0"); } catch (e) {}
+  [[".prov-toggle input", "showprov"], [".roster-toggle input", "showroster"]].forEach(function (t) {
+    var cb = document.querySelector(t[0]);
+    if (!cb) return;
+    try { cb.checked = localStorage.getItem(t[1]) === "1"; } catch (e) {}
+    cb.addEventListener("change", function () {
+      try { localStorage.setItem(t[1], cb.checked ? "1" : "0"); } catch (e) {}
+    });
   });
 })();
 

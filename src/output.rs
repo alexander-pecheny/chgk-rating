@@ -23,7 +23,7 @@ const SCHEMA: &str = "
 CREATE TABLE releases (id INTEGER PRIMARY KEY, date TEXT, shift REAL, shift_cum REAL, n_players INTEGER);
 CREATE TABLE player_ratings (release_id INTEGER, player_id INTEGER, theta REAL, sigma REAL, games_365 INTEGER, display REAL, change REAL);
 CREATE TABLE team_ratings (release_id INTEGER, team_id INTEGER, mu REAL, sigma REAL, core_strength REAL, evidence REAL, display REAL, listed INTEGER, change REAL);
-CREATE TABLE team_events (tournament_id INTEGER, date TEXT, team_id INTEGER, c REAL, delta_l REAL, x REAL, s_r REAL, forecast REAL, forecast_place REAL, actual_place REAL, s_pair REAL, i_pair REAL, mu_before REAL, mu_after REAL, sigma_before REAL, sigma_after REAL, evidence REAL, gap_days INTEGER, var_diff REAL, lost_prev REAL, rated INTEGER, z REAL, expected_place REAL);
+CREATE TABLE team_events (tournament_id INTEGER, date TEXT, team_id INTEGER, c REAL, delta_l REAL, x REAL, s_r REAL, forecast REAL, forecast_place REAL, actual_place REAL, s_pair REAL, i_pair REAL, mu_before REAL, mu_after REAL, sigma_before REAL, sigma_after REAL, evidence REAL, gap_days INTEGER, var_diff REAL, lost_prev REAL, rated INTEGER, z REAL, expected_place REAL, d_place REAL, d_pull REAL);
 CREATE TABLE player_events (tournament_id INTEGER, player_id INTEGER, theta_before REAL, theta_after REAL, sigma_after REAL, phi_before REAL, sigma_before REAL, games_ip INTEGER, days_ip INTEGER);
 CREATE TABLE question_params (tournament_id INTEGER, q INTEGER, b REAL, a REAL, m REAL);
 CREATE TABLE tournament_metrics (tournament_id INTEGER PRIMARY KEY, date TEXT, type TEXT, weight REAL, n_teams INTEGER, n_q INTEGER, n_obs INTEGER, logloss_insample REAL, logloss_crossfit REAL, spearman_forecast REAL, spearman_old_system REAL, truedl REAL);
@@ -112,7 +112,7 @@ impl Writer {
         evs: &[crate::team_model::TeamEvent],
     ) -> rusqlite::Result<()> {
         let mut st = self.conn.prepare_cached(
-            "INSERT INTO team_events VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)",
+            "INSERT INTO team_events VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)",
         )?;
         for e in evs {
             st.execute(params![
@@ -138,7 +138,9 @@ impl Writer {
                 e.lost_prev,
                 e.rated,
                 e.z,
-                e.expected_place
+                e.expected_place,
+                e.d_place.is_finite().then_some(e.d_place),
+                e.d_pull.is_finite().then_some(e.d_pull),
             ])?;
         }
         Ok(())

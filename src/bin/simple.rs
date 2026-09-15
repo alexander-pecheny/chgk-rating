@@ -386,6 +386,8 @@ fn run(
             if w.is_some() {
                 let expected = (n as f64) - psum[k];
                 evs.push(TeamEvent {
+                    d_place: f64::NAN,
+                    d_pull: f64::NAN,
                     team: res.team,
                     c: rated as u8 as f64,
                     delta_l: if mu_before.is_finite() && q[k].is_finite() {

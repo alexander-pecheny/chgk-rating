@@ -246,6 +246,9 @@ pub struct S2 {
     /// Fraction of the gap to the players' worth the rating takes per rated game.
     pub k_r: f64,
     pub k_r_target: PullTarget,
+    /// Multiplier on the pull at synchronous and strictly synchronous
+    /// tournaments; 1 is the shipped rule, 0 confines the pull to in-person games.
+    pub k_r_sync: f64,
     /// Rated games below which the step is enlarged to `K n0 / n`; 0 is off.
     pub n0: f64,
     /// The team side's own format weights; absent means the shared `[data]` ones.
@@ -301,6 +304,7 @@ impl Default for S2 {
             margin_shape: MarginShape::Linear,
             k_r: 0.0,
             k_r_target: PullTarget::Lineup,
+            k_r_sync: 1.0,
             n0: 0.0,
             w_sync: None,
             w_strict_sync: None,

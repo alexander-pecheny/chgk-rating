@@ -184,6 +184,11 @@ player_zero = 6000.0
 k_r = 0.3
 # "lineup" is the lineup that turned up, "usual" the running average of them.
 k_r_target = "lineup"
+# Multiplier on the pull at synchronous tournaments; 0 confines it to in-person
+# games. Measured and at 1: confining it is +0.0004 +/- 0.0048 on tune and
+# -0.0025 on test, so a lineup that only ever plays synchrons does not mislead
+# the rating about the base-roster field (DESIGN 4.9).
+k_r_sync = 1.0
 # A team that finished first keeps at least the rating it came with. Without the
 # pull the Elo step alone already guarantees it and the floor never binds.
 winner_floor = true

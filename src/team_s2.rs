@@ -754,19 +754,27 @@ impl TeamsS2 {
             .fold(f64::INFINITY, f64::min);
         let mut out = Vec::with_capacity(n);
         for (k, e) in es.iter().enumerate() {
+            let (mut d_place, mut d_pull) = (f64::NAN, f64::NAN);
             if e.rated {
                 let before = self.r[e.idx];
                 // A provisional team moves faster: K_n = K max(1, n0 / n).
                 let kn = p.k * (p.n0 / e.games.max(1.0)).max(1.0);
-                self.r[e.idx] += kn * w * p.d * spair[k];
+                d_place = kn * w * p.d * spair[k];
+                self.r[e.idx] += d_place;
                 // The pull towards what the players who turned up are worth.
+                d_pull = 0.0;
                 if p.k_r > 0.0 {
                     let target = match p.k_r_target {
                         PullTarget::Lineup => e.q,
                         PullTarget::Usual => e.qbar,
                     };
+                    let kr = match format {
+                        Format::InPerson => p.k_r,
+                        _ => p.k_r * p.k_r_sync,
+                    };
                     if target.is_finite() {
-                        self.r[e.idx] += p.k_r * w * (target - self.r[e.idx]);
+                        d_pull = kr * w * (target - self.r[e.idx]);
+                        self.r[e.idx] += d_pull;
                     }
                 }
                 if p.winner_floor && e.place == best && self.r[e.idx] < before {
@@ -789,6 +797,8 @@ impl TeamsS2 {
                 }
             }
             out.push(TeamEvent {
+                d_place,
+                d_pull,
                 team: e.idx as u32,
                 c: e.rated as u8 as f64,
                 delta_l: if e.mu_before.is_finite() && e.q.is_finite() {

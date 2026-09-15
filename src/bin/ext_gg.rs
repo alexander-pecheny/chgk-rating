@@ -794,6 +794,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .iter()
                 .enumerate()
                 .map(|(j, res)| TeamEvent {
+                    d_place: f64::NAN,
+                    d_pull: f64::NAN,
                     team: res.team,
                     c: t.coeff,
                     delta_l: s.d1[j],

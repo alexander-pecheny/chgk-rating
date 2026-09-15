@@ -72,6 +72,7 @@ fn set(p: &mut Point, key: &str, val: &str) -> Result<(), String> {
                 _ => return Err("k_r_target: lineup or usual".into()),
             }
         }
+        "k_r_sync" => p.s2.k_r_sync = num()?,
         "n0" => p.s2.n0 = num()?,
         "w_sync" => p.s2.w_sync = Some(num()?),
         "w_strict_sync" => p.s2.w_strict_sync = Some(num()?),

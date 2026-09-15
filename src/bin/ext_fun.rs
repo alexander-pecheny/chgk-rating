@@ -583,6 +583,8 @@ fn run_tournament(t: &Tour, arena: &Arena, st: &mut State, w: &Writer) -> rusqli
         let (forecast, perf) = rows[k];
         let res = &t.res[i];
         evs.push(TeamEvent {
+            d_place: f64::NAN,
+            d_pull: f64::NAN,
             team: order[l] as u32,
             c: 0.0,
             delta_l: 0.0,

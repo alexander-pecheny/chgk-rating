@@ -835,15 +835,18 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         !s.d.s2,
     ));
 
-    let mut st = c
-        .prepare(
-            "select v.tournament_id, t.name, coalesce(v.date, t.date) as d, v.forecast_place, \
-             v.actual_place, v.mu_before, v.mu_after, v.c, v.rated \
-             from team_events v left join x.tournament t on t.id = v.tournament_id \
-             where v.team_id = ?1 order by d desc, v.tournament_id desc",
-        )
-        .unwrap();
-    let evs: Vec<(i64, String, String, Option<f64>, Option<f64>, f64, f64, f64, bool)> = st
+    let have = crate::data::columns(c, "team_events");
+    let sql = format!(
+        "select v.tournament_id, t.name, coalesce(v.date, t.date) as d, v.forecast_place, \
+         v.actual_place, v.mu_before, v.mu_after, v.c, v.rated, {}, {} \
+         from team_events v left join x.tournament t on t.id = v.tournament_id \
+         where v.team_id = ?1 order by d desc, v.tournament_id desc",
+        crate::data::col(&have, "d_place"),
+        crate::data::col(&have, "d_pull"),
+    );
+    let mut st = c.prepare(&sql).unwrap();
+    type Ev = (i64, String, String, Option<f64>, Option<f64>, Option<f64>, Option<f64>, f64, bool, Option<f64>, Option<f64>);
+    let evs: Vec<Ev> = st
         .query_map([id], |r| {
             Ok((
                 r.get(0)?,
@@ -851,15 +854,19 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
                 r.get::<_, Option<String>>(2)?.unwrap_or_default(),
                 r.get(3)?,
                 r.get(4)?,
-                r.get::<_, Option<f64>>(5)?.unwrap_or(0.0),
-                r.get::<_, Option<f64>>(6)?.unwrap_or(0.0),
+                r.get(5)?,
+                r.get(6)?,
                 r.get::<_, Option<f64>>(7)?.unwrap_or(0.0),
                 r.get::<_, Option<i64>>(8)?.unwrap_or(1) != 0,
+                r.get(9)?,
+                r.get(10)?,
             ))
         })
         .unwrap()
         .map(|r| r.unwrap())
         .collect();
+    // The split of the step, shown when the engine recorded one.
+    let split = evs.iter().any(|v| v.9.is_some() && v.10.is_some());
 
     let _ = write!(
         out,
@@ -875,8 +882,14 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         out,
         "<div class=\"table-scroll\"><table class=\"data-table\"><thead><tr>\
          <th>Дата</th><th>Турнир</th><th class=\"num\">Прогноз</th><th class=\"num\">Место</th>\
-         <th class=\"num\">Было</th><th class=\"num\">Стало</th><th class=\"num\">Δ</th>{}\
+         <th class=\"num\">Было</th><th class=\"num\">Стало</th><th class=\"num\">Δ</th>{}{}\
          </tr></thead><tbody>",
+        if split {
+            "<th class=\"num\" title=\"Шаг за место: против ожидания по силе команд в поле\">за место</th>\
+             <th class=\"num\" title=\"Подтягивание рейтинга к силе вышедшего состава\">к составу</th>"
+        } else {
+            ""
+        },
         if s.d.s2 {
             ""
         } else {
@@ -884,8 +897,6 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         }
     );
     for v in &evs {
-        let before = s.d.a_team + s.d.b_team * v.5;
-        let after = s.d.a_team + s.d.b_team * v.6;
         let beat = match (v.3, v.4) {
             (Some(f), Some(a)) if a < f - 0.5 => " place-better",
             (Some(f), Some(a)) if a > f + 0.5 => " place-worse",
@@ -894,19 +905,29 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         let _ = write!(
             out,
             "<tr><td class=\"nowrap\">{}</td><td><a href=\"/tournaments/{}/\">{}</a>{}</td>\
-             <td class=\"num muted\">{}</td><td class=\"num{beat}\">{}</td>\
-             <td class=\"num\">{}</td><td class=\"num\">{}</td>\
-             <td class=\"num {}\">{}</td>{}</tr>",
+             <td class=\"num muted\">{}</td><td class=\"num{beat}\">{}</td>{}{}{}</tr>",
             e(&v.2),
             v.0,
             e(if v.1.is_empty() { "без названия" } else { &v.1 }),
             unrated_tag(v.8),
             place(v.3),
             place(v.4),
-            disp(before),
-            disp(after),
-            delta_class(after - before),
-            signed(after - before),
+            // A result before the team had a state shows dashes, not the map of zero.
+            step_cells(s.d.a_team, s.d.b_team, v.5, v.6),
+            if !split {
+                String::new()
+            } else if let (Some(dp), Some(dl)) = (v.9, v.10) {
+                let (dp, dl) = (s.d.b_team * dp, s.d.b_team * dl);
+                format!(
+                    "<td class=\"num {}\">{}</td><td class=\"num {}\">{}</td>",
+                    delta_class(dp),
+                    signed(dp),
+                    delta_class(dl),
+                    signed(dl)
+                )
+            } else {
+                "<td class=\"num muted\">—</td><td class=\"num muted\">—</td>".into()
+            },
             if s.d.s2 {
                 String::new()
             } else {
@@ -914,7 +935,15 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
             }
         );
     }
-    out.push_str("</tbody></table></div></section>");
+    out.push_str("</tbody></table></div>");
+    if split {
+        out.push_str(
+            "<p class=\"hint\">Δ складывается из шага за место — против ожидания по силе команд \
+             в поле — и подтягивания к силе вышедшего состава. Разбор каждого турнира — на его \
+             странице.</p>",
+        );
+    }
+    out.push_str("</section>");
     Some(out)
 }
 
@@ -1017,44 +1046,105 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
     }
 
     // ── the field ────────────────────────────────────────────────────────────
-    let mut st = c
-        .prepare(
-            "select v.team_id, m.name, v.forecast_place, v.actual_place, v.mu_before, v.mu_after, \
-             v.rated, r.score, r.name from team_events v left join x.team m on m.id = v.team_id \
-             left join x.result_ r on r.tournament_id = v.tournament_id and r.team_id = v.team_id \
-             where v.tournament_id = ?1 order by v.actual_place",
-        )
-        .unwrap();
-    let evs: Vec<(
-        i64,
-        String,
-        Option<f64>,
-        Option<f64>,
-        Option<f64>,
-        Option<f64>,
-        bool,
-        Option<i64>,
-        String,
-    )> = st
+    struct Row {
+        team: i64,
+        name: String,
+        forecast: Option<f64>,
+        actual: Option<f64>,
+        before: Option<f64>,
+        after: Option<f64>,
+        rated: bool,
+        score: Option<i64>,
+        played_as: String,
+        lineup: Option<f64>,
+        d_place: Option<f64>,
+        d_pull: Option<f64>,
+    }
+    let have = crate::data::columns(c, "team_events");
+    let sql = format!(
+        "select v.team_id, m.name, v.forecast_place, v.actual_place, v.mu_before, v.mu_after, \
+         v.rated, r.score, r.name, v.s_r, {}, {} \
+         from team_events v left join x.team m on m.id = v.team_id \
+         left join x.result_ r on r.tournament_id = v.tournament_id and r.team_id = v.team_id \
+         where v.tournament_id = ?1 order by v.actual_place",
+        crate::data::col(&have, "d_place"),
+        crate::data::col(&have, "d_pull"),
+    );
+    let mut st = c.prepare(&sql).unwrap();
+    let evs: Vec<Row> = st
         .query_map([id], |r| {
-            Ok((
-                r.get(0)?,
-                r.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                r.get(2)?,
-                r.get(3)?,
-                r.get(4)?,
-                r.get(5)?,
-                r.get::<_, Option<i64>>(6)?.unwrap_or(1) != 0,
-                r.get(7)?,
-                r.get::<_, Option<String>>(8)?.unwrap_or_default(),
-            ))
+            Ok(Row {
+                team: r.get(0)?,
+                name: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                forecast: r.get(2)?,
+                actual: r.get(3)?,
+                before: r.get(4)?,
+                after: r.get(5)?,
+                rated: r.get::<_, Option<i64>>(6)?.unwrap_or(1) != 0,
+                score: r.get(7)?,
+                played_as: r.get::<_, Option<String>>(8)?.unwrap_or_default(),
+                lineup: r.get(9)?,
+                d_place: r.get(10)?,
+                d_pull: r.get(11)?,
+            })
         })
         .unwrap()
         .map(|r| r.unwrap())
         .collect();
 
+    // ── the lineups, with each player's number on the morning of the game ──
+    struct Member {
+        player: i64,
+        name: String,
+        before: Option<f64>,
+        after: Option<f64>,
+        provisional: bool,
+    }
+    let mut st = c
+        .prepare(
+            "select g.team_id, g.player_id, p.name, v.theta_before, v.theta_after, v.phi_before, \
+             v.sigma_before from x.player_game g left join x.player p on p.id = g.player_id \
+             left join player_events v on v.player_id = g.player_id and v.tournament_id = g.tournament_id \
+             where g.tournament_id = ?1",
+        )
+        .unwrap();
+    let mut rosters: HashMap<i64, Vec<Member>> = HashMap::new();
+    for m in st
+        .query_map([id], |r| {
+            let theta: Option<f64> = r.get(3)?;
+            let after: Option<f64> = r.get(4)?;
+            let phi: f64 = r.get::<_, Option<f64>>(5)?.unwrap_or(0.0);
+            let sigma: Option<f64> = r.get(6)?;
+            // The published player number is the strength at an in-person
+            // table, theta + phi, and that is what the roster lists.
+            Ok((
+                r.get::<_, i64>(0)?,
+                Member {
+                    player: r.get(1)?,
+                    name: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    before: theta.map(|t| s.d.a_player + s.d.b_player * (t + phi)),
+                    after: after.map(|t| s.d.a_player + s.d.b_player * (t + phi)),
+                    provisional: sigma.is_some_and(|x| x > s.d.provisional_sigma),
+                },
+            ))
+        })
+        .unwrap()
+        .flatten()
+    {
+        rosters.entry(m.0).or_default().push(m.1);
+    }
+    for v in rosters.values_mut() {
+        v.sort_by(|a, b| {
+            b.before
+                .unwrap_or(f64::NEG_INFINITY)
+                .partial_cmp(&a.before.unwrap_or(f64::NEG_INFINITY))
+                .unwrap()
+                .then_with(|| a.name.cmp(&b.name))
+        });
+    }
+
     out.push_str("<section class=\"section\"><h2 class=\"subhead\">Итоги</h2>");
-    let unrated = evs.iter().filter(|v| !v.6).count();
+    let unrated = evs.iter().filter(|v| !v.rated).count();
     if unrated > 0 {
         let _ = write!(
             out,
@@ -1068,42 +1158,154 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         out.push_str("<p class=\"empty\">Данных по командам нет.</p></section>");
         return Some(out);
     }
-    out.push_str(
+    // The three parts of the step, in display points. The floor is whatever the
+    // placement step and the pull leave unexplained, and only a winner has one.
+    let parts = |v: &Row| -> Option<(f64, f64, f64)> {
+        let (b, a, dp, dl) = (v.before?, v.after?, v.d_place?, v.d_pull?);
+        let total = s.d.b_team * (a - b);
+        let (dp, dl) = (s.d.b_team * dp, s.d.b_team * dl);
+        Some((dp, dl, total - dp - dl))
+    };
+    let split = evs.iter().any(|v| parts(v).is_some());
+    let floor = evs.iter().filter_map(parts).any(|(_, _, f)| f.round() != 0.0);
+    let ncols = 8 + if split { 2 } else { 0 } + if floor { 1 } else { 0 };
+    if !rosters.is_empty() {
+        out.push_str(
+            "<label class=\"checkbox roster-toggle\"><input type=\"checkbox\"> Показывать составы</label>",
+        );
+    }
+    let _ = write!(
+        out,
         "<div class=\"table-scroll\"><table class=\"data-table\"><thead><tr>\
          <th class=\"num\">Место</th><th class=\"num\">Прогноз</th><th>Команда</th>\
-         <th class=\"num\">Взято</th><th class=\"num\">Было</th><th class=\"num\">Стало</th>\
-         <th class=\"num\">Δ</th></tr></thead><tbody>",
+         <th class=\"num\">Взято</th>\
+         <th class=\"num\" title=\"Сила вышедшего состава по рейтингам игроков на утро турнира\">Состав</th>\
+         <th class=\"num\">Было</th><th class=\"num\">Стало</th><th class=\"num\">Δ</th>{}{}\
+         </tr></thead><tbody>",
+        if split {
+            "<th class=\"num\" title=\"Шаг за место: против ожидания по силе команд в поле\">за место</th>\
+             <th class=\"num\" title=\"Подтягивание рейтинга к силе вышедшего состава\">к составу</th>"
+        } else {
+            ""
+        },
+        if floor {
+            "<th class=\"num\" title=\"Победитель не теряет очков: возвращённая разница\">победитель</th>"
+        } else {
+            ""
+        }
     );
     for v in &evs {
-        let beat = match (v.2, v.3) {
+        let beat = match (v.forecast, v.actual) {
             (Some(f), Some(a)) if a < f - 0.5 => " place-better",
             (Some(f), Some(a)) if a > f + 0.5 => " place-worse",
             _ => "",
         };
         // The link says the team's own name; the name it entered under, when it
         // is a different one, goes next to it.
-        let shown = if v.1.is_empty() { &v.8 } else { &v.1 };
-        let played_as =
-            if !v.8.is_empty() && crate::index::fold(&v.8) != crate::index::fold(shown) {
-                format!(" <span class=\"muted\">(как {})</span>", e(&v.8))
-            } else {
-                String::new()
-            };
+        let shown = if v.name.is_empty() { &v.played_as } else { &v.name };
+        let played_as = if !v.played_as.is_empty()
+            && crate::index::fold(&v.played_as) != crate::index::fold(shown)
+        {
+            format!(" <span class=\"muted\">(как {})</span>", e(&v.played_as))
+        } else {
+            String::new()
+        };
+        let roster = rosters.get(&v.team).filter(|r| !r.is_empty());
+        let open = if roster.is_some() {
+            " <label class=\"roster-open\"><input type=\"checkbox\"><span>состав</span></label>"
+        } else {
+            ""
+        };
+        let p = parts(v);
         let _ = write!(
             out,
             "<tr><td class=\"num{beat}\">{}</td><td class=\"num muted\">{}</td>\
-             <td><a href=\"/teams/{}/\">{}</a>{}{}</td><td class=\"num\">{}</td>{}</tr>",
-            place(v.3),
-            place(v.2),
-            v.0,
+             <td><a href=\"/teams/{}/\">{}</a>{}{}{}</td><td class=\"num\">{}</td>\
+             <td class=\"num muted\">{}</td>{}{}{}</tr>",
+            place(v.actual),
+            place(v.forecast),
+            v.team,
             e(if shown.is_empty() { "—" } else { shown }),
             played_as,
-            unrated_tag(v.6),
-            v.7.map(|x| x.to_string()).unwrap_or_else(|| "—".into()),
-            step_cells(s.d.a_team, s.d.b_team, v.4, v.5),
+            unrated_tag(v.rated),
+            open,
+            v.score.map(|x| x.to_string()).unwrap_or_else(|| "—".into()),
+            v.lineup.map(|q| disp(s.d.a_team + s.d.b_team * q)).unwrap_or_else(|| "—".into()),
+            step_cells(s.d.a_team, s.d.b_team, v.before, v.after),
+            if split {
+                match p {
+                    Some((dp, dl, _)) => format!(
+                        "<td class=\"num {}\">{}</td><td class=\"num {}\">{}</td>",
+                        delta_class(dp),
+                        signed(dp),
+                        delta_class(dl),
+                        signed(dl)
+                    ),
+                    None => "<td class=\"num muted\">—</td><td class=\"num muted\">—</td>".into(),
+                }
+            } else {
+                String::new()
+            },
+            if floor {
+                match p {
+                    Some((_, _, f)) if f.round() != 0.0 => {
+                        format!("<td class=\"num {}\">{}</td>", delta_class(f), signed(f))
+                    }
+                    _ => "<td class=\"num muted\"></td>".into(),
+                }
+            } else {
+                String::new()
+            },
+        );
+        if let Some(roster) = roster {
+            let _ = write!(out, "<tr class=\"roster-row\"><td colspan=\"{ncols}\"><ul class=\"roster\">");
+            for m in roster {
+                let _ = write!(
+                    out,
+                    "<li><a href=\"/players/{}/\">{}</a>{} <span class=\"num\">{}</span>{}</li>",
+                    m.player,
+                    e(if m.name.is_empty() { "—" } else { &m.name }),
+                    if m.provisional { prov_badge() } else { "" },
+                    m.before.map(disp).unwrap_or_else(|| "—".into()),
+                    match (m.before, m.after) {
+                        (Some(b), Some(a)) if (a - b).round() != 0.0 => format!(
+                            " <span class=\"{}\">{}</span>",
+                            delta_class(a - b),
+                            signed(a - b)
+                        ),
+                        _ => String::new(),
+                    }
+                );
+            }
+            out.push_str("</ul></td></tr>");
+        }
+    }
+    out.push_str("</tbody></table></div>");
+    out.push_str(
+        "<p class=\"hint\">Состав — сила вышедшего состава по рейтингам игроков на утро турнира; \
+         по ней и строится прогноз, рейтинг команды в прогноз не входит.",
+    );
+    if split {
+        out.push_str(
+            " Δ складывается из двух шагов. За место — насколько команда обошла ожидание \
+             по силе команд в поле или не дотянула до него; чем больше поле, тем меньше \
+             весит одно место. К составу — доля разрыва между рейтингом и силой состава, \
+             которую рейтинг проходит за каждую зачтённую игру: так рейтинг узнаёт, кто \
+             сидит за столом, а не только кто кого обошёл.",
         );
     }
-    out.push_str("</tbody></table></div></section>");
+    if floor {
+        out.push_str(
+            " Победитель не теряет очков: если шаги в сумме ушли в минус, разница \
+             возвращается.",
+        );
+    }
+    if !rosters.is_empty() {
+        out.push_str(
+            " В составе у каждого игрока — его рейтинг на утро турнира и сдвиг по итогам.",
+        );
+    }
+    out.push_str("</p></section>");
     Some(out)
 }
 

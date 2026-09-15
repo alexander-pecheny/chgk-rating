@@ -427,6 +427,15 @@ switched off. All ship at the value that leaves 4.3 unchanged.
 - **Pull target** (`team.s2.k_r_target = "usual"`) pulls towards `Q̄` instead of
   `Q(L)`. It does nothing at any `K_r`, which is what a hundred-game average of
   a quantity the rating already tracks should do.
+- **In-person pull** (`team.s2.k_r_sync < 1`) scales the pull down at
+  synchronous tournaments, `0` confining it to in-person games. The worry it
+  answers is a team whose strong legionnaires turn up only for synchrons and
+  never at a festival, lifting a rating the base roster then cannot defend.
+  Measured on 2026-09-15 and off: `k_r_sync = 0` is +0.0004 ± 0.0048 of weighted
+  tune NDCG and −0.0025 on test, −0.0051 unweighted; `0.5` is +0.0005 and
+  −0.0036. The synchronous pull does not mislead the base-roster metric of
+  section 7.3, and switching the pull off altogether (`k_r = 0`) costs 0.0048 on
+  tune and 0.0131 on test, 0.0214 unweighted.
 
 ### 4.10 The order, the geography and the load
 
@@ -510,7 +519,7 @@ A rating with `σ > provisional_sigma` (tunable, default 0.3) is published as pr
 - `releases(id, date, shift, shift_cum, n_players)`
 - `player_ratings(release_id, player_id, theta, sigma, games_365, display, change)` — `theta` is the published number `θ + player_phi · φ` of section 5, not `θ` alone
 - `team_ratings(release_id, team_id, mu, sigma, core_strength, evidence, display, listed, change)` — listed teams only, so `listed` is always 1
-- `team_events(tournament_id, date, team_id, c, delta_l, x, s_r, forecast, forecast_place, actual_place, s_pair, i_pair, mu_before, mu_after, sigma_before, sigma_after, evidence, gap_days, var_diff, lost_prev, rated, z, expected_place)`
+- `team_events(tournament_id, date, team_id, c, delta_l, x, s_r, forecast, forecast_place, actual_place, s_pair, i_pair, mu_before, mu_after, sigma_before, sigma_after, evidence, gap_days, var_diff, lost_prev, rated, z, expected_place, d_place, d_pull)` — the last two are the placement step and the pull of section 4.3 step 3 on the internal scale, NULL where the result took no update; the remainder of `mu_after - mu_before` is the winner's floor
 - `player_events(tournament_id, player_id, theta_before, theta_after, sigma_after, phi_before, sigma_before, games_ip, days_ip)` — one row per player in a lineup, on the published scale as of that tournament, so the difference of the first two is the player's own movement including the teammate shrinkage of section 3.3. The last four are the state the **forecast** read that morning: the format effect, the uncertainty, the count of in-person tournaments behind the player and the days since the last of them (−1 when there is none). They are what the residual diagnosis of section 7.4 is computed from.
 - `question_params(tournament_id, q, b, a, m)`
 - `tournament_metrics(tournament_id, date, type, weight, n_teams, n_q, n_obs, logloss_insample, logloss_crossfit, spearman_forecast, spearman_old_system, truedl)`
