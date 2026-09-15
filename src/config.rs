@@ -147,6 +147,16 @@ pub struct S2 {
     pub editor_memory: f64,
     /// Past results a `(player, editor)` pair needs before it counts.
     pub ed_min_n: f64,
+    /// Display points the forecast gains per unit of the **smallest** format
+    /// effect `phi` in the lineup. The shipped lineup strength reads every
+    /// player at `theta + phi`, so the lineup's mean `phi` is already in; this
+    /// is the weakest member's, which is not. The ranker of plan 8 puts it
+    /// seventh of 132 and worth +0.002. 0 is off.
+    pub phi_min: f64,
+    /// Display points per unit of the spread of `theta + phi` inside the lineup:
+    /// a term for a lopsided table against a balanced one, which `tau` and
+    /// `question.m_fixed` reach only indirectly. 0 is off.
+    pub phi_spread: f64,
     /// Share of the established panel whose members carry an editor memory at
     /// all; 0 is every player. The residual check says the effect is a property
     /// of a strong lineup, and this is the switch that says so.
@@ -185,6 +195,8 @@ impl Default for S2 {
             tau_spread: 0.0,
             q_sigma_c: 0.0,
             chemistry: 0.0,
+            phi_min: 0.0,
+            phi_spread: 0.0,
             difficulty_forecast: false,
             kappa_s: 0.0,
             series_k: 5,

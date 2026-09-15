@@ -193,6 +193,29 @@ pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -
                     + p.chemistry * chem.t(&res.members)
                     - p.q_sigma_c * roster_sd(rs, sigmas, p)
             };
+            // The shape of the lineup as the ranker of plan 8 reads it: the
+            // weakest member's format effect and the spread of the table. Both
+            // move the forecast alone, like the editor memory below.
+            let shape = if (p.phi_min != 0.0 || p.phi_spread != 0.0) && !res.members.is_empty() {
+                let z: Vec<f64> = res
+                    .members
+                    .iter()
+                    .map(|&i| {
+                        let i = i as usize;
+                        players.theta(i) + players.phi(i)
+                    })
+                    .collect();
+                let phi_min = res
+                    .members
+                    .iter()
+                    .map(|&i| players.phi(i as usize))
+                    .fold(f64::INFINITY, f64::min);
+                let m = z.iter().sum::<f64>() / z.len() as f64;
+                let sd = (z.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / z.len() as f64).sqrt();
+                p.phi_min * phi_min + p.phi_spread * sd
+            } else {
+                0.0
+            };
             // The editor memory is read at an in-person table and nowhere else --
             // it is made of in-person residuals -- and it moves the forecast
             // alone, so every synchronous forecast and every team rating stay
@@ -209,7 +232,7 @@ pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -
                         .bonus(&res.members, &t.editors, &th, players.ed_gate_theta)
             } else {
                 0.0
-            };
+            } + shape;
             Row {
                 team: res.team,
                 position: res.position,
