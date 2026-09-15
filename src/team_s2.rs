@@ -81,7 +81,7 @@ pub fn lineup_strength(rs: &[f64], p: &S2) -> f64 {
 /// uncertainty: `sqrt(Σ w_i² (scale σ_i)²)` over the softmax weights the roster
 /// estimate puts on the members. A lineup of six moderately uncertain players
 /// and one with a single unknown have the same mean σ and different sd.
-fn roster_sd(rs: &[f64], sigmas: &[f64], p: &S2) -> f64 {
+pub fn roster_sd(rs: &[f64], sigmas: &[f64], p: &S2) -> f64 {
     let t = p.player_scale * p.tau;
     let mx = rs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let e: Vec<f64> = rs.iter().map(|&x| ((x - mx) / t).exp()).collect();
@@ -353,6 +353,19 @@ impl TeamsS2 {
         } else {
             v.iter().sum::<f64>() / v.len() as f64
         }
+    }
+
+    pub fn n_teams(&self) -> usize {
+        self.r.len()
+    }
+
+    /// `(rating, usual lineup, rated games, day of the last rated game)` of one
+    /// team, or `None` before its first rated result. Read-only, for the
+    /// feature table of plan 8; nothing in the engine calls it.
+    pub fn state_of(&self, i: usize) -> Option<(f64, f64, f64, i32)> {
+        self.r[i]
+            .is_finite()
+            .then(|| (self.r[i], self.qbar[i], self.games[i], self.last[i]))
     }
 
     /// `(index, rating, sigma, usual lineup, rated games)` for every team with a
