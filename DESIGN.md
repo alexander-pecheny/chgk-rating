@@ -478,7 +478,10 @@ switched off. All ship at the value that leaves 4.3 unchanged.
 
 - **Relative player updates, field weighting, multi-city fields and unrated
   in-person tournaments**, measured on 2026-09-25 by full fits
-  (`tools/variant_runs.py`, `out/variants2`, `out/variants3`) and all off.
+  (`tools/variant_runs.py`, `out/variants2` to `out/variants6`). `rel_h = 12`
+  with `rel_winner` ships, for the rule rather than the metric: a lineup that
+  wins, or lands where its peers land, loses nothing, at a cost within 0.001 of
+  the forecast. The rest are off.
   `question.rel_h` judges each lineup against the lineups of similar expected
   score in its field, by shifting the difficulty it is read at so that its
   expectation moves by their mean surplus; `question.rel_winner` stops a
@@ -498,6 +501,10 @@ switched off. All ship at the value that leaves 4.3 unchanged.
   | `rel_h = 6` | 0.8950 / 0.9051 | 0.8893 / 0.9048 |
   | `rel_h = 12` | 0.8963 / 0.9068 | 0.8884 / 0.9044 |
   | `rel_h = 6`, `rel_winner` | 0.8945 / 0.9059 | 0.8900 / 0.9047 |
+  | **`rel_h = 12`, `rel_winner`** (shipped 2026-09-25) | 0.8953 / 0.9080 | 0.8884 / 0.9051 |
+  | the same, `field_gamma = 0.3`, players too | 0.8918 / 0.9075 | 0.8903 / 0.9028 |
+  | the same, `field_gamma = 0.15`, players too | 0.8938 / 0.9065 | 0.8898 / 0.9027 |
+  | the same as the 0.3 row, `merge_cities` | 0.8927 / 0.8977 | 0.8919 / 0.8953 |
   | `field_gamma = 0.3`, players too | 0.8937 / 0.9081 | 0.8875 / 0.9038 |
   | `field_gamma = 0.6`, players too | 0.8876 / 0.9013 | 0.8857 / 0.9012 |
   | `unrated_in_person` | 0.8861 / 0.8907 | 0.8877 / 0.9040 |
@@ -510,7 +517,10 @@ switched off. All ship at the value that leaves 4.3 unchanged.
   pickup lineups and festivals, and they cost the forecast 0.010 and 0.018. The
   merged fields are larger and so harder to order, which is most of their row;
   on the 819 in-person tournaments merging leaves untouched it still costs
-  0.0012 and 0.0014.
+  0.0012 and 0.0014. Scored on the merged fields themselves, every city's
+  teams ranked together by questions taken, the merged model is the better
+  forecast by 0.0035 on tune and 0.0015 on test over 23 and 19 fields: it helps
+  where it applies and costs a little everywhere else.
 
 ### 4.10 The order, the geography and the load
 
