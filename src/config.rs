@@ -280,6 +280,19 @@ pub struct S2 {
     /// Count only players on the team's base roster on the day they last
     /// played for it; legionnaires never enter the core.
     pub core_base: bool,
+    /// Field-strength weighting of the team step: each tournament's step is
+    /// multiplied by `exp(field_gamma (S - field_ref) / 1000)`, `S` the mean
+    /// lineup strength of the field's `field_k` strongest, clamped to
+    /// [0.2, 5]. 0 is off. `field_ref` defaults to the median in-person `S`.
+    pub field_gamma: f64,
+    pub field_k: usize,
+    pub field_ref: f64,
+    /// Weight synchronous fields by their strength too; otherwise only
+    /// in-person steps are scaled.
+    pub field_sync: bool,
+    /// Scale the player update of a tournament by the same factor, as if its
+    /// format weight were that much larger.
+    pub field_players: bool,
 }
 
 impl Default for S2 {
@@ -339,6 +352,11 @@ impl Default for S2 {
             core_top: false,
             core_min_w: 0.0,
             core_base: false,
+            field_gamma: 0.0,
+            field_k: 10,
+            field_ref: 10366.0,
+            field_sync: false,
+            field_players: false,
         }
     }
 }
@@ -402,6 +420,16 @@ pub struct Data {
     /// never enter the metric's tournament set.
     #[serde(default)]
     pub train_unrated: bool,
+    /// `include_unrated` for in-person tournaments alone: an unrated in-person
+    /// tournament counts as an ordinary one, and its results flagged
+    /// `inRating` move their teams.
+    #[serde(default)]
+    pub unrated_in_person: bool,
+    /// One field for an in-person tournament played in several cities: the
+    /// fields of one day that share the editors and the question count are
+    /// merged under the lowest id and re-ranked by questions taken.
+    #[serde(default)]
+    pub merge_cities: bool,
     /// Weight of one of those tournaments, on top of its format weight.
     #[serde(default = "one")]
     pub w_unrated: f64,
@@ -489,6 +517,17 @@ pub struct Question {
     /// take-rate closed form solves `b` from `r^{1/m}` when it is not.
     #[serde(default = "one")]
     pub m_fixed: f64,
+    /// Relative player updates: each lineup is judged against the lineups of
+    /// similar expected score in its own field rather than against its raw
+    /// expectation. The neighbours' mean surplus, under a Gaussian kernel of
+    /// this width in expected answers, shifts the difficulty the lineup is read
+    /// at before its gradient is taken. 0 is off, the plain likelihood gradient.
+    #[serde(default)]
+    pub rel_h: f64,
+    /// With `rel_h`: the players of a lineup that finished first, sole or
+    /// shared, never take a negative gradient from that tournament.
+    #[serde(default)]
+    pub rel_winner: bool,
     /// A single global discrimination, read at an in-person table only; 1 is the
     /// pinned value of every round so far. The take-rate closed form solves `b`
     /// with this `a`, so the difficulties stay on the take rate.

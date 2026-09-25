@@ -541,6 +541,22 @@ fn expected_relevance(id: i64, es: &[Entry], rows: &[Row], p: &S2) -> Vec<f64> {
     acc
 }
 
+/// The multiplier `field_gamma` puts on a tournament's steps, from the lineup
+/// strengths of its field; 1 when the switch is off or does not reach the format.
+pub fn field_factor(q: impl Iterator<Item = f64>, format: Format, p: &S2) -> f64 {
+    if p.field_gamma == 0.0 || !(format == Format::InPerson || p.field_sync) {
+        return 1.0;
+    }
+    let mut v: Vec<f64> = q.filter(|x| x.is_finite()).collect();
+    v.sort_by(|a, b| b.total_cmp(a));
+    let k = p.field_k.min(v.len());
+    if k == 0 {
+        return 1.0;
+    }
+    let s = v[..k].iter().sum::<f64>() / k as f64;
+    (p.field_gamma * (s - p.field_ref) / 1000.0).exp().clamp(0.2, 5.0)
+}
+
 /// The outcome of one pair, `y_AB` of DESIGN 4.3 step 2. Win/lose when
 /// `margin_g` is zero, otherwise the score gap on a scale of `margin_g`
 /// questions.
@@ -643,6 +659,12 @@ impl TeamsS2 {
         } else {
             v.iter().sum::<f64>() / v.len() as f64
         }
+    }
+
+    /// `(Q(core), b)` of one team as it stood after its last rated game, for
+    /// diagnostics; `None` before the team has a core.
+    pub fn parts_of(&self, i: usize, p: &S2) -> Option<(f64, f64)> {
+        (!self.core[i].is_empty()).then(|| (self.core_q(i, p), self.b[i]))
     }
 
     pub fn n_teams(&self) -> usize {
@@ -877,6 +899,8 @@ impl TeamsS2 {
             Format::StrictSync => p.w_strict_sync.unwrap_or(weight),
             _ => weight,
         };
+        // A field with strong teams at the top moves ratings more.
+        let w = w * field_factor(rows.iter().map(|r| r.q), format, p);
         // The field's first place, for the floor of principle 2.
         let best = es
             .iter()

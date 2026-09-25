@@ -85,6 +85,10 @@ fn set(p: &mut Point, key: &str, val: &str) -> Result<(), String> {
         "core_top" => p.s2.core_top = val == "true",
         "core_min_w" => p.s2.core_min_w = num()?,
         "core_base" => p.s2.core_base = val == "true",
+        "field_gamma" => p.s2.field_gamma = num()?,
+        "field_k" => p.s2.field_k = num()? as usize,
+        "field_ref" => p.s2.field_ref = num()?,
+        "field_sync" => p.s2.field_sync = val == "true",
         _ => return Err(format!("unknown parameter {key}")),
     }
     Ok(())
@@ -497,6 +501,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             out.push_str(&line(&name, &r, Some(&base_run), &w, nboot));
         }
     }
+    // `--explain 49804,27177`: each team's two parts at the end of every point.
+    let explain: Vec<i64> = arg("--explain")
+        .map(|v| v.split(',').filter_map(|x| x.trim().parse().ok()).collect())
+        .unwrap_or_default();
     let top_n: Option<usize> = arg("--top").and_then(|v| v.parse().ok());
     let last_day = cache.last().map_or(0, |t| t.day);
     if let (Some(n), Some(dir)) = (top_n, arg("--top-dir")) {
@@ -507,6 +515,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let p = apply(&base, spec)?;
         let (r, teams) = replay_teams(&cache, &arena, &qual, &p);
         out.push_str(&line(&format!("`{spec}`"), &r, Some(&base_run), &w, nboot));
+        for &id in &explain {
+            let Some(i) = arena.team_ids.iter().position(|&x| x == id) else { continue };
+            if let (Some((q, b)), Some((rt, _, g, _))) = (teams.parts_of(i, &p.s2), teams.state_of(i)) {
+                eprintln!("{spec} team {id}: R {rt:.0} = core {q:.0} + b {b:+.0}, games {g:.0}");
+            }
+        }
         if let (Some(n), Some(dir)) = (top_n, arg("--top-dir")) {
             std::fs::write(format!("{dir}/point{k}.tsv"), top(&teams, &arena, last_day, n))?;
         }

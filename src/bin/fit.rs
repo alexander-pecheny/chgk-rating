@@ -458,7 +458,21 @@ fn run_pass(
         if let Some(f) = feats.as_mut() {
             f.absorb_teams(t, &events);
         }
-        players.absorb(t, &grads, &mut ed_seen, collect, cfg);
+        // The field-strength factor reaches the players too, as a larger weight.
+        let s2 = &cfg.team.s2;
+        let pf = if s2.field_players {
+            chgk_rating::team_s2::field_factor(events.iter().map(|e| e.s_r), t.format, s2)
+        } else {
+            1.0
+        };
+        let scaled: Vec<(u32, f64, f64)>;
+        let absorbed = if pf != 1.0 {
+            scaled = grads.iter().map(|&(i, g, info)| (i, g * pf, info * pf)).collect();
+            &scaled
+        } else {
+            &grads
+        };
+        players.absorb(t, absorbed, &mut ed_seen, collect, cfg);
         players.shrink_to_lineups(t, cfg);
         if let Some(f) = feats.as_mut() {
             f.absorb_players(t, &grads, players);

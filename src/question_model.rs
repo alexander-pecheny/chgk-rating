@@ -25,6 +25,8 @@ pub struct TeamObs {
     pub members: Vec<u32>,
     pub mask: Vec<u8>,
     pub half: u8,
+    /// Finished first, sole or shared.
+    pub first: bool,
 }
 
 pub struct Field {
@@ -920,10 +922,12 @@ pub fn player_grads(field: &Field, params: &[QParams], cfg: &Config) -> Vec<(u32
     let mut out: Vec<(u32, f64, f64)> = Vec::new();
     let mut lam: Vec<f64> = Vec::new();
     let mut acc: Vec<(f64, f64)> = Vec::new();
-    for t in &field.teams {
+    let shift = relative_shifts(field, params, cfg);
+    for (ti, t) in field.teams.iter().enumerate() {
         if t.z.is_empty() {
             continue;
         }
+        let dlt = shift[ti];
         acc.clear();
         acc.resize(t.z.len(), (0.0, 0.0));
         for (q, &y) in t.mask.iter().enumerate() {
@@ -935,7 +939,7 @@ pub fn player_grads(field: &Field, params: &[QParams], cfg: &Config) -> Vec<(u32
             lam.clear();
             let mut u = 0.0;
             for &zi in &t.z {
-                let l = clamped_exp(a * (zi - p.b), cfg);
+                let l = clamped_exp(a * (zi - p.b - dlt), cfg);
                 lam.push(l);
                 u += l;
             }
@@ -957,11 +961,86 @@ pub fn player_grads(field: &Field, params: &[QParams], cfg: &Config) -> Vec<(u32
                 acc[k].1 -= d2 * uz * uz + d1 * a * uz;
             }
         }
+        let floor = cfg.question.rel_winner && t.first;
         for (k, &i) in t.members.iter().enumerate() {
-            out.push((i, acc[k].0, acc[k].1));
+            let g = if floor { acc[k].0.max(0.0) } else { acc[k].0 };
+            out.push((i, g, acc[k].1));
         }
     }
     merge(out)
+}
+
+/// The chance a lineup takes one question, at the difficulty shifted by `d`.
+fn p_take(z: &[f64], p: &QParams, d: f64, cfg: &Config) -> f64 {
+    let a = p.a();
+    let mut u: f64 = z.iter().map(|&zi| clamped_exp(a * (zi - p.b - d), cfg)).sum();
+    u *= u_scale(u, cfg);
+    (-(-u).exp_m1()).powf(p.m())
+}
+
+/// Per team, the difficulty shift of `question.rel_h`: the one number that
+/// moves the lineup's expected answers by the mean surplus (actual less
+/// expected) of the lineups whose expected score is close to its own, the
+/// lineup itself left out. Judged against that, a field whose strong half all
+/// fell short of the model by the same four answers costs none of them
+/// anything, and only finishing behind one's neighbours does. All zero when
+/// the switch is off.
+fn relative_shifts(field: &Field, params: &[QParams], cfg: &Config) -> Vec<f64> {
+    let n = field.teams.len();
+    let h = cfg.question.rel_h;
+    if h <= 0.0 {
+        return vec![0.0; n];
+    }
+    let expected = |t: &TeamObs, d: f64| -> f64 {
+        t.mask
+            .iter()
+            .enumerate()
+            .filter(|(_, &y)| y != SKIP)
+            .map(|(q, _)| p_take(&t.z, &params[q], d, cfg))
+            .sum()
+    };
+    let mut e = vec![f64::NAN; n];
+    let mut r = vec![0.0; n];
+    for (i, t) in field.teams.iter().enumerate() {
+        if t.z.is_empty() {
+            continue;
+        }
+        e[i] = expected(t, 0.0);
+        r[i] = t.mask.iter().filter(|&&y| y == CORRECT).count() as f64 - e[i];
+    }
+    let mut out = vec![0.0; n];
+    for (i, t) in field.teams.iter().enumerate() {
+        if !e[i].is_finite() {
+            continue;
+        }
+        let (mut num, mut den) = (0.0, 0.0);
+        for j in 0..n {
+            if j == i || !e[j].is_finite() {
+                continue;
+            }
+            let x = (e[j] - e[i]) / h;
+            let w = (-0.5 * x * x).exp();
+            num += w * r[j];
+            den += w;
+        }
+        if den < 1e-6 {
+            continue;
+        }
+        let asked = t.mask.iter().filter(|&&y| y != SKIP).count() as f64;
+        let target = (e[i] + num / den).clamp(0.01, (asked - 0.01).max(0.01));
+        // The expectation falls as the difficulty rises: bisect for the shift.
+        let (mut lo, mut hi) = (-4.0, 4.0);
+        for _ in 0..40 {
+            let mid = 0.5 * (lo + hi);
+            if expected(t, mid) > target {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        out[i] = 0.5 * (lo + hi);
+    }
+    out
 }
 
 fn merge(mut out: Vec<(u32, f64, f64)>) -> Vec<(u32, f64, f64)> {
@@ -1027,6 +1106,12 @@ pub fn build_field(t: &Tournament, players: &Players, chem: &Chemistry, cfg: &Co
     let a_fix = a_of(t.format, cfg);
     let mut rng = crate::util::Rng::new(cfg.numeric.crossfit_seed ^ (t.id as u64));
     let mut teams = Vec::with_capacity(t.teams.len());
+    let best = t
+        .teams
+        .iter()
+        .map(|r| r.position)
+        .filter(|&p| p > 0.0)
+        .fold(f64::INFINITY, f64::min);
     for tr in &t.teams {
         // Chemistry multiplies the team's whole intensity by `exp(chem_u T)`.
         // Because `u = Σ exp(a(z_i − b))`, that is exactly `chem_u T / a` added
@@ -1047,6 +1132,7 @@ pub fn build_field(t: &Tournament, players: &Players, chem: &Chemistry, cfg: &Co
             members: tr.members.clone(),
             mask: tr.mask.clone(),
             half: rng.bit(),
+            first: tr.position == best,
         });
     }
     let mut by_q = vec![Vec::new(); t.n_q];

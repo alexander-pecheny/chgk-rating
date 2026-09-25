@@ -476,6 +476,42 @@ switched off. All ship at the value that leaves 4.3 unchanged.
   today's ratings) and `lost_prev` (the attendance update), and `d_pull` is
   everything that is not the placement step.
 
+- **Relative player updates, field weighting, multi-city fields and unrated
+  in-person tournaments**, measured on 2026-09-25 by full fits
+  (`tools/variant_runs.py`, `out/variants2`, `out/variants3`) and all off.
+  `question.rel_h` judges each lineup against the lineups of similar expected
+  score in its field, by shifting the difficulty it is read at so that its
+  expectation moves by their mean surplus; `question.rel_winner` stops a
+  winning lineup's players from taking a negative gradient.
+  `team.s2.field_gamma` multiplies a tournament's step by
+  `exp(γ (S − S_ref) / 1000)`, `S` the mean lineup strength of the field's ten
+  strongest and `S_ref` the in-person median 10 366, and `field_players` lets
+  it reach the player update. `data.merge_cities` folds the in-person fields of
+  one day that share their editors and question count into one, ranked by
+  questions taken: 103 fields into 61. `data.unrated_in_person` loads unrated
+  in-person tournaments as ordinary ones.
+
+  | variant | forecast NDCG tune / test | team NDCG tune / test |
+  |---|---:|---:|
+  | shipped | 0.8963 / 0.9084 | 0.8879 / 0.9039 |
+  | `rel_h = 3` | 0.8915 / 0.9018 | 0.8910 / 0.9050 |
+  | `rel_h = 6` | 0.8950 / 0.9051 | 0.8893 / 0.9048 |
+  | `rel_h = 12` | 0.8963 / 0.9068 | 0.8884 / 0.9044 |
+  | `rel_h = 6`, `rel_winner` | 0.8945 / 0.9059 | 0.8900 / 0.9047 |
+  | `field_gamma = 0.3`, players too | 0.8937 / 0.9081 | 0.8875 / 0.9038 |
+  | `field_gamma = 0.6`, players too | 0.8876 / 0.9013 | 0.8857 / 0.9012 |
+  | `unrated_in_person` | 0.8861 / 0.8907 | 0.8877 / 0.9040 |
+  | `merge_cities` | 0.8964 / 0.8973 | 0.8894 / 0.8976 |
+
+  Relative updates trade forecast for team order: the narrower the kernel, the
+  more of the first they give up for the second. Field weighting on the team
+  side alone is within 0.002 at every setting (`team_sweep`), because the rating
+  is mostly its core; on the players it costs. Unrated in-person tournaments are
+  pickup lineups and festivals, and they cost the forecast 0.010 and 0.018. The
+  merged fields are larger and so harder to order, which is most of their row;
+  on the 819 in-person tournaments merging leaves untouched it still costs
+  0.0012 and 0.0014.
+
 ### 4.10 The order, the geography and the load
 
 Round 4 added four more forecast-side switches, measured them against section 7.4

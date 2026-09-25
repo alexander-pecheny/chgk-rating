@@ -183,6 +183,60 @@ fn parse_mask(s: &str, out: &mut Vec<u8>) {
     }
 }
 
+/// `data.merge_cities`: the in-person fields of one day that share their
+/// editors and question count played one package in several cities, so they
+/// are one field. Each group is folded into its lowest id, provided every
+/// result carries a score, and re-ranked by it, ties sharing the mean place.
+fn merge_cities(ts: &mut Vec<Tournament>) {
+    let mut key_of: HashMap<(i32, Vec<u32>, usize), usize> = HashMap::new();
+    let mut into: Vec<Option<usize>> = vec![None; ts.len()];
+    for (k, t) in ts.iter().enumerate() {
+        if t.format != Format::InPerson || t.train_only || t.editors.is_empty() || t.n_q == 0 {
+            continue;
+        }
+        if t.teams.iter().any(|r| r.score.is_none()) {
+            continue;
+        }
+        let mut ed = t.editors.clone();
+        ed.sort_unstable();
+        match key_of.get(&(t.day, ed.clone(), t.n_q)) {
+            Some(&first) => into[k] = Some(first),
+            None => {
+                key_of.insert((t.day, ed, t.n_q), k);
+            }
+        }
+    }
+    let mut merged = vec![false; ts.len()];
+    for k in 0..ts.len() {
+        if let Some(first) = into[k] {
+            let teams = std::mem::take(&mut ts[k].teams);
+            ts[first].teams.extend(teams);
+            if ts[k].id < ts[first].id {
+                ts[first].id = ts[k].id;
+            }
+            merged[first] = true;
+        }
+    }
+    let (mut groups, mut folded) = (0, 0);
+    for (k, t) in ts.iter_mut().enumerate() {
+        if into[k].is_some() {
+            folded += 1;
+        }
+        if !merged[k] {
+            continue;
+        }
+        groups += 1;
+        let s: Vec<f64> = t.teams.iter().map(|r| r.score.unwrap_or(0.0)).collect();
+        for (i, r) in t.teams.iter_mut().enumerate() {
+            let above = s.iter().filter(|&&x| x > s[i]).count() as f64;
+            let level = s.iter().filter(|&&x| x == s[i]).count() as f64;
+            r.position = above + (level + 1.0) / 2.0;
+        }
+    }
+    ts.retain(|t| !t.teams.is_empty());
+    eprintln!("merge_cities: {folded} fields folded into {groups} tournaments");
+}
+
 /// The roster history `tools/prep_gg_inputs.py` writes from chgk.gg's dump, and
 /// the season calendar that closes an open entry.
 pub const BASE_ROSTERS: &str = "data/external/chgk_gg/base_rosters.csv";
@@ -252,6 +306,8 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
     )?;
     let rated = if cfg.data.include_unrated || cfg.data.train_unrated {
         ""
+    } else if cfg.data.unrated_in_person {
+        "(t.in_rating = 1 OR t.tournament_type IN ('Обычный', 'Региональный')) AND"
     } else {
         "t.in_rating = 1 AND"
     };
@@ -389,6 +445,9 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
         });
     }
     tournaments.retain(|t| !t.teams.is_empty());
+    if cfg.data.merge_cities {
+        merge_cities(&mut tournaments);
+    }
     let rosters = base_rosters(&conn);
     for t in tournaments.iter_mut() {
         let day = t.day;
