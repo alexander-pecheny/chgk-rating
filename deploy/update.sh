@@ -8,7 +8,7 @@ REPO=${REPO:-/home/pecheny/new_chgk_rating}
 cd "$REPO"
 mkdir -p out
 
-# cron gives us almost no PATH, and the team-name sweep needs uv.
+# cron gives us almost no PATH.
 PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 export PATH
 
@@ -30,7 +30,11 @@ if [ "${SKIP_SYNC:-}" = "1" ]; then
     log "sync skipped"
 else
     log "sync: rsync vps2day-ee:/home/ap/buff/buff.db"
-    if rsync -a --partial vps2day-ee:/home/ap/buff/buff.db "$REPO/buff.db.tmp"; then
+    # Yesterday's copy is the basis rsync compares against, so only the pages
+    # that changed cross the network: about 10 MB of the 1 GB, in seconds. The
+    # copy is made beside it, so a failed sync never touches the good buff.db.
+    [ -f "$REPO/buff.db" ] && cp "$REPO/buff.db" "$REPO/buff.db.tmp"
+    if rsync -a --inplace --no-whole-file vps2day-ee:/home/ap/buff/buff.db "$REPO/buff.db.tmp"; then
         mv -f "$REPO/buff.db.tmp" "$REPO/buff.db"
         log "sync done"
     else
@@ -38,17 +42,6 @@ else
         log "sync failed; the old buff.db stays and the run stops here"
         exit 1
     fi
-fi
-
-# Team names come from the rating API, not from buff.db, and the serving index
-# reads out/team_names.db on restart. A failure here is not worth stopping for:
-# the previous file is still good.
-if [ ! -f tools/fetch_team_names.py ]; then
-    log "team names: tools/fetch_team_names.py is not here yet, skipped"
-elif uv run tools/fetch_team_names.py > out/team_names.log 2>&1; then
-    log "team names done"
-else
-    log "team names failed, see out/team_names.log; keeping the old out/team_names.db"
 fi
 
 log "fit"

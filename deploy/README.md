@@ -7,18 +7,16 @@ the unit file.
 ## The daily update
 
 Cron runs `deploy/update.sh` at 06:30 UTC every day. `deploy/crontab` holds the
-line. The script copies the new `buff.db` from `vps2day-ee` (it is rebuilt there
-at 01:05 UTC and the graph at 04:50 UTC), refreshes `out/team_names.db` from the
-rating API with `tools/fetch_team_names.py`, runs `fit` and `eval`, restarts the
+line. The script brings `buff.db` over from `vps2day-ee` (it is rebuilt there
+at 01:05 UTC and the graph at 04:50 UTC), runs `fit` and `eval`, restarts the
 service and waits for the site to answer. `fit` now ends its window today, so
 each run picks up the tournaments added since yesterday. The whole thing takes
-about five minutes.
+about three minutes.
 
-The team-name sweep is the one step that may fail without stopping the run: the
-serving index falls back on the `out/team_names.db` of the previous day. The
-script skips it altogether when `tools/fetch_team_names.py` is not in the
-checkout. It needs `uv`, which is why the script sets its own `PATH` — cron
-gives it almost none.
+The copy is an rsync onto a duplicate of yesterday's file, so only the pages
+that changed cross the network: about 10 MB of the 1 GB, in five seconds.
+Everything the site needs is in `buff.db`, team names included — the mirror
+takes them from the rating site's own team listing every night.
 
 The log is `out/update.log`, one line per step with a UTC timestamp, and the
 last line of a run gives the size of `buff.db`, the date of the last release and

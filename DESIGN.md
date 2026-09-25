@@ -917,13 +917,12 @@ the two ranking tables, which need the last release ordered by rating out of
 18.7 million rows — are precomputed once into `out/web.db` and rebuilt whenever
 `out/ratings.db` is newer.
 
-What a team is called is a question neither database answers. A result carries
-the name the team entered that one tournament under, which is often a one-off,
-and `buff.db`'s `teams` table is no better: the mirror rebuilds it from each
-team's latest result, so a team that alternates between two names alternates
-there too. The authority is the rating.chgk.info team listing, swept into
-`out/team_names.db` by `tools/fetch_team_names.py` and preferred by the index,
-with `teams` and then the last result behind it. The played-as name is kept per
+What a team is called is not what its results say. A result carries the name
+the team entered that one tournament under, which is often a one-off, so a team
+that alternates between two names would alternate with its last result. The
+authority is the rating.chgk.info team listing, which the mirror reads into
+`buff.db`'s `teams` every night, with the last result behind it. The played-as
+name is kept per
 result, shown next to the team on that tournament's page when it differs, and
 indexed as an alias so a search for it still finds the team.
 

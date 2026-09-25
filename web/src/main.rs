@@ -16,9 +16,6 @@ struct Args {
     buff: PathBuf,
     config: PathBuf,
     web: PathBuf,
-    /// Team names as rating.chgk.info publishes them; empty until `--names` or
-    /// the default beside `web` is resolved in `args`.
-    names: PathBuf,
     assets: PathBuf,
     addr: String,
     threads: usize,
@@ -32,7 +29,6 @@ fn args() -> Args {
         buff: "buff.db".into(),
         config: "config.toml".into(),
         web: "out/web.db".into(),
-        names: PathBuf::new(),
         assets: "web/static".into(),
         addr: "127.0.0.1:8080".into(),
         threads: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8),
@@ -44,17 +40,12 @@ fn args() -> Args {
             "--buff" => v.buff = next().into(),
             "--config" => v.config = next().into(),
             "--web" => v.web = next().into(),
-            "--names" => v.names = next().into(),
             "--static" => v.assets = next().into(),
             "--addr" => v.addr = next(),
             "--threads" => v.threads = next().parse().expect("--threads takes a number"),
             "--rebuild" => v.rebuild = true,
             _ => v.ratings = x.into(),
         }
-    }
-    // The names sit next to the index by default, so `--web` moves both.
-    if v.names.as_os_str().is_empty() {
-        v.names = v.web.parent().unwrap_or(Path::new(".")).join("team_names.db");
     }
     v
 }
@@ -98,12 +89,12 @@ fn main() {
     let a = args();
     let d = data::read_display(&a.config);
     let stale = index::version(&a.web).as_deref() != Some(index::VERSION);
-    // A fresh name fetch is a reason to rebuild too: it renames teams.
-    let inputs = modified(&a.ratings).max(modified(&a.names));
+    // A fresh buff.db is a reason to rebuild too: it renames teams and moves rosters.
+    let inputs = modified(&a.ratings).max(modified(&a.buff));
     if a.rebuild || stale || modified(&a.web) < inputs {
         eprintln!("building the serving index at {}", a.web.display());
         index::ensure_ratings_indexes(&a.ratings);
-        index::build(&a.ratings, &a.buff, &a.names, &a.web, &d);
+        index::build(&a.ratings, &a.buff, &a.web, &d);
     }
 
     let mut site = Site::load(&connect(&a.ratings, &a.web));

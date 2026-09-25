@@ -97,7 +97,7 @@ pub fn ensure_ratings_indexes(path: &Path) {
     .expect("index out/ratings.db");
 }
 
-pub fn build(ratings: &Path, buff: &Path, names: &Path, out: &Path, d: &Display) {
+pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
     let t0 = std::time::Instant::now();
     let r = crate::data::open(ratings);
     let b = crate::data::open(buff);
@@ -194,18 +194,9 @@ pub fn build(ratings: &Path, buff: &Path, names: &Path, out: &Path, d: &Display)
     // ── what a team is called ────────────────────────────────────────────────
     // A result carries the name a team entered that one tournament under, which
     // is sometimes a joke and sometimes a sponsor, so the last result is no
-    // answer — and neither is `buff.teams`, which the mirror rebuilds from each
-    // team's latest result and which therefore flips with it. The authority is
-    // rating.chgk.info's own team listing, fetched into `out/team_names.db` by
-    // `tools/fetch_team_names.py`. It may be missing or behind, so the mirror
-    // and then the last result stay behind it as fallbacks.
-    let api = read_names(names, "select id, name, town from team_names");
-    eprintln!(
-        "index: {} names from {} [{:.1}s]",
-        api.len(),
-        names.display(),
-        t0.elapsed().as_secs_f64()
-    );
+    // answer. `buff.teams` is: the mirror fills it nightly from rating.chgk.info's
+    // own team listing, falling back to the latest result for a team the listing
+    // lacks. The last result stays behind it for a team the mirror has not seen.
     let base = read_names(buff, "select id, name, town from teams");
     eprintln!("index: {} names from buff.teams [{:.1}s]", base.len(), t0.elapsed().as_secs_f64());
 
@@ -337,18 +328,14 @@ pub fn build(ratings: &Path, buff: &Path, names: &Path, out: &Path, d: &Display)
             .unwrap();
         // How many teams each source of names ends up naming, and how many are
         // now called something other than what their last result called them.
-        let (mut from_api, mut from_buff, mut from_last, mut renamed) = (0, 0, 0, 0);
+        let (mut from_buff, mut from_last, mut renamed) = (0, 0, 0);
         for (id, (last_name, last_town, last, games)) in &team_last {
-            let (name, town) = match (api.get(id), base.get(id)) {
-                (Some((n, t)), _) => {
-                    from_api += 1;
-                    (n, t)
-                }
-                (None, Some((n, t))) => {
+            let (name, town) = match base.get(id) {
+                Some((n, t)) => {
                     from_buff += 1;
                     (n, t)
                 }
-                (None, None) => {
+                None => {
                     from_last += 1;
                     (last_name, last_town)
                 }
@@ -376,7 +363,7 @@ pub fn build(ratings: &Path, buff: &Path, names: &Path, out: &Path, d: &Display)
             fts.execute(params![id, name, town, aliases]).unwrap();
         }
         eprintln!(
-            "index: team names — {from_api} from the API, {from_buff} from buff.teams, \
+            "index: team names — {from_buff} from buff.teams, \
              {from_last} from the last result; {renamed} differ from the last result"
         );
     }
