@@ -257,6 +257,29 @@ pub struct S2 {
     /// Principle 2 as a floor: a team that finished first keeps at least the
     /// rating it came with. Under the shipped constants it never binds.
     pub winner_floor: bool,
+    /// The two-part rating: `R = Q(core) + b`, where the core is the team's own
+    /// players weighted by how often they turn up and `b` is the team effect,
+    /// which only the placement step moves. Replaces the pull and the usual
+    /// lineup in the field strength, which becomes `Q(L) + b`.
+    pub two_part: bool,
+    /// Attendance memory of the core: per rated game every weight takes this
+    /// much of the gap to 1 if the player turned up and to 0 if not.
+    pub k_c: f64,
+    /// Per rated game `b` takes this much of the way back to zero, which is a
+    /// pull towards the team's own players rather than today's guests.
+    pub k_b: f64,
+    /// Read the core at every tournament from the players' latest ratings, not
+    /// as it stood at the team's last game. Breaks principle 1; for measurement.
+    pub core_live: bool,
+    /// Read the core as its `round(seats)` most frequent players under the
+    /// lineup rule, instead of every player at their attendance weight.
+    pub core_top: bool,
+    /// Attendance weight below which a player is not yet, or no longer, part
+    /// of the core; at `k_c = 0.1`, 0.3 is four games in a row. 0 counts all.
+    pub core_min_w: f64,
+    /// Count only players on the team's base roster on the day they last
+    /// played for it; legionnaires never enter the core.
+    pub core_base: bool,
 }
 
 impl Default for S2 {
@@ -309,6 +332,13 @@ impl Default for S2 {
             w_sync: None,
             w_strict_sync: None,
             winner_floor: true,
+            two_part: false,
+            k_c: 0.1,
+            k_b: 0.0,
+            core_live: false,
+            core_top: false,
+            core_min_w: 0.0,
+            core_base: false,
         }
     }
 }

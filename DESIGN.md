@@ -436,6 +436,41 @@ switched off. All ship at the value that leaves 4.3 unchanged.
   −0.0036. The synchronous pull does not mislead the base-roster metric of
   section 7.3, and switching the pull off altogether (`k_r = 0`) costs 0.0048 on
   tune and 0.0131 on test, 0.0214 unweighted.
+- **Two-part rating** (`team.s2.two_part = true`) replaces the pull. The pull
+  moves `R` towards the lineup that turned up, guests included, so a weak team
+  that loses with two strong legionnaires still rises: over rated losses since
+  2018-09-01 where the legionnaires lift the lineup 300 points or more above its
+  base-roster players, 56.5% of shipped updates go up, by +33 on average. The
+  switch stores the rating as `R = Q(core) + b` instead:
+
+  ```
+  w_i   += k_c · ( [i played] − w_i )      each rated game, per core player
+  Q(core) = tempered roster estimate, each player counting for w_i seats,
+            rescaled to the seats the team usually fills
+  F_T   = Q(L) + b                         field strength, step 1
+  b     += K · w_t · D · S_A ;  b *= 1 − k_b · w_t      step 3
+  R     = Q(core) + b                      published, set on the game day
+  ```
+
+  `core_base = true` admits only players on the team's base roster on the day
+  they played, read from chgk.gg's roster history joined with `team_seasons`
+  (`data::base_rosters`). Without it a strong guest who comes back three or four
+  times crosses into the core and lifts it by hundreds of points in one game;
+  a threshold on `w_i` (`core_min_w`) or a top-six rule (`core_top`) only moves
+  where the jump happens. `k_b` anchors the team effect: left free it grows
+  without bound for a team that keeps winning, and the top of the table spreads
+  to twice its width. Measured on 2026-09-25 with `team_sweep` at `k_c = 0.1`,
+  `k_b = 0.2`, `core_base = true`: −0.0015 of weighted tune NDCG and −0.0008 on
+  test against the shipped rule, at a bootstrap SE of 0.0047; the legionnaire
+  losses go to 40.2% up and −24 on average, against 0% and −30 for placement
+  alone. What still rises does so through the core, whose players are re-read
+  at the ratings they earned elsewhere since the team's last game and whose
+  weights follow who turned up. The full fit passes tests 2, 4 and 6 (inflation 5.7%). Off for now.
+  `core_live` reads the core at every tournament rather than on the team's game
+  days; it adds nothing and breaks principle 1. Under the switch `team_events`
+  records the roster's share of each move in `var_diff` (the core re-read at
+  today's ratings) and `lost_prev` (the attendance update), and `d_pull` is
+  everything that is not the placement step.
 
 ### 4.10 The order, the geography and the load
 

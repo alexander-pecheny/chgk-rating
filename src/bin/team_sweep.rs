@@ -18,7 +18,7 @@ use chgk_rating::team_ndcg::{self as metric, QUALIFY, TEST, TUNE, WEIGHTS};
 use chgk_rating::chemistry::Chemistry;
 use chgk_rating::difficulty::Difficulties;
 use chgk_rating::editor_memory::EditorMemory;
-use chgk_rating::team_s2::{rows_of, Row, TeamsS2};
+use chgk_rating::team_s2::{lineup_strength, rows_of, Row, TeamsS2};
 use chgk_rating::util::{next_thursday, parse_date};
 use std::collections::{HashMap, HashSet};
 
@@ -78,6 +78,13 @@ fn set(p: &mut Point, key: &str, val: &str) -> Result<(), String> {
         "w_strict_sync" => p.s2.w_strict_sync = Some(num()?),
         "winner_floor" => p.s2.winner_floor = val == "true",
         "idle_drop" => p.idle_drop = num()?,
+        "two_part" => p.s2.two_part = val == "true",
+        "k_c" => p.s2.k_c = num()?,
+        "k_b" => p.s2.k_b = num()?,
+        "core_live" => p.s2.core_live = val == "true",
+        "core_top" => p.s2.core_top = val == "true",
+        "core_min_w" => p.s2.core_min_w = num()?,
+        "core_base" => p.s2.core_base = val == "true",
         _ => return Err(format!("unknown parameter {key}")),
     }
     Ok(())
@@ -122,6 +129,20 @@ struct Run {
     at3: [HashMap<i64, f64>; 2],
     sole: i64,
     shared: i64,
+    /// Rated losses (a negative placement step) since 2018-09-01 at a lineup
+    /// 600 points or more above the team's own core, and how many of them still
+    /// raised the rating.
+    guest_losses: i64,
+    guest_up: i64,
+    /// Mean parts of the move over those losses: placement, roster drift,
+    /// attendance, and the rest (the shrink of `b` and the floor).
+    guest_parts: [f64; 4],
+    /// Rated losses since 2018-09-01 where the legionnaires lift the lineup by
+    /// 300 points or more over its base-roster players alone, the share that
+    /// still raised the rating, and the mean move.
+    leg_losses: i64,
+    leg_up: i64,
+    leg_move: f64,
 }
 
 /// Everything about a tournament the replay needs, computed once.
@@ -141,6 +162,26 @@ fn windows() -> [(i32, i32); 2] {
 }
 
 fn replay(cache: &[Cached], arena: &Arena, qual: &HashSet<(i64, i64)>, p: &Point) -> Run {
+    replay_teams(cache, arena, qual, p).0
+}
+
+/// The team table at the end of the replay: the `n` best teams with five rated
+/// games or more and one in the trailing year, as `team_id<TAB>rating<TAB>games`.
+fn top(teams: &TeamsS2, arena: &Arena, day: i32, n: usize) -> String {
+    let mut v: Vec<_> = teams.rows(day, 365).into_iter().filter(|r| r.4 >= 5.0).collect();
+    v.sort_by(|a, b| b.1.total_cmp(&a.1));
+    v.iter()
+        .take(n)
+        .map(|r| format!("{}\t{:.0}\t{:.0}\n", arena.team_ids[r.0], r.1, r.4))
+        .collect()
+}
+
+fn replay_teams(
+    cache: &[Cached],
+    arena: &Arena,
+    qual: &HashSet<(i64, i64)>,
+    p: &Point,
+) -> (Run, TeamsS2) {
     let mut teams = TeamsS2::new(arena.n_teams());
     let win = windows();
     let mut run = Run {
@@ -148,7 +189,14 @@ fn replay(cache: &[Cached], arena: &Arena, qual: &HashSet<(i64, i64)>, p: &Point
         at3: [HashMap::new(), HashMap::new()],
         sole: 0,
         shared: 0,
+        guest_losses: 0,
+        guest_up: 0,
+        guest_parts: [0.0; 4],
+        leg_losses: 0,
+        leg_up: 0,
+        leg_move: 0.0,
     };
+    let since = parse_date("2018-09-01").unwrap();
     for t in cache {
         let evs = teams.step_rows(t.id, t.day, t.weight, t.format, &t.rows, &p.s2);
         // The winner rule: a team that finished first never loses points.
@@ -164,6 +212,41 @@ fn replay(cache: &[Cached], arena: &Arena, qual: &HashSet<(i64, i64)>, p: &Point
                     run.sole += 1;
                 } else {
                     run.shared += 1;
+                }
+            }
+        }
+        if t.day >= since {
+            let by_team: HashMap<u32, &Row> = t.rows.iter().map(|r| (r.team, r)).collect();
+            for e in evs.iter().filter(|e| e.rated && e.d_place < 0.0) {
+                let Some(r) = by_team.get(&e.team) else { continue };
+                let base: Vec<f64> = r
+                    .member_r
+                    .iter()
+                    .zip(&r.member_base)
+                    .filter(|(_, &b)| b)
+                    .map(|(&x, _)| x)
+                    .collect();
+                if base.is_empty() || base.len() == r.member_r.len() {
+                    continue;
+                }
+                let lift = lineup_strength(&r.member_r, &p.s2) - lineup_strength(&base, &p.s2);
+                if lift >= 300.0 {
+                    run.leg_losses += 1;
+                    run.leg_up += (e.mu_after > e.mu_before) as i64;
+                    run.leg_move += e.mu_after - e.mu_before;
+                }
+            }
+            for (e, _) in evs
+                .iter()
+                .zip(&teams.guest_gap)
+                .filter(|(e, &g)| e.rated && e.d_place < 0.0 && g > 600.0)
+            {
+                run.guest_losses += 1;
+                run.guest_up += (e.mu_after > e.mu_before) as i64;
+                let tot = e.mu_after - e.mu_before;
+                let parts = [e.d_place, e.var_diff, e.lost_prev, tot - e.d_place - e.var_diff - e.lost_prev];
+                for (a, x) in run.guest_parts.iter_mut().zip(parts) {
+                    *a += x;
                 }
             }
         }
@@ -197,7 +280,7 @@ fn replay(cache: &[Cached], arena: &Arena, qual: &HashSet<(i64, i64)>, p: &Point
             run.at3[w].insert(t.id, v);
         }
     }
-    run
+    (run, teams)
 }
 
 // ------------------------------------------------------------------ reports
@@ -237,16 +320,16 @@ fn boot(a: &HashMap<i64, f64>, b: &HashMap<i64, f64>, w: &HashMap<i64, f64>, n: 
 
 fn header() -> String {
     let mut s = String::from(
-        "| row | tune NDCG (w) | tune NDCG | tune @3 (w) | SE(w) | test NDCG (w) | test NDCG | test @3 (w) | winner rule |\n",
+        "| row | tune NDCG (w) | tune NDCG | tune @3 (w) | SE(w) | test NDCG (w) | test NDCG | test @3 (w) | winner rule | guest losses up |\n",
     );
-    s.push_str("|---|---:|---:|---:|---:|---:|---:|---:|---:|\n");
+    s.push_str("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
     s
 }
 
 fn line(name: &str, r: &Run, base: Option<&Run>, w: &HashMap<i64, f64>, nboot: usize) -> String {
     let se = base.map_or(f64::NAN, |b| boot(&r.at3[0], &b.at3[0], w, nboot));
     format!(
-        "| {name} | {:.4} | {:.4} | {:.4} | {} | {:.4} | {:.4} | {:.4} | {} / {} |\n",
+        "| {name} | {:.4} | {:.4} | {:.4} | {} | {:.4} | {:.4} | {:.4} | {} / {} | {:.1}% of {} |\n",
         metric::wmean(&r.full[0], w),
         metric::umean(&r.full[0]),
         metric::wmean(&r.at3[0], w),
@@ -256,7 +339,22 @@ fn line(name: &str, r: &Run, base: Option<&Run>, w: &HashMap<i64, f64>, nboot: u
         metric::wmean(&r.at3[1], w),
         r.sole,
         r.shared,
-    )
+        100.0 * r.guest_up as f64 / r.guest_losses.max(1) as f64,
+        r.guest_losses,
+    ) + &{
+        let n = r.guest_losses.max(1) as f64;
+        let g = r.guest_parts.map(|x| x / n);
+        format!(
+            "<!-- guest-loss parts: place {:.0} drift {:.0} attend {:.0} rest {:.0}; legionnaire losses: {:.1}% up of {}, mean move {:.0} -->\n",
+            g[0],
+            g[1],
+            g[2],
+            g[3],
+            100.0 * r.leg_up as f64 / r.leg_losses.max(1) as f64,
+            r.leg_losses,
+            r.leg_move / r.leg_losses.max(1) as f64
+        )
+    }
 }
 
 // --------------------------------------------------------------------- main
@@ -399,10 +497,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             out.push_str(&line(&name, &r, Some(&base_run), &w, nboot));
         }
     }
-    for spec in &points {
+    let top_n: Option<usize> = arg("--top").and_then(|v| v.parse().ok());
+    let last_day = cache.last().map_or(0, |t| t.day);
+    if let (Some(n), Some(dir)) = (top_n, arg("--top-dir")) {
+        let (_, teams) = replay_teams(&cache, &arena, &qual, &base);
+        std::fs::write(format!("{dir}/base.tsv"), top(&teams, &arena, last_day, n))?;
+    }
+    for (k, spec) in points.iter().enumerate() {
         let p = apply(&base, spec)?;
-        let r = replay(&cache, &arena, &qual, &p);
+        let (r, teams) = replay_teams(&cache, &arena, &qual, &p);
         out.push_str(&line(&format!("`{spec}`"), &r, Some(&base_run), &w, nboot));
+        if let (Some(n), Some(dir)) = (top_n, arg("--top-dir")) {
+            std::fs::write(format!("{dir}/point{k}.tsv"), top(&teams, &arena, last_day, n))?;
+        }
     }
 
     print!("{out}");

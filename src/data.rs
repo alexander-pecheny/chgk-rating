@@ -57,6 +57,9 @@ pub struct TeamResult {
     /// also compares it with the tournament's own town.
     pub town: u32,
     pub members: Vec<u32>,
+    /// Whether each member was on the team's base roster that day, by
+    /// `base_rosters`; all false when neither source knows the team.
+    pub base: Vec<bool>,
     pub mask: Vec<u8>,
 }
 
@@ -115,7 +118,12 @@ pub fn town_names(path: &str) -> HashMap<i64, String> {
     crate::util::csv_rows(path)
         .unwrap_or_default()
         .iter()
-        .filter_map(|r| Some((r.first()?.trim().parse().ok()?, r.get(1)?.trim().to_string())))
+        .filter_map(|r| {
+            Some((
+                r.first()?.trim().parse().ok()?,
+                r.get(1)?.trim().to_string(),
+            ))
+        })
         .collect()
 }
 
@@ -173,6 +181,68 @@ fn parse_mask(s: &str, out: &mut Vec<u8>) {
             _ => SKIP,
         });
     }
+}
+
+/// The roster history `tools/prep_gg_inputs.py` writes from chgk.gg's dump, and
+/// the season calendar that closes an open entry.
+pub const BASE_ROSTERS: &str = "data/external/chgk_gg/base_rosters.csv";
+pub const SEASONS: &str = "data/external/chgk_gg/seasons.csv";
+
+/// For each (team, player) the day ranges they were on its base roster: the
+/// chgk.gg history, joined with `buff.db`'s `team_seasons`, which holds the two
+/// current seasons and so keeps the daily update current. An entry with no end
+/// runs to the end of its season.
+fn base_rosters(conn: &Connection) -> HashMap<(i64, i64), Vec<(i32, i32)>> {
+    let mut season_end: HashMap<i64, i32> = HashMap::new();
+    for l in std::fs::read_to_string(SEASONS).unwrap_or_default().lines().skip(1) {
+        let f: Vec<&str> = l.trim().split(',').collect();
+        if let (Some(Ok(id)), Some(e)) = (f.first().map(|x| x.parse()), f.get(2).and_then(|x| parse_date(x))) {
+            season_end.insert(id, e);
+        }
+    }
+    let mut m: HashMap<(i64, i64), Vec<(i32, i32)>> = HashMap::new();
+    let mut add = |t: i64, pl: i64, s: i64, a: Option<i32>, b: Option<i32>| {
+        if let Some(a) = a {
+            let b = b.or(season_end.get(&s).copied()).unwrap_or(i32::MAX);
+            m.entry((t, pl)).or_default().push((a, b));
+        }
+    };
+    let csv = std::fs::read_to_string(BASE_ROSTERS).unwrap_or_default();
+    if csv.is_empty() {
+        eprintln!("warning: no {BASE_ROSTERS}; base rosters from buff.db alone");
+    }
+    for l in csv.lines().skip(1) {
+        let f: Vec<&str> = l.trim().split(',').collect();
+        if let (Some(Ok(t)), Some(Ok(pl)), Some(Ok(s))) = (
+            f.first().map(|x| x.parse()),
+            f.get(1).map(|x| x.parse()),
+            f.get(2).map(|x| x.parse()),
+        ) {
+            add(t, pl, s, f.get(3).and_then(|x| parse_date(x)), f.get(4).and_then(|x| parse_date(x)));
+        }
+    }
+    let rows = conn
+        .prepare(
+            "SELECT team_id, player_id, season_id, substr(date_added,1,10), substr(date_removed,1,10)
+             FROM team_seasons",
+        )
+        .and_then(|mut st| {
+            st.query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()
+        })
+        .unwrap_or_default();
+    for (t, pl, s, a, b) in rows {
+        add(t, pl, s, a.as_deref().and_then(parse_date), b.as_deref().and_then(parse_date));
+    }
+    m
 }
 
 pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error> {
@@ -313,11 +383,28 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
             pred_pos,
             rated,
             town,
+            base: Vec::new(),
             members,
             mask,
         });
     }
     tournaments.retain(|t| !t.teams.is_empty());
+    let rosters = base_rosters(&conn);
+    for t in tournaments.iter_mut() {
+        let day = t.day;
+        for r in t.teams.iter_mut() {
+            let team = team_ids[r.team as usize];
+            r.base = r
+                .members
+                .iter()
+                .map(|&m| {
+                    rosters
+                        .get(&(team, player_ids[m as usize]))
+                        .is_some_and(|v| v.iter().any(|&(a, b)| day >= a && day <= b))
+                })
+                .collect();
+        }
+    }
     for t in tournaments.iter_mut() {
         if t.n_q == 0 {
             t.n_q = t.n_q_declared;

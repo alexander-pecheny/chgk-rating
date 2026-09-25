@@ -117,7 +117,7 @@ struct Seats {
 
 /// One result as the team engine sees it: no players left, only the number the
 /// lineup that turned up is worth. `src/bin/team_sweep.rs` replays these.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Row {
     pub team: u32,
     pub position: f64,
@@ -143,6 +143,13 @@ pub struct Row {
     /// the field's own spread is known, and `q` is untouched either way.
     pub q_tight: f64,
     pub q_loose: f64,
+    /// The lineup and each member on the display scale at the `sigma_c`
+    /// quantile, with no affinity: what the core of the two-part rating reads.
+    /// Empty when no lineup was listed.
+    pub members: Vec<u32>,
+    pub member_r: Vec<f64>,
+    /// Whether each member is on the team's base roster that day.
+    pub member_base: Vec<bool>,
 }
 
 /// Everything the team rules of a tournament read off the player states, which
@@ -327,7 +334,23 @@ pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -
             } else {
                 (f64::NAN, f64::NAN)
             };
+            // Filled whatever the switch says: `team_sweep` builds its rows once
+            // from the config and replays them under other settings.
+            let (members, member_r) = if !rs.is_empty() {
+                let r = res
+                    .members
+                    .iter()
+                    .zip(wides)
+                    .map(|(&i, &w)| player_rating(players.theta(i as usize) - p.sigma_c * w, cfg))
+                    .collect();
+                (res.members.clone(), r)
+            } else {
+                (Vec::new(), Vec::new())
+            };
             Row {
+                member_base: if rs.is_empty() { Vec::new() } else { res.base.clone() },
+                members,
+                member_r,
                 team: res.team,
                 position: res.position,
                 score: res.score,
@@ -420,6 +443,19 @@ pub struct TeamsS2 {
     /// own size. Teams that peak at a championship do so every year, and this is
     /// the only quantity in the engine that carries that and is not the rating.
     surprise: Vec<Vec<f64>>,
+    /// The two-part rating: the team effect, and the core as (player,
+    /// attendance weight) pairs.
+    b: Vec<f64>,
+    core: Vec<Vec<(u32, f64, bool)>>,
+    /// The seats the team usually fills, at the same memory as the weights.
+    seats: Vec<f64>,
+    /// Every player's latest display rating seen in any field.
+    pr: Vec<f64>,
+    /// Per event of the last `step_rows`: how far today's lineup stood above
+    /// the team's own core at today's ratings, NaN when either is unknown. The
+    /// core is kept under every setting so the sweep can find guest-heavy
+    /// results whichever rule moves the rating.
+    pub guest_gap: Vec<f64>,
 }
 
 /// What the pairwise stage needs, read off the pre-tournament states.
@@ -530,7 +566,73 @@ impl TeamsS2 {
             games: vec![0.0; n],
             last: vec![i32::MIN / 2; n],
             surprise: vec![Vec::new(); n],
+            b: vec![0.0; n],
+            core: vec![Vec::new(); n],
+            seats: vec![6.0; n],
+            pr: Vec::new(),
+            guest_gap: Vec::new(),
         }
+    }
+
+    /// `Q(core)`: the tempered roster estimate over the core with each player
+    /// counting for their attendance weight, rescaled so the weights fill the
+    /// seats the team usually fills; a guest who came once is a tenth of a seat
+    /// and displaces the regulars rather than joining them. Under `core_top`
+    /// it is the lineup rule over the `round(seats)` most frequent players.
+    fn core_q(&self, i: usize, p: &S2) -> f64 {
+        let all = &self.core[i];
+        // Members only; a team with none yet above the bar reads everyone.
+        let kept: Vec<(u32, f64, bool)> = all
+            .iter()
+            .copied()
+            .filter(|e| e.1 >= p.core_min_w && (!p.core_base || e.2))
+            .collect();
+        let c = if kept.is_empty() { all } else { &kept };
+        if p.core_top {
+            let mut v = c.clone();
+            v.sort_by(|a, b| b.1.total_cmp(&a.1));
+            let n = (self.seats[i].round() as usize).clamp(1, v.len());
+            let rs: Vec<f64> = v[..n].iter().map(|&(j, _, _)| self.pr[j as usize]).collect();
+            return lineup_strength(&rs, p);
+        }
+        let t = p.player_scale * p.tau;
+        let wsum: f64 = c.iter().map(|e| e.1).sum();
+        let mx = c
+            .iter()
+            .map(|&(j, _, _)| self.pr[j as usize])
+            .fold(f64::NEG_INFINITY, f64::max);
+        let sum: f64 = c
+            .iter()
+            .map(|&(j, w, _)| w * ((self.pr[j as usize] - mx) / t).exp())
+            .sum();
+        mx + t * (sum.ln() - wsum.ln() + self.seats[i].ln() - 6f64.ln())
+    }
+
+    /// One rated game's attendance: present players move towards weight 1,
+    /// absent ones towards 0 and drop out below 0.01.
+    fn attend(&mut self, i: usize, members: &[u32], base: &[bool], k_c: f64) {
+        let is_base = |k: usize| base.get(k).copied().unwrap_or(false);
+        let s = &mut self.seats[i];
+        let c = &mut self.core[i];
+        if c.is_empty() {
+            *s = members.len() as f64;
+            c.extend(members.iter().enumerate().map(|(k, &m)| (m, 1.0, is_base(k))));
+            return;
+        }
+        *s += k_c * (members.len() as f64 - *s);
+        for e in c.iter_mut() {
+            e.1 *= 1.0 - k_c;
+        }
+        for (k, &m) in members.iter().enumerate() {
+            match c.iter_mut().find(|e| e.0 == m) {
+                Some(e) => {
+                    e.1 += k_c;
+                    e.2 = is_base(k);
+                }
+                None => c.push((m, k_c, is_base(k))),
+            }
+        }
+        c.retain(|e| e.1 >= 0.01);
     }
 
     /// The mean of a team's stored surprises, 0 when it has none.
@@ -605,6 +707,26 @@ impl TeamsS2 {
             f64::INFINITY
         };
         let tight = p.tight_gap > 0.0 && gap < p.tight_gap;
+        {
+            for r in rows {
+                for (&m, &x) in r.members.iter().zip(&r.member_r) {
+                    let m = m as usize;
+                    if m >= self.pr.len() {
+                        self.pr.resize(m + 1, f64::NAN);
+                    }
+                    self.pr[m] = x;
+                }
+            }
+            // The live reading: the core at today's player ratings.
+            if p.two_part && p.core_live {
+                for r in rows {
+                    let i = r.team as usize;
+                    if self.r[i].is_finite() && !self.core[i].is_empty() {
+                        self.r[i] = self.core_q(i, p) + self.b[i];
+                    }
+                }
+            }
+        }
         let mut es: Vec<Entry> = Vec::with_capacity(rows.len());
         for (ri, res) in rows.iter().enumerate() {
             let idx = res.team as usize;
@@ -619,12 +741,20 @@ impl TeamsS2 {
                 continue;
             };
             let f = if known {
-                self.r[idx] + if q.is_nan() { 0.0 } else { q - self.qbar[idx] }
+                if q.is_nan() {
+                    self.r[idx]
+                } else if p.two_part {
+                    q + self.b[idx]
+                } else {
+                    self.r[idx] + q - self.qbar[idx]
+                }
             } else {
                 // An unrated result never opens a state; it still stands in the field.
                 if res.rated {
                     self.r[idx] = q;
                     self.qbar[idx] = q;
+                    self.b[idx] = 0.0;
+                    self.core[idx].clear();
                 }
                 q
             };
@@ -677,6 +807,7 @@ impl TeamsS2 {
             });
         }
         let n = es.len();
+        self.guest_gap.clear();
         if n == 0 {
             return Vec::new();
         }
@@ -755,33 +886,74 @@ impl TeamsS2 {
         let mut out = Vec::with_capacity(n);
         for (k, e) in es.iter().enumerate() {
             let (mut d_place, mut d_pull) = (f64::NAN, f64::NAN);
+            // Under `two_part`, the roster's share of the move: the old core at
+            // today's player ratings, then the attendance update.
+            let (mut d_drift, mut d_attend) = (0.0, 0.0);
+            let mut gap = f64::NAN;
             if e.rated {
                 let before = self.r[e.idx];
+                if e.q.is_finite() && !self.core[e.idx].is_empty() {
+                    gap = e.q - self.core_q(e.idx, p);
+                }
                 // A provisional team moves faster: K_n = K max(1, n0 / n).
                 let kn = p.k * (p.n0 / e.games.max(1.0)).max(1.0);
                 d_place = kn * w * p.d * spair[k];
                 self.r[e.idx] += d_place;
-                // The pull towards what the players who turned up are worth.
-                d_pull = 0.0;
-                if p.k_r > 0.0 {
-                    let target = match p.k_r_target {
-                        PullTarget::Lineup => e.q,
-                        PullTarget::Usual => e.qbar,
+                if p.two_part {
+                    // The team effect takes the placement step and nothing else;
+                    // the rating is rebuilt from it and the core.
+                    let q_prev = before - self.b[e.idx];
+                    self.b[e.idx] += d_place;
+                    self.b[e.idx] *= 1.0 - p.k_b * w;
+                    let q0 = if self.core[e.idx].is_empty() {
+                        q_prev
+                    } else {
+                        self.core_q(e.idx, p)
                     };
-                    let kr = match format {
-                        Format::InPerson => p.k_r,
-                        _ => p.k_r * p.k_r_sync,
-                    };
-                    if target.is_finite() {
-                        d_pull = kr * w * (target - self.r[e.idx]);
-                        self.r[e.idx] += d_pull;
+                    if e.q.is_finite() {
+                        let (m, bf) = (rows[e.ri].members.clone(), rows[e.ri].member_base.clone());
+                        self.attend(e.idx, &m, &bf, p.k_c);
                     }
+                    if !self.core[e.idx].is_empty() {
+                        d_drift = q0 - q_prev;
+                        d_attend = self.core_q(e.idx, p) - q0;
+                    }
+                    if !self.core[e.idx].is_empty() {
+                        self.r[e.idx] = self.core_q(e.idx, p) + self.b[e.idx];
+                    }
+                    if p.winner_floor && e.place == best && self.r[e.idx] < before {
+                        self.b[e.idx] += before - self.r[e.idx];
+                        self.r[e.idx] = before;
+                    }
+                    d_pull = self.r[e.idx] - before - d_place;
                 }
-                if p.winner_floor && e.place == best && self.r[e.idx] < before {
-                    self.r[e.idx] = before;
+                // The pull towards what the players who turned up are worth.
+                if !p.two_part {
+                    d_pull = 0.0;
+                    if p.k_r > 0.0 {
+                        let target = match p.k_r_target {
+                            PullTarget::Lineup => e.q,
+                            PullTarget::Usual => e.qbar,
+                        };
+                        let kr = match format {
+                            Format::InPerson => p.k_r,
+                            _ => p.k_r * p.k_r_sync,
+                        };
+                        if target.is_finite() {
+                            d_pull = kr * w * (target - self.r[e.idx]);
+                            self.r[e.idx] += d_pull;
+                        }
+                    }
+                    if p.winner_floor && e.place == best && self.r[e.idx] < before {
+                        self.r[e.idx] = before;
+                    }
                 }
                 if e.q.is_finite() {
                     self.qbar[e.idx] += p.k_q * (e.q - self.qbar[e.idx]);
+                    if !p.two_part {
+                        let (m, bf) = (rows[e.ri].members.clone(), rows[e.ri].member_base.clone());
+                        self.attend(e.idx, &m, &bf, p.k_c);
+                    }
                 }
                 self.games[e.idx] += 1.0;
                 self.last[e.idx] = day;
@@ -796,6 +968,7 @@ impl TeamsS2 {
                     }
                 }
             }
+            self.guest_gap.push(gap);
             out.push(TeamEvent {
                 d_place,
                 d_pull,
@@ -824,8 +997,10 @@ impl TeamsS2 {
                 sigma_after: sigma(self.games[e.idx]),
                 evidence: e.games,
                 gap_days: e.gap_days,
-                var_diff: 0.0,
-                lost_prev: 0.0,
+                // S2 has no variance; under `two_part` these two carry the
+                // roster's share of the move, for the sweep's diagnostics.
+                var_diff: d_drift,
+                lost_prev: d_attend,
                 rated: e.rated,
                 z: None,
             });
