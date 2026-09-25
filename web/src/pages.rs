@@ -300,7 +300,7 @@ pub fn team_table(s: &Site, c: &Connection, page: usize) -> String {
     let _ = write!(
         out,
         "<div class=\"table-scroll\"><table class=\"data-table\"><thead><tr>\
-         <th class=\"num\">Место</th><th>Команда</th><th>Город</th>\
+         <th class=\"num\">Место</th><th>Команда</th><th class=\"town\">Город</th>\
          <th class=\"num\">Рейтинг</th>{}\
          <th class=\"num\">Изменение</th></tr></thead><tbody>",
         if s.d.s2 {
@@ -321,13 +321,15 @@ pub fn team_table(s: &Site, c: &Connection, page: usize) -> String {
         let name = if r.2.is_empty() { format!("Команда {}", r.1) } else { r.2.clone() };
         let _ = write!(
             out,
-            "<tr{}><td class=\"num\">{}</td><td><a href=\"/teams/{}/\">{}</a>{}</td>\
-             <td>{}</td><td class=\"num strong\">{}</td><td class=\"num muted\">{}</td>{}</tr>",
+            "<tr{}><td class=\"num\">{}</td><td><a href=\"/teams/{}/\">{}</a>{}\
+             <span class=\"town-sub\">{}</span></td>\
+             <td class=\"town\">{}</td><td class=\"num strong\">{}</td><td class=\"num muted\">{}</td>{}</tr>",
             if r.8 { " class=\"prov-row\"" } else { "" },
             if r.8 { "—".into() } else { r.0.to_string() },
             r.1,
             e(&name),
             if r.8 { prov_badge() } else { "" },
+            e(&r.3),
             e(&r.3),
             disp(r.4),
             if s.d.s2 { format!("{:.0}", r.6) } else { disp(r.5) },
@@ -1204,7 +1206,6 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
     };
     let split = evs.iter().any(|v| parts(v).is_some());
     let floor = evs.iter().filter_map(parts).any(|(_, _, f)| f.round() != 0.0);
-    let ncols = 8 + if split { 2 } else { 0 } + if floor { 1 } else { 0 };
     if !rosters.is_empty() {
         out.push_str(
             "<label class=\"checkbox roster-toggle\"><input type=\"checkbox\"> Показывать составы</label>",
@@ -1247,10 +1248,36 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
             String::new()
         };
         let roster = rosters.get(&v.team).filter(|r| !r.is_empty());
-        let open = if roster.is_some() {
-            " <label class=\"roster-open\"><input type=\"checkbox\"><span>состав</span></label>"
-        } else {
-            ""
+        // The lineup sits inside the team's own cell, one player to a line, and
+        // opens under the name: by the switch beside it or the one above the table.
+        let open = match roster {
+            Some(roster) => {
+                let mut s = String::from(
+                    " <label class=\"roster-open\"><input type=\"checkbox\"><span>состав</span></label>\
+                     <ul class=\"cell-roster\">",
+                );
+                for m in roster {
+                    let _ = write!(
+                        s,
+                        "<li><a href=\"/players/{}/\">{}</a>{} <span class=\"num\">{}</span>{}</li>",
+                        m.player,
+                        e(if m.name.is_empty() { "—" } else { &m.name }),
+                        if m.provisional { prov_badge() } else { "" },
+                        m.before.map(disp).unwrap_or_else(|| "—".into()),
+                        match (m.before, m.after) {
+                            (Some(b), Some(a)) if (a - b).round() != 0.0 => format!(
+                                " <span class=\"{}\">{}</span>",
+                                delta_class(a - b),
+                                signed(a - b)
+                            ),
+                            _ => String::new(),
+                        }
+                    );
+                }
+                s.push_str("</ul>");
+                s
+            }
+            None => String::new(),
         };
         let p = parts(v);
         let _ = write!(
@@ -1293,28 +1320,6 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
                 String::new()
             },
         );
-        if let Some(roster) = roster {
-            let _ = write!(out, "<tr class=\"roster-row\"><td colspan=\"{ncols}\"><ul class=\"roster\">");
-            for m in roster {
-                let _ = write!(
-                    out,
-                    "<li><a href=\"/players/{}/\">{}</a>{} <span class=\"num\">{}</span>{}</li>",
-                    m.player,
-                    e(if m.name.is_empty() { "—" } else { &m.name }),
-                    if m.provisional { prov_badge() } else { "" },
-                    m.before.map(disp).unwrap_or_else(|| "—".into()),
-                    match (m.before, m.after) {
-                        (Some(b), Some(a)) if (a - b).round() != 0.0 => format!(
-                            " <span class=\"{}\">{}</span>",
-                            delta_class(a - b),
-                            signed(a - b)
-                        ),
-                        _ => String::new(),
-                    }
-                );
-            }
-            out.push_str("</ul></td></tr>");
-        }
     }
     out.push_str("</tbody></table></div>");
     out.push_str(

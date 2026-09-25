@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// Bumped whenever the index grows a table or column the server reads, so a
 /// deploy rebuilds it instead of serving a page with nothing behind it.
-pub const VERSION: &str = "9";
+pub const VERSION: &str = "10";
 
 /// How names compare when the question is "is this the same name": ignoring the
 /// padding people type and the case they type it in. SQLite's own `lower()` is
@@ -297,7 +297,7 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
             let id: i64 = x.get(1).unwrap();
             let sur: String = x.get::<_, Option<String>>(2).unwrap().unwrap_or_default();
             let first: String = x.get::<_, Option<String>>(3).unwrap().unwrap_or_default();
-            let full = format!("{} {}", sur.trim(), first.trim()).trim().to_string();
+            let full = format!("{} {}", first.trim(), sur.trim()).trim().to_string();
             let full = if full.is_empty() { format!("Игрок {id}") } else { full };
             ins.execute(params![x.get::<_, i64>(0).unwrap(), id, full, x.get::<_, Option<String>>(4).unwrap()])
                 .unwrap();
@@ -317,7 +317,7 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
             let Some((last, games)) = player_last.get(&id) else { continue };
             let first: String = x.get::<_, Option<String>>(1).unwrap().unwrap_or_default();
             let sur: String = x.get::<_, Option<String>>(2).unwrap().unwrap_or_default();
-            let full = format!("{} {}", sur.trim(), first.trim()).trim().to_string();
+            let full = format!("{} {}", first.trim(), sur.trim()).trim().to_string();
             let full = if full.is_empty() { format!("Игрок {id}") } else { full };
             ins.execute(params![id, full, games, last]).unwrap();
             fts.execute(params![id, full]).unwrap();

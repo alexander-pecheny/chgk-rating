@@ -327,6 +327,119 @@ a:hover {
   font-weight: var(--fw-semibold);
 }
 
+/* ── wide tables on a phone ─────────────────────────────
+   site.js marks each table's name column — and the narrow place columns in
+   front of it — as .pin, and the last of them .pin-last. Below 760px those
+   cells stay put while the rest scrolls under them, the header row stays put
+   while the body scrolls, and a name too long for its cell fades out and shows
+   whole in a popover: on hover, or on the first tap where there is no hover. */
+.town-sub {
+  display: none;
+}
+
+.name-pop {
+  position: fixed;
+  z-index: var(--z-dropdown);
+  max-width: min(420px, calc(100vw - 32px));
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  box-shadow: var(--shadow-popover);
+  color: var(--text);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  pointer-events: none;
+}
+
+@media (max-width: 760px) {
+  .table-scroll {
+    max-height: calc(100dvh - var(--space-8));
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 6px 8px;
+  }
+
+  .table-scroll thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--surface);
+  }
+
+  .data-table .pin {
+    position: sticky;
+    z-index: 2;
+    background: var(--surface);
+  }
+
+  .table-scroll thead th.pin {
+    z-index: 4;
+  }
+
+  .data-table tbody tr:hover .pin {
+    background: var(--hover-bg);
+  }
+
+  /* the edge the columns scroll under, once they have */
+  .table-scroll.scrolled .pin-last::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: calc(-1 * var(--space-4));
+    bottom: 0;
+    width: var(--space-4);
+    background: linear-gradient(to right, var(--scroll-fade-color), transparent);
+    pointer-events: none;
+  }
+
+  /* The name column never takes more than half the screen, lineup included,
+     so the columns it pins beside always have room to scroll past. */
+  .data-table td.pin-last {
+    max-width: 48vw;
+  }
+
+  .cell-roster li {
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to right, var(--paper) calc(100% - var(--space-4)), transparent);
+    mask-image: linear-gradient(to right, var(--paper) calc(100% - var(--space-4)), transparent);
+  }
+
+  /* The town moves under the team name, so the rating fits on the screen. */
+  .data-table .town {
+    display: none;
+  }
+
+  .town-sub {
+    display: block;
+    color: var(--muted);
+    font-size: var(--text-xs);
+  }
+
+  /* 120 bars at 2px and a 2px gap are wider than a phone */
+  .qbars {
+    gap: 1px;
+  }
+
+  .qbars i {
+    min-width: 1px;
+  }
+
+  .pin-clip {
+    display: inline-block;
+    max-width: 36vw;
+    overflow: hidden;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+
+  .clipped .pin-clip {
+    -webkit-mask-image: linear-gradient(to right, var(--paper) calc(100% - var(--inline-fade-width)), transparent);
+    mask-image: linear-gradient(to right, var(--paper) calc(100% - var(--inline-fade-width)), transparent);
+  }
+}
+
 @media (max-width: 760px) {
   /* the bar is two rows on a phone: brand, then the nav it cannot fit beside */
   .host-top {
@@ -520,15 +633,30 @@ a:hover {
 
 /* ── lineups on the tournament page ─────────────────────── */
 
-/* A roster row is hidden until the reader asks, either for one team by the
-   small switch in its row or for every team by the switch above the table. */
-.roster-row {
+/* A lineup lives inside its team's cell and stays shut until the reader asks,
+   for one team by the small switch beside the name or for every team by the
+   switch above the table. One player to a line, in small type. */
+.cell-roster {
   display: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
 }
 
-.section:has(.roster-toggle input:checked) .roster-row,
-tr:has(.roster-open input:checked) + .roster-row {
-  display: table-row;
+.cell-roster li {
+  white-space: nowrap;
+}
+
+.cell-roster .num {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+}
+
+.section:has(.roster-toggle input:checked) .cell-roster,
+td:has(.roster-open input:checked) .cell-roster {
+  display: block;
 }
 
 .roster-open {
@@ -550,14 +678,8 @@ tr:has(.roster-open input:checked) + .roster-row {
   border-bottom: 1px dotted currentColor;
 }
 
-tr:has(.roster-open input:checked) .roster-open span {
+td:has(.roster-open input:checked) .roster-open span {
   border-bottom-style: solid;
-}
-
-.roster-row td {
-  padding-top: var(--space-1);
-  padding-bottom: var(--space-3);
-  background: var(--hover-bg);
 }
 
 .roster {
