@@ -481,7 +481,10 @@ switched off. All ship at the value that leaves 4.3 unchanged.
   (`tools/variant_runs.py`, `out/variants2` to `out/variants6`). `rel_h = 12`
   with `rel_winner` ships, for the rule rather than the metric: a lineup that
   wins, or lands where its peers land, loses nothing, at a cost within 0.001 of
-  the forecast. The rest are off.
+  the forecast. The rest are off. `question.rel_place` generalises the winner
+  rule to every place: a lineup at or above its forecast place cannot lose from
+  the tournament and one below it cannot gain, the questions setting only the
+  size. It trades tune for test on both metrics, within the noise, and is off.
   `question.rel_h` judges each lineup against the lineups of similar expected
   score in its field, by shifting the difficulty it is read at so that its
   expectation moves by their mean surplus; `question.rel_winner` stops a
@@ -502,6 +505,7 @@ switched off. All ship at the value that leaves 4.3 unchanged.
   | `rel_h = 12` | 0.8963 / 0.9068 | 0.8884 / 0.9044 |
   | `rel_h = 6`, `rel_winner` | 0.8945 / 0.9059 | 0.8900 / 0.9047 |
   | **`rel_h = 12`, `rel_winner`** (shipped 2026-09-25) | 0.8953 / 0.9080 | 0.8884 / 0.9051 |
+  | `rel_h = 12`, `rel_place` | 0.8961 / 0.9069 | 0.8900 / 0.9039 |
   | the same, `field_gamma = 0.3`, players too | 0.8918 / 0.9075 | 0.8903 / 0.9028 |
   | the same, `field_gamma = 0.15`, players too | 0.8938 / 0.9065 | 0.8898 / 0.9027 |
   | the same as the 0.3 row, `merge_cities` | 0.8927 / 0.8977 | 0.8919 / 0.8953 |

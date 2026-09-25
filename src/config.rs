@@ -528,6 +528,12 @@ pub struct Question {
     /// shared, never take a negative gradient from that tournament.
     #[serde(default)]
     pub rel_winner: bool,
+    /// The general form of `rel_winner`: a lineup that finished at or above
+    /// its forecast place never takes a negative player step from that
+    /// tournament, and one that finished below it never a positive one. The
+    /// questions set the size, the place the direction.
+    #[serde(default)]
+    pub rel_place: bool,
     /// A single global discrimination, read at an in-person table only; 1 is the
     /// pinned value of every round so far. The take-rate closed form solves `b`
     /// with this `a`, so the difficulties stay on the take rate.

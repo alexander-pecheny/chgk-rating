@@ -684,14 +684,15 @@ pub fn player_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
     let mut st = c
         .prepare(
             "select g.tournament_id, t.name, t.date, t.type, g.team_id, m.name, g.position, \
-             g.score, t.n_q, v.theta_before, v.theta_after \
+             g.score, t.n_q, v.theta_before, v.theta_after, te.rated \
              from x.player_game g join x.tournament t on t.id = g.tournament_id \
              left join x.team m on m.id = g.team_id \
              left join player_events v on v.player_id = g.player_id and v.tournament_id = g.tournament_id \
+             left join team_events te on te.tournament_id = g.tournament_id and te.team_id = g.team_id \
              where g.player_id = ?1 order by t.date desc, t.id desc",
         )
         .unwrap();
-    type Game = (i64, String, String, String, i64, String, Option<f64>, Option<i64>, i64, Option<f64>, Option<f64>);
+    type Game = (i64, String, String, String, i64, String, Option<f64>, Option<i64>, i64, Option<f64>, Option<f64>, bool);
     let games: Vec<Game> = st
         .query_map([id], |r| {
             Ok((
@@ -706,6 +707,7 @@ pub fn player_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
                 r.get::<_, Option<i64>>(8)?.unwrap_or(0),
                 r.get(9)?,
                 r.get(10)?,
+                r.get::<_, Option<i64>>(11)?.unwrap_or(1) != 0,
             ))
         })
         .unwrap()
@@ -730,12 +732,13 @@ pub fn player_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
     for g in &games {
         let _ = write!(
             out,
-            "<tr><td class=\"nowrap\">{}</td><td><a href=\"/tournaments/{}/\">{}</a></td>\
+            "<tr><td class=\"nowrap\">{}</td><td><a href=\"/tournaments/{}/\">{}</a>{}</td>\
              <td class=\"muted\">{}</td><td><a href=\"/teams/{}/\">{}</a></td>\
              <td class=\"num\">{}</td><td class=\"num\">{}</td>{}</tr>",
             e(&g.2),
             g.0,
             e(if g.1.is_empty() { "без названия" } else { &g.1 }),
+            unrated_tag(g.11),
             e(tour_type(&g.3)),
             g.4,
             e(if g.5.is_empty() { "—" } else { &g.5 }),
@@ -869,14 +872,14 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
     let have = crate::data::columns(c, "team_events");
     let sql = format!(
         "select v.tournament_id, t.name, coalesce(v.date, t.date) as d, v.forecast_place, \
-         v.actual_place, v.mu_before, v.mu_after, v.c, v.rated, {}, {} \
+         v.actual_place, v.mu_before, v.mu_after, v.c, v.rated, {}, {}, t.type \
          from team_events v left join x.tournament t on t.id = v.tournament_id \
          where v.team_id = ?1 order by d desc, v.tournament_id desc",
         crate::data::col(&have, "d_place"),
         crate::data::col(&have, "d_pull"),
     );
     let mut st = c.prepare(&sql).unwrap();
-    type Ev = (i64, String, String, Option<f64>, Option<f64>, Option<f64>, Option<f64>, f64, bool, Option<f64>, Option<f64>);
+    type Ev = (i64, String, String, Option<f64>, Option<f64>, Option<f64>, Option<f64>, f64, bool, Option<f64>, Option<f64>, String);
     let evs: Vec<Ev> = st
         .query_map([id], |r| {
             Ok((
@@ -891,6 +894,7 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
                 r.get::<_, Option<i64>>(8)?.unwrap_or(1) != 0,
                 r.get(9)?,
                 r.get(10)?,
+                r.get::<_, Option<String>>(11)?.unwrap_or_default(),
             ))
         })
         .unwrap()
@@ -912,7 +916,7 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
     let _ = write!(
         out,
         "<div class=\"table-scroll\"><table class=\"data-table\"><thead><tr>\
-         <th>Дата</th><th>Турнир</th><th class=\"num\">Прогноз</th><th class=\"num\">Место</th>\
+         <th>Дата</th><th>Турнир</th><th>Тип</th><th class=\"num\">Прогноз</th><th class=\"num\">Место</th>\
          <th class=\"num\">Было</th><th class=\"num\">Стало</th><th class=\"num\">Δ</th>{}{}\
          </tr></thead><tbody>",
         if split {
@@ -936,11 +940,12 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         let _ = write!(
             out,
             "<tr><td class=\"nowrap\">{}</td><td><a href=\"/tournaments/{}/\">{}</a>{}</td>\
-             <td class=\"num muted\">{}</td><td class=\"num{beat}\">{}</td>{}{}{}</tr>",
+             <td class=\"muted\">{}</td><td class=\"num muted\">{}</td><td class=\"num{beat}\">{}</td>{}{}{}</tr>",
             e(&v.2),
             v.0,
             e(if v.1.is_empty() { "без названия" } else { &v.1 }),
             unrated_tag(v.8),
+            e(tour_type(&v.11)),
             place(v.3),
             place(v.4),
             // A result before the team had a state shows dashes, not the map of zero.

@@ -465,9 +465,36 @@ fn run_pass(
         } else {
             1.0
         };
+        // `question.rel_place`: the place sets the direction of every member's
+        // step, the questions its size. A lineup at or above its forecast place
+        // cannot lose from this tournament, one below it cannot gain.
+        let dir: std::collections::HashMap<u32, f64> = if cfg.question.rel_place {
+            let by_team: std::collections::HashMap<u32, f64> = events
+                .iter()
+                .filter(|e| e.actual_place > 0.0 && e.forecast_place > 0.0)
+                .map(|e| (e.team, e.forecast_place - e.actual_place))
+                .collect();
+            t.teams
+                .iter()
+                .filter_map(|r| by_team.get(&r.team).map(|&s| (r, s)))
+                .flat_map(|(r, s)| r.members.iter().map(move |&m| (m, s)))
+                .collect()
+        } else {
+            std::collections::HashMap::new()
+        };
         let scaled: Vec<(u32, f64, f64)>;
-        let absorbed = if pf != 1.0 {
-            scaled = grads.iter().map(|&(i, g, info)| (i, g * pf, info * pf)).collect();
+        let absorbed = if pf != 1.0 || !dir.is_empty() {
+            scaled = grads
+                .iter()
+                .map(|&(i, g, info)| {
+                    let g = match dir.get(&i) {
+                        Some(&s) if s >= 0.0 => g.max(0.0),
+                        Some(_) => g.min(0.0),
+                        None => g,
+                    };
+                    (i, g * pf, info * pf)
+                })
+                .collect();
             &scaled
         } else {
             &grads

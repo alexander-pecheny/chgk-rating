@@ -961,7 +961,7 @@ pub fn player_grads(field: &Field, params: &[QParams], cfg: &Config) -> Vec<(u32
                 acc[k].1 -= d2 * uz * uz + d1 * a * uz;
             }
         }
-        let floor = cfg.question.rel_winner && t.first;
+        let floor = cfg.question.rel_winner && !cfg.question.rel_place && t.first;
         for (k, &i) in t.members.iter().enumerate() {
             let g = if floor { acc[k].0.max(0.0) } else { acc[k].0 };
             out.push((i, g, acc[k].1));
@@ -1028,17 +1028,30 @@ fn relative_shifts(field: &Field, params: &[QParams], cfg: &Config) -> Vec<f64> 
         }
         let asked = t.mask.iter().filter(|&&y| y != SKIP).count() as f64;
         let target = (e[i] + num / den).clamp(0.01, (asked - 0.01).max(0.01));
-        // The expectation falls as the difficulty rises: bisect for the shift.
-        let (mut lo, mut hi) = (-4.0, 4.0);
-        for _ in 0..40 {
-            let mid = 0.5 * (lo + hi);
-            if expected(t, mid) > target {
-                lo = mid;
-            } else {
-                hi = mid;
+        // Newton on the shift: the expectation falls as the difficulty rises,
+        // smoothly, so a handful of steps from zero lands within 1e-6.
+        let mut d = 0.0f64;
+        for _ in 0..8 {
+            let (mut f, mut df) = (0.0, 0.0);
+            for (q, &y) in t.mask.iter().enumerate() {
+                if y == SKIP {
+                    continue;
+                }
+                let p = &params[q];
+                let (a, m) = (p.a(), p.m());
+                let u: f64 = t.z.iter().map(|&zi| clamped_exp(a * (zi - p.b - d), cfg)).sum();
+                let s = -(-u).exp_m1();
+                f += s.powf(m);
+                // d/dd of (1 - e^-u)^m with du/dd = -a u.
+                df -= m * s.powf(m - 1.0) * (-u).exp() * a * u;
             }
+            let err = f - target;
+            if err.abs() < 1e-6 || df.abs() < 1e-12 {
+                break;
+            }
+            d = (d - err / df).clamp(-4.0, 4.0);
         }
-        out[i] = 0.5 * (lo + hi);
+        out[i] = d;
     }
     out
 }
