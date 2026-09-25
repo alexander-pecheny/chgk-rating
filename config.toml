@@ -60,6 +60,11 @@ aff_strength = "none"
 aff_kappa = 1.0
 aff_s_max = 5.0
 aff_gate = 0.0
+# Relative player updates (DESIGN 4.9): each lineup is judged against the
+# lineups of similar expected score in its own field, under a Gaussian kernel
+# of rel_h expected answers, and a winning lineup's players never lose points.
+rel_h = 12.0
+rel_winner = true
 
 [player]
 mu_new = -1.0
