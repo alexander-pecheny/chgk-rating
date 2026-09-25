@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// Bumped whenever the index grows a table or column the server reads, so a
 /// deploy rebuilds it instead of serving a page with nothing behind it.
-pub const VERSION: &str = "8";
+pub const VERSION: &str = "9";
 
 /// How names compare when the question is "is this the same name": ignoring the
 /// padding people type and the case they type it in. SQLite's own `lower()` is
@@ -64,6 +64,7 @@ CREATE TABLE team_rank (rank INTEGER PRIMARY KEY, team_id INTEGER, display REAL,
 CREATE TABLE anomaly (rank INTEGER PRIMARY KEY, player_id INTEGER, k REAL, k_f REAL, k_m REAL,
                       f_gap REAL, f_on INTEGER, f_ip INTEGER, m_gap REAL, m_on INTEGER,
                       m_ip INTEGER);
+CREATE TABLE base_roster (team_id INTEGER, player_id INTEGER, name TEXT, date_added TEXT);
 CREATE TABLE place_hist (kind INTEGER, id INTEGER, places BLOB, PRIMARY KEY (kind, id)) WITHOUT ROWID;
 CREATE VIRTUAL TABLE player_fts USING fts5(name, tokenize='unicode61 remove_diacritics 0');
 CREATE VIRTUAL TABLE team_fts USING fts5(name, town, aliases, tokenize='unicode61 remove_diacritics 0');
@@ -77,6 +78,7 @@ CREATE INDEX idx_prank_player ON player_rank(player_id);
 CREATE INDEX idx_trank_team ON team_rank(team_id);
 CREATE INDEX idx_tour_date ON tournament(date);
 CREATE INDEX idx_anom_player ON anomaly(player_id);
+CREATE INDEX idx_base_team ON base_roster(team_id);
 ";
 
 /// The ratings database is written once by `fit` and read for ever after, so a
@@ -281,6 +283,37 @@ pub fn build(ratings: &Path, buff: &Path, names: &Path, out: &Path, d: &Display)
         team_last.len(),
         t0.elapsed().as_secs_f64()
     );
+
+    // ── base rosters ─────────────────────────────────────────────────────────
+    // Each team's roster in the latest season it declared one for, less the
+    // players removed by today. The mirror's `team_seasons` holds only the two
+    // current seasons, and a new season's rosters are entered through its first
+    // weeks, so the previous season stands until the team files the next.
+    {
+        let mut st = b
+            .prepare(
+                "select s.team_id, s.player_id, p.surname, p.name, substr(s.date_added,1,10) \
+                 from team_seasons s left join players p on p.id = s.player_id \
+                 where s.season_id = (select max(season_id) from team_seasons l \
+                                      where l.team_id = s.team_id) \
+                 and (s.date_removed is null or substr(s.date_removed,1,10) > date('now'))",
+            )
+            .unwrap();
+        let mut ins = w.prepare("insert into base_roster values (?1,?2,?3,?4)").unwrap();
+        let mut rows = st.query([]).unwrap();
+        let mut n = 0;
+        while let Some(x) = rows.next().unwrap() {
+            let id: i64 = x.get(1).unwrap();
+            let sur: String = x.get::<_, Option<String>>(2).unwrap().unwrap_or_default();
+            let first: String = x.get::<_, Option<String>>(3).unwrap().unwrap_or_default();
+            let full = format!("{} {}", sur.trim(), first.trim()).trim().to_string();
+            let full = if full.is_empty() { format!("Игрок {id}") } else { full };
+            ins.execute(params![x.get::<_, i64>(0).unwrap(), id, full, x.get::<_, Option<String>>(4).unwrap()])
+                .unwrap();
+            n += 1;
+        }
+        eprintln!("index: {n} base-roster places [{:.1}s]", t0.elapsed().as_secs_f64());
+    }
 
     // ── names ────────────────────────────────────────────────────────────────
     {

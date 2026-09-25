@@ -835,6 +835,37 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         !s.d.s2,
     ));
 
+    // The base roster in force at the last release, strongest first; a player
+    // with no current rating goes last.
+    let base: Vec<(i64, String, Option<f64>, bool)> = c
+        .prepare(
+            "select b.player_id, b.name, k.display, coalesce(k.provisional, 0) from x.base_roster b \
+             left join x.player_rank k on k.player_id = b.player_id \
+             where b.team_id = ?1 order by k.display is null, k.display desc, b.name",
+        )
+        .and_then(|mut st| {
+            st.query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get::<_, i64>(3)? != 0)))?
+                .collect()
+        })
+        .unwrap_or_default();
+    if !base.is_empty() {
+        let _ = write!(
+            out,
+            "<section class=\"section\"><h2 class=\"subhead\">Базовый состав ({})</h2><ul class=\"roster base-roster\">",
+            base.len()
+        );
+        for (pid, pname, display, prov) in &base {
+            let _ = write!(
+                out,
+                "<li><a href=\"/players/{pid}/\">{}</a>{} <span class=\"num\">{}</span></li>",
+                e(pname),
+                if *prov { prov_badge() } else { "" },
+                display.map(disp).unwrap_or_else(|| "—".into()),
+            );
+        }
+        out.push_str("</ul></section>");
+    }
+
     let have = crate::data::columns(c, "team_events");
     let sql = format!(
         "select v.tournament_id, t.name, coalesce(v.date, t.date) as d, v.forecast_place, \

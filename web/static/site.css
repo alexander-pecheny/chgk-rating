@@ -570,6 +570,11 @@ tr:has(.roster-open input:checked) .roster-open span {
   font-size: var(--text-sm);
 }
 
+.base-roster {
+  padding-left: 0;
+  font-size: var(--text-base);
+}
+
 .roster .num {
   font-variant-numeric: tabular-nums;
   color: var(--text-strong);
