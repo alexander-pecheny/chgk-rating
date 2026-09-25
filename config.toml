@@ -192,6 +192,14 @@ k_r_sync = 1.0
 # A team that finished first keeps at least the rating it came with. Without the
 # pull the Elo step alone already guarantees it and the floor never binds.
 winner_floor = true
+# The two-part rating of DESIGN 4.9: R = Q(core) + b, the core being the team's
+# base-roster players weighted by attendance (k_c) and b the team effect, which
+# only the placement step moves and which decays by k_b per rated game. It
+# replaces the pull, so k_r above is not read.
+two_part = true
+k_c = 0.1
+k_b = 0.2
+core_base = true
 
 # The editor memory of DESIGN 4.8. For every pair of a player and an editor the
 # engine keeps the mean of (forecast place - actual place) / n over the in-person

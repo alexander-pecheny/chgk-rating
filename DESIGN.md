@@ -259,6 +259,10 @@ Q̄  += K_q · ( Q(L) − Q̄ )                 when a lineup is listed
 n  += 1
 ```
 
+Since 2026-09-25 the pull is replaced by the two-part rating of section 4.9,
+which keeps what follows but reads the team's own base-roster players instead
+of the lineup that turned up.
+
 The **pull** is what makes `R` mean something on its own. Without it the rating
 is a pure placement number: it knows who beat whom and nothing about who was at
 the table, so it orders a field of base-roster teams worse than either the old
@@ -465,7 +469,7 @@ switched off. All ship at the value that leaves 4.3 unchanged.
   losses go to 40.2% up and −24 on average, against 0% and −30 for placement
   alone. What still rises does so through the core, whose players are re-read
   at the ratings they earned elsewhere since the team's last game and whose
-  weights follow who turned up. The full fit passes tests 2, 4 and 6 (inflation 5.7%). Off for now.
+  weights follow who turned up. The full fit passes tests 2, 4 and 6 (inflation 5.7%). Shipped on 2026-09-25, replacing the pull of step 3.
   `core_live` reads the core at every tournament rather than on the team's game
   days; it adds nothing and breaks principle 1. Under the switch `team_events`
   records the roster's share of each move in `var_diff` (the core re-read at
