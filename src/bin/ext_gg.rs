@@ -3,6 +3,11 @@
 //! (`data/external/chgk_gg/prilozhenie_A.txt`) that the code below transcribes.
 //! Bootstrapped from the official release of 2021-09-09, stepped weekly to the
 //! present, written to the ratings.db schema of DESIGN 6.
+//!
+//! `--players DB` keeps the team rules and swaps the players: wherever a
+//! technical rating reads a player, it reads that player's rating in DB (our
+//! `player_ratings.theta` at the last release before the week), carried onto the
+//! chgk.gg scale by matching quantiles against this week's chgk.gg players.
 use chgk_rating::data::Format;
 use chgk_rating::output::Writer;
 use chgk_rating::team_model::TeamEvent;
@@ -54,6 +59,43 @@ fn tech_rating(ratings: &mut [f64], q: f64) -> f64 {
         s += v * (TR_PLAYERS - k) as f64 / TR_PLAYERS as f64;
     }
     round_even(s) * q
+}
+
+/// Our player ratings on the chgk.gg scale. `ours` holds (player index, theta)
+/// at one release; the map from theta to points matches the quantiles of the
+/// players rated by both, and anyone we rate gets a number, anyone we don't
+/// keeps chgk.gg's.
+fn swap_players(gg: &[f64], ours: &[(u32, f64)]) -> Vec<f64> {
+    let mut out = gg.to_vec();
+    let mut th: Vec<f64> = Vec::new();
+    let mut pts: Vec<f64> = Vec::new();
+    for &(p, t) in ours {
+        if gg.get(p as usize).is_some_and(|&r| r > 0.0) {
+            th.push(t);
+            pts.push(gg[p as usize]);
+        }
+    }
+    if th.len() < 2 {
+        return out;
+    }
+    th.sort_by(|a, b| a.total_cmp(b));
+    pts.sort_by(|a, b| a.total_cmp(b));
+    let n = th.len();
+    for &(p, t) in ours {
+        let i = th.partition_point(|&x| x < t);
+        let v = if i == 0 {
+            pts[0]
+        } else if i >= n {
+            pts[n - 1]
+        } else {
+            let f = (t - th[i - 1]) / (th[i] - th[i - 1]).max(1e-12);
+            pts[i - 1] + f.clamp(0.0, 1.0) * (pts[i] - pts[i - 1])
+        };
+        if let Some(o) = out.get_mut(p as usize) {
+            *o = v;
+        }
+    }
+    out
 }
 
 /// Places from scores, ties sharing the mean of the range they span.
@@ -443,6 +485,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let to = arg("--to").unwrap_or_else(|| "2026-09-10".into());
     let rows_every: i64 = arg("--rows-every").and_then(|s| s.parse().ok()).unwrap_or(1);
     let ext = arg("--ext").unwrap_or_else(|| "data/external/chgk_gg".into());
+    let ours_db = arg("--players");
     let started = std::time::Instant::now();
 
     let conn = Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
@@ -452,7 +495,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let extra_path = format!("{ext}/extra.db");
     if std::path::Path::new(&extra_path).exists() {
         let extra = Connection::open_with_flags(&extra_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        let more = load_tournaments(&extra, &mut team_ids, &mut player_ids)?;
+        // The mirror catches up with some of them; its copy wins.
+        let have: std::collections::HashSet<i64> = tournaments.iter().map(|t| t.id).collect();
+        let more: Vec<Trn> = load_tournaments(&extra, &mut team_ids, &mut player_ids)?
+            .into_iter()
+            .filter(|t| !have.contains(&t.id))
+            .collect();
         eprintln!("{} tournaments from extra.db", more.len());
         tournaments.extend(more);
     }
@@ -508,6 +556,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         p.rating = p.bonuses.iter().map(|b| b.cur).sum();
     }
 
+    // (release day, [(player index, theta)]), ascending.
+    let mut ours: Vec<(i32, Vec<(u32, f64)>)> = Vec::new();
+    if let Some(path) = &ours_db {
+        let oc = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let mut st = oc.prepare(
+            "SELECT r.date, p.player_id, p.theta FROM player_ratings p JOIN releases r ON r.id = p.release_id \
+             WHERE r.date >= ?1 ORDER BY r.date",
+        )?;
+        let mut rs = st.query([format_date(parse_date(BOOTSTRAP).unwrap() - 14)])?;
+        while let Some(row) = rs.next()? {
+            let d = parse_date(&row.get::<_, String>(0)?[..10]).unwrap();
+            if ours.last().is_none_or(|l| l.0 != d) {
+                ours.push((d, Vec::new()));
+            }
+            let p = player_ids.get(row.get(1)?);
+            ours.last_mut().unwrap().1.push((p, row.get(2)?));
+        }
+        eprintln!("{} of our releases from {path}", ours.len());
+    }
+
     let boot_day = parse_date(BOOTSTRAP).unwrap();
     let boot_release: i64 =
         conn.query_row("SELECT id FROM releases WHERE date = ?1", [BOOTSTRAP], |r| r.get(0))?;
@@ -555,6 +623,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .query_row([format_date(day)], |r| r.get(0))
             .unwrap_or(fallback);
         let season = season_at(day);
+        // The player ratings every technical rating of this week reads.
+        let pr: Vec<f64> = match ours.iter().rev().find(|o| o.0 <= prev_day) {
+            Some(o) => swap_players(&players.iter().map(|p| p.rating).collect::<Vec<_>>(), &o.1),
+            None => players.iter().map(|p| p.rating).collect(),
+        };
 
         // A.4.4.3's C, off the release table as published, before this week's changes.
         let c = {
@@ -577,8 +650,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let mut by_base: HashMap<u32, Vec<f64>> = HashMap::new();
         for (p, bt) in base_team.iter().enumerate() {
-            if let (Some(t), true) = (bt, players[p].rating > 0.0) {
-                by_base.entry(*t).or_default().push(players[p].rating);
+            if let (Some(t), true) = (bt, pr[p] > 0.0) {
+                by_base.entry(*t).or_default().push(pr[p]);
             }
         }
 
@@ -642,7 +715,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let t = &tournaments[ti];
             for res in t.teams.iter() {
                 if teams[res.team as usize].is_none() {
-                    let mut rs: Vec<f64> = res.base.iter().map(|&p| players[p as usize].rating).collect();
+                    let mut rs: Vec<f64> = res.base.iter().map(|&p| pr[p as usize]).collect();
                     let trb = tech_rating(&mut rs, q);
                     teams[res.team as usize] = Some(Team {
                         rating: trb * NEW_TEAM_COEFF,
@@ -654,7 +727,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (mut rt, mut r, mut rb, mut rg) = (vec![0.0; n], vec![0.0; n], vec![0.0; n], vec![0.0; n]);
             for (k, res) in t.teams.iter().enumerate() {
                 let team = teams[res.team as usize].unwrap();
-                let mut rs: Vec<f64> = res.members.iter().map(|&p| players[p as usize].rating).collect();
+                let mut rs: Vec<f64> = res.members.iter().map(|&p| pr[p as usize]).collect();
                 rt[k] = tech_rating(&mut rs, q);
                 r[k] = if res.heredity { team.rating } else { 0.0 };
                 rb[k] = if res.heredity { team.trb } else { 0.0 };
