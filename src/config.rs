@@ -308,6 +308,9 @@ pub struct S2 {
     /// step of the few teams that were close. Floored at `info_min`.
     pub info_norm: bool,
     pub info_min: f64,
+    /// Points below its first lineup's strength a new team starts at; 0 is
+    /// the shipped rule. The first game's forecast still reads the lineup.
+    pub start_drop: f64,
 }
 
 impl Default for S2 {
@@ -377,6 +380,7 @@ impl Default for S2 {
             ref_core: false,
             info_norm: false,
             info_min: 4.0,
+            start_drop: 0.0,
         }
     }
 }
