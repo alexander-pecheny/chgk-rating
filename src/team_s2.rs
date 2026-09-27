@@ -778,7 +778,7 @@ impl TeamsS2 {
             } else {
                 // An unrated result never opens a state; it still stands in the field.
                 if res.rated {
-                    self.r[idx] = q - p.start_drop;
+                    self.r[idx] = q - p.start_drop - p.start_frac * (q - p.start_zero).max(0.0);
                     self.qbar[idx] = q;
                     self.b[idx] = 0.0;
                     self.core[idx].clear();

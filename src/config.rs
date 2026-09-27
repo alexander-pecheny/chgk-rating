@@ -311,6 +311,11 @@ pub struct S2 {
     /// Points below its first lineup's strength a new team starts at; 0 is
     /// the shipped rule. The first game's forecast still reads the lineup.
     pub start_drop: f64,
+    /// chgk.gg's start at a share of the roster: a new team starts this share
+    /// of the way from its lineup's strength down to `start_zero`, the
+    /// internal rating that publishes as 0 (-a_team / b_team). 0 is off.
+    pub start_frac: f64,
+    pub start_zero: f64,
 }
 
 impl Default for S2 {
@@ -381,6 +386,8 @@ impl Default for S2 {
             info_norm: false,
             info_min: 4.0,
             start_drop: 0.0,
+            start_frac: 0.0,
+            start_zero: 5944.6,
         }
     }
 }
