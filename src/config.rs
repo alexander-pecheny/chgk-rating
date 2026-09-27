@@ -293,6 +293,15 @@ pub struct S2 {
     /// Scale the player update of a tournament by the same factor, as if its
     /// format weight were that much larger.
     pub field_players: bool,
+    /// The sign of the placement step follows the published forecast: a team
+    /// at or above its forecast place cannot lose, one below it cannot gain.
+    pub place_sign: bool,
+    /// How much of the lineup's difference from the team's reference the
+    /// field strength reads: `R + lineup_adj (Q(L) - ref)`. 1 is the shipped rule.
+    pub lineup_adj: f64,
+    /// The reference is the base roster, weighted by attendance, at today's
+    /// player ratings; otherwise it is the usual lineup of `k_q`.
+    pub ref_core: bool,
 }
 
 impl Default for S2 {
@@ -357,6 +366,9 @@ impl Default for S2 {
             field_ref: 10366.0,
             field_sync: false,
             field_players: false,
+            place_sign: false,
+            lineup_adj: 1.0,
+            ref_core: false,
         }
     }
 }

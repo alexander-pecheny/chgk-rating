@@ -89,6 +89,9 @@ fn set(p: &mut Point, key: &str, val: &str) -> Result<(), String> {
         "field_k" => p.s2.field_k = num()? as usize,
         "field_ref" => p.s2.field_ref = num()?,
         "field_sync" => p.s2.field_sync = val == "true",
+        "place_sign" => p.s2.place_sign = val == "true",
+        "lineup_adj" => p.s2.lineup_adj = num()?,
+        "ref_core" => p.s2.ref_core = val == "true",
         _ => return Err(format!("unknown parameter {key}")),
     }
     Ok(())

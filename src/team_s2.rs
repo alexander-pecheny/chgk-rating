@@ -768,7 +768,12 @@ impl TeamsS2 {
                 } else if p.two_part {
                     q + self.b[idx]
                 } else {
-                    self.r[idx] + q - self.qbar[idx]
+                    let base = if p.ref_core && !self.core[idx].is_empty() {
+                        self.core_q(idx, p)
+                    } else {
+                        self.qbar[idx]
+                    };
+                    self.r[idx] + p.lineup_adj * (q - base)
                 }
             } else {
                 // An unrated result never opens a state; it still stands in the field.
@@ -922,6 +927,13 @@ impl TeamsS2 {
                 // A provisional team moves faster: K_n = K max(1, n0 / n).
                 let kn = p.k * (p.n0 / e.games.max(1.0)).max(1.0);
                 d_place = kn * w * p.d * spair[k];
+                if p.place_sign {
+                    d_place = if rows[e.ri].position <= fplace[k] {
+                        d_place.max(0.0)
+                    } else {
+                        d_place.min(0.0)
+                    };
+                }
                 self.r[e.idx] += d_place;
                 if p.two_part {
                     // The team effect takes the placement step and nothing else;
