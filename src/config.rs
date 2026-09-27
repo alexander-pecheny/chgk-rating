@@ -302,6 +302,12 @@ pub struct S2 {
     /// The reference is the base roster, weighted by attendance, at today's
     /// player ratings; otherwise it is the usual lineup of `k_q`.
     pub ref_core: bool,
+    /// Divide a team's wins minus expected by the field's information about it,
+    /// 4 sum p(1 - p) over its pairs, instead of by n - 1: the two agree in a
+    /// field of equals, and a big field of far weaker teams stops diluting the
+    /// step of the few teams that were close. Floored at `info_min`.
+    pub info_norm: bool,
+    pub info_min: f64,
 }
 
 impl Default for S2 {
@@ -369,6 +375,8 @@ impl Default for S2 {
             place_sign: false,
             lineup_adj: 1.0,
             ref_core: false,
+            info_norm: false,
+            info_min: 4.0,
         }
     }
 }

@@ -856,11 +856,14 @@ impl TeamsS2 {
         let c = std::f64::consts::LN_10 / p.d;
         let win = |a: f64, b: f64| 1.0 / (1.0 + (c * (b - a)).exp());
         let mut psum = vec![0.0; n];
+        let mut pvar = vec![0.0; n];
         for i in 0..n {
             for j in i + 1..n {
                 let pij = win(es[i].f, es[j].f);
                 psum[i] += pij;
                 psum[j] += 1.0 - pij;
+                pvar[i] += pij * (1.0 - pij);
+                pvar[j] += pij * (1.0 - pij);
             }
         }
         // Actual wins minus expected, over the field. A shared place says nothing
@@ -893,7 +896,12 @@ impl TeamsS2 {
                     .filter(|&&b| b != a)
                     .map(|&b| win(es[a].f, es[b].f))
                     .sum();
-                spair[a] = (ysum - psum[a] + tied) / ((n - 1) as f64).max(1.0);
+                let norm = if p.info_norm {
+                    (4.0 * pvar[a]).max(p.info_min)
+                } else {
+                    ((n - 1) as f64).max(1.0)
+                };
+                spair[a] = (ysum - psum[a] + tied) / norm;
             }
             i = j + 1;
         }

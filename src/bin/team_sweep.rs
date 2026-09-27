@@ -92,6 +92,8 @@ fn set(p: &mut Point, key: &str, val: &str) -> Result<(), String> {
         "place_sign" => p.s2.place_sign = val == "true",
         "lineup_adj" => p.s2.lineup_adj = num()?,
         "ref_core" => p.s2.ref_core = val == "true",
+        "info_norm" => p.s2.info_norm = val == "true",
+        "info_min" => p.s2.info_min = num()?,
         _ => return Err(format!("unknown parameter {key}")),
     }
     Ok(())
