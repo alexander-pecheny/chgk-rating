@@ -143,7 +143,9 @@ margin_intercept = 0.0
 # in-person forecast Spearman, 2018-09-01 to 2024-08-29; k_r and k_q on the
 # weighted team NDCG of DESIGN 7.3 over the same window.
 D = 1200.0
-K = 0.4
+# Retuned to 0.8 for the fair rule of DESIGN 4.3 (no pull), on the weighted team
+# NDCG of the tune window; 0.4 was the optimum with the pull.
+K = 0.8
 # Re-tuned with the pull from 0.01: the usual lineup has to track the real one at
 # about the speed the rating does, or the offset of step 1 counts today's table twice.
 k_q = 0.1
@@ -186,7 +188,8 @@ player_zero = 6000.0
 # The pull of DESIGN 4.3 step 3: per rated game the rating takes this much of the
 # gap to what the lineup that turned up is worth. Tuned on the weighted team NDCG,
 # 2018-09-01 to 2024-08-29; see out/team_ndcg/report.md. 0 is the rule it replaced.
-k_r = 0.3
+# Off since 2026-09-27: no result moves a team towards the players it fielded.
+k_r = 0.0
 # "lineup" is the lineup that turned up, "usual" the running average of them.
 k_r_target = "lineup"
 # Multiplier on the pull at synchronous tournaments; 0 confines it to in-person
@@ -200,11 +203,26 @@ winner_floor = true
 # The two-part rating of DESIGN 4.9: R = Q(core) + b, the core being the team's
 # base-roster players weighted by attendance (k_c) and b the team effect, which
 # only the placement step moves and which decays by k_b per rated game. It
-# replaces the pull, so k_r above is not read.
-two_part = true
+# replaces the pull, so k_r above is not read. Measured and off since
+# 2026-09-27: it lets a team that loses with strong guests rise, 63% of such
+# losses, which the fair rule forbids.
+two_part = false
 k_c = 0.1
 k_b = 0.2
 core_base = true
+# The fair rule of DESIGN 4.3. The sign of a team's change follows its published
+# forecast place: at or above it the team cannot lose, below it cannot gain.
+place_sign = true
+# The lineup is read against the team's base roster, weighted by attendance, at
+# today's player ratings, rather than against the usual lineup of k_q.
+ref_core = true
+# A new team starts at 80% of its first lineup on the published scale, the
+# chgk.gg rule: that share of the way from its strength to the internal rating
+# that publishes as 0.
+start_frac = 0.2
+# A fixed constant near -a_team / b_team (3868 at the map below), so the start
+# is 80% on the published scale to within half a percent.
+start_zero = 4171.7
 
 # The editor memory of DESIGN 4.8. For every pair of a player and an editor the
 # engine keeps the mean of (forecast place - actual place) / n over the in-person
@@ -281,9 +299,10 @@ theta_ref = 0.2368
 [display]
 # Fitted by `calibrate --display` so that the 50th and 1000th teams and players
 # of the 2019 releases match the old system; under engine = "kalman" the team
-# map was -209.5770 + 2454.8828 mu.
-a_team = -7383.8881
-b_team = 1.2421
+# map was -209.5770 + 2454.8828 mu, and under the pull -7383.8881 + 1.2421 mu.
+# Refitted for the fair rule on 2026-09-27; the player map is unchanged.
+a_team = -4115.3755
+b_team = 1.0640
 a_player = 5738.6039
 b_player = 4269.2612
 provisional_sigma = 0.3

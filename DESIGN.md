@@ -5,8 +5,8 @@ This document is the specification. Code is checked against it. Constants marked
 ## 1. Principles
 
 1. A team's rating is its demonstrated strength on a stable scale. It moves only when the team plays.
-2. A predicted winner that wins never loses points. The direction of every update comes from placement against the other teams in the field.
-3. A lineup change never moves a team's rating on the day it is declared. Today's lineup shifts the strength the team is judged at; over the games that follow, the rating drifts towards what the lineups that turn up are worth, so a roster change is absorbed by playing rather than by decree.
+2. A team that finishes at or above its published forecast place never loses points, and one that finishes below it never gains; a winner therefore never loses. Within a field, a better place never earns less.
+3. A team's rating moves only by its own results. Today's lineup shifts the strength the team is judged at, so strong guests raise the bar, but no player's rating, earned at this table or elsewhere, moves the team's number. A roster change is absorbed by results alone.
 4. Inactivity never decays the number. The published table lists only teams and players with a rated game in the trailing 365 days.
 5. The scale is anchored to the population: each release, the mean strength of established players is zero. The team scale stands on the same footing, because both a lineup's strength and a new team's first rating are read off the players.
 6. The forecast for a tournament is a separate object from the rating: it is the strength of the lineup that turned up, and uses no team state at all.
@@ -218,7 +218,10 @@ and S2 does not.
 - Usual lineup `Q̄`: the strength of the lineups the rating was earned with.
 - Count of rated games `n` and the date of the last one.
 
-A team with no state opens one at its first rated result, at `R = Q̄ = Q(L)`.
+A team with no state opens one at its first rated result, at `Q̄ = Q(L)` and
+`R` at 80% of `Q(L)` on the published scale (`start_frac = 0.2`, chgk.gg's rule
+of A.4.2.1): `R = Q(L) − 0.2 (Q(L) − Z)`, `Z` the internal rating that publishes
+as 0. This is the only point at which player ratings enter a team's number.
 A result flagged `inRating = 0` never opens a state.
 
 ### 4.3 Per tournament
@@ -227,8 +230,11 @@ The field is every result with a lineup or an existing state; a result with
 neither is skipped. Everything below reads the player states as they stood
 before the tournament.
 
-1. **Field strength.** `F_T = R + (Q(L) − Q̄)`: the rating, shifted by how much
-   stronger or weaker today's lineup is than the lineups that earned it. A team
+1. **Field strength.** `F_T = R + (Q(L) − Q(core))`: the rating, shifted by how
+   much stronger or weaker today's lineup is than the team's base roster,
+   weighted by attendance and read at today's player ratings (`ref_core`; the
+   core of section 4.9 with `core_base`). Before 2026-09-27 the reference was
+   the usual lineup `Q̄`. A team
    opening its state stands at `Q(L)`; a result with no lineup listed stands at
    `R`. Guests raise the expectation and absences lower it; neither moves `R` on
    its own, but a lineup that keeps turning up pulls `R` after it in step 3.
@@ -252,16 +258,38 @@ does not enter at all.
 
 ```
 R0  = R                                   the rating the team came with
-R  += K · w_t · D · S_A                   the Elo step
-R  += K_r · w_t · ( Q(L) − R )            the pull, when a lineup is listed
+d   = K · w_t · D · S_A                   the Elo step
+d   = max(d, 0) if place ≤ forecast place, else min(d, 0)     place_sign
+R  += d
+R  += K_r · w_t · ( Q(L) − R )            the pull; K_r = 0 since 2026-09-27
 R   = max(R, R0)                          when A finished first, sole or shared
 Q̄  += K_q · ( Q(L) − Q̄ )                 when a lineup is listed
 n  += 1
 ```
 
-Since 2026-09-25 the pull is replaced by the two-part rating of section 4.9,
-which keeps what follows but reads the team's own base-roster players instead
-of the lineup that turned up.
+**The fair rule, since 2026-09-27.** Neither the pull nor the two-part rating of
+section 4.9 ships. Both let players move a team's number: the pull towards the
+lineup that turned up, the two-part rating through its core players' ratings,
+so a team that loses with two strong guests could still rise (63% of such
+losses under the two-part rating) and a team that never plays could climb on
+its players' results elsewhere. The rating is now a pure results ledger: the Elo
+step, signed by the published forecast place, with `K = 0.8`. `place_sign`
+makes the direction of a move the one a visitor reads off the team page; the
+Elo step alone signs by its own expected place, which reads the team rating
+while the published forecast reads the lineup. What the paragraphs below say
+of the pull is kept for the record.
+
+Measured with `team_sweep` against the two-part rule (tune / test weighted team
+NDCG, section 7.3): two-part 0.8884 / 0.9051; the ledger alone 0.8846 / 0.8929;
+with `place_sign` 0.8804 / 0.8900; with `K = 0.8` and `ref_core` 0.8869 /
+0.8911; with `start_frac = 0.2` 0.8868 / 0.8913, at a paired SE of about 0.003.
+chgk.gg is 0.8899 on test. The forecast of section 4.4 reads no team state, so
+the forecast NDCG does not move. Tried and off: field-strength weighting,
+faster steps for new teams (`n0`), lighter synchronous weights, a step
+normalised by the field's information about the team (`info_norm`) and a flat
+lower start (`start_drop`). The full fit with the team display map refitted to
+the 2019 anchors: team NDCG 0.8881 / 0.8917, forecast NDCG 0.8953 / 0.9080 as
+before, test 6 at 0, test 4 at 9.2%.
 
 The **pull** is what makes `R` mean something on its own. Without it the rating
 is a pure placement number: it knows who beat whom and nothing about who was at
@@ -469,7 +497,7 @@ switched off. All ship at the value that leaves 4.3 unchanged.
   losses go to 40.2% up and −24 on average, against 0% and −30 for placement
   alone. What still rises does so through the core, whose players are re-read
   at the ratings they earned elsewhere since the team's last game and whose
-  weights follow who turned up. The full fit passes tests 2, 4 and 6 (inflation 5.7%). Shipped on 2026-09-25, replacing the pull of step 3.
+  weights follow who turned up. The full fit passes tests 2, 4 and 6 (inflation 5.7%). Shipped on 2026-09-25, replacing the pull of step 3. Off since 2026-09-27 in favour of the fair rule of section 4.3.
   `core_live` reads the core at every tournament rather than on the team's game
   days; it adds nothing and breaks principle 1. Under the switch `team_events`
   records the roster's share of each move in `var_diff` (the core re-read at
@@ -795,7 +823,8 @@ Rust workspace, one library crate `chgk-rating` with modules `data`, `question_m
            tau_phi_own false, v_fast 0
 [gauge]    n_est 8, window_days 365
 [team]     engine s2, roster_bias −0.2427, sigma_model 0.3669
-[team.s2]  D 1200, K 0.4, k_r 0.3, k_q 0.1, winner_floor true,
+[team.s2]  D 1200, K 0.8, k_r 0, k_q 0.1, winner_floor true, two_part false,
+           place_sign true, ref_core true, core_base true, start_frac 0.2, start_zero 4171.7,
            lineup tempered, tau 0.7, sigma_c 1.5, sigma_ip 0, q_sigma_c 0,
            k_fast 0, sigma_v 0, tau_spread 0,
            editor_memory 1250, ed_gate 0.2, ed_min_n 2 (section 4.8),
@@ -804,7 +833,7 @@ Rust workspace, one library crate `chgk-rating` with modules `data`, `question_m
            k_r_target lineup, margin_g 0, margin_shape linear, n0 0,
            w_sync and w_strict_sync absent (section 4.9)
 [truedl]   theta_ref 0.2368
-[display]  a_team −7383.8881, b_team 1.2421, a_player 5738.6039, b_player 4269.2612,
+[display]  a_team −4115.3755, b_team 1.0640, a_player 5738.6039, b_player 4269.2612,
            provisional_sigma 0.3, player_phi 1
 [numeric]  newton_iters 12, a ∈ [0.3, 3], m ∈ [0.5, 4], b ∈ [−10, 12],
            info_floor 1e−3, theta_max_step 1.5, u_max 15
