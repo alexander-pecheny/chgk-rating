@@ -683,10 +683,13 @@ pub fn player_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         true,
     ));
 
+    // Before and after at an in-person table, theta + phi, like the release
+    // number and the tournament roster.
     let mut st = c
         .prepare(
             "select g.tournament_id, t.name, t.date, t.type, g.team_id, m.name, g.position, \
-             g.score, t.n_q, v.theta_before, v.theta_after, te.rated \
+             g.score, t.n_q, v.theta_before + coalesce(v.phi_before, 0), \
+             v.theta_after + coalesce(v.phi_before, 0), te.rated \
              from x.player_game g join x.tournament t on t.id = g.tournament_id \
              left join x.team m on m.id = g.team_id \
              left join player_events v on v.player_id = g.player_id and v.tournament_id = g.tournament_id \
@@ -902,8 +905,11 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         .unwrap()
         .map(|r| r.unwrap())
         .collect();
-    // The split of the step, shown when the engine recorded one.
-    let split = evs.iter().any(|v| v.9.is_some() && v.10.is_some());
+    // The split of the step, shown only when a pull moved some rating: under
+    // the fair rule the whole of Δ is the placement step.
+    let split = evs
+        .iter()
+        .any(|v| v.9.is_some() && v.10.is_some_and(|dl| (s.d.b_team * dl).round() != 0.0));
 
     let _ = write!(
         out,
@@ -1204,7 +1210,8 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         let (dp, dl) = (s.d.b_team * dp, s.d.b_team * dl);
         Some((dp, dl, total - dp - dl))
     };
-    let split = evs.iter().any(|v| parts(v).is_some());
+    // Shown only when a pull moved some rating; otherwise Δ is the placement step.
+    let split = evs.iter().filter_map(parts).any(|(_, dl, _)| dl.round() != 0.0);
     let floor = evs.iter().filter_map(parts).any(|(_, _, f)| f.round() != 0.0);
     if !rosters.is_empty() {
         out.push_str(
