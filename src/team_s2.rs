@@ -773,7 +773,13 @@ impl TeamsS2 {
                     } else {
                         self.qbar[idx]
                     };
-                    self.r[idx] + p.lineup_adj * (q - base)
+                    if p.adj_mult {
+                        let z = p.start_zero;
+                        let ratio = ((q - z) / (base - z).max(1.0)).clamp(0.5, 2.0);
+                        z + (self.r[idx] - z) * ratio
+                    } else {
+                        self.r[idx] + p.lineup_adj * (q - base)
+                    }
                 }
             } else {
                 // An unrated result never opens a state; it still stands in the field.
@@ -803,6 +809,8 @@ impl TeamsS2 {
                 res.e_ans
             } else if q.is_nan() {
                 f
+            } else if p.forecast_rating {
+                f + res.fc_bonus
             } else {
                 qf + res.fc_bonus
             };
@@ -812,6 +820,9 @@ impl TeamsS2 {
                 } else {
                     0.0
                 };
+            // Under `expect_forecast` the field is judged at the published
+            // forecast whenever the result lists a lineup.
+            let f = if p.expect_forecast && fc.is_finite() && !q.is_nan() { fc } else { f };
             es.push(Entry {
                 ri,
                 idx,

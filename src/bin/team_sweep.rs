@@ -96,6 +96,9 @@ fn set(p: &mut Point, key: &str, val: &str) -> Result<(), String> {
         "info_min" => p.s2.info_min = num()?,
         "start_drop" => p.s2.start_drop = num()?,
         "start_frac" => p.s2.start_frac = num()?,
+        "expect_forecast" => p.s2.expect_forecast = val == "true",
+        "forecast_rating" => p.s2.forecast_rating = val == "true",
+        "adj_mult" => p.s2.adj_mult = val == "true",
         _ => return Err(format!("unknown parameter {key}")),
     }
     Ok(())
@@ -138,6 +141,8 @@ struct Run {
     /// NDCG and NDCG@3 per tournament, per window.
     full: [HashMap<i64, f64>; 2],
     at3: [HashMap<i64, f64>; 2],
+    /// The forecast NDCG of `eval --ndcg`, per window, over every in-person field.
+    fc: [HashMap<i64, f64>; 2],
     sole: i64,
     shared: i64,
     /// Rated losses (a negative placement step) since 2018-09-01 at a lineup
@@ -197,6 +202,7 @@ fn replay_teams(
     let win = windows();
     let mut run = Run {
         full: [HashMap::new(), HashMap::new()],
+        fc: [HashMap::new(), HashMap::new()],
         at3: [HashMap::new(), HashMap::new()],
         sole: 0,
         shared: 0,
@@ -267,6 +273,16 @@ fn replay_teams(
         let Some(w) = win.iter().position(|&(a, b)| t.day >= a && t.day < b) else {
             continue;
         };
+        let field: Vec<(f64, f64)> = evs
+            .iter()
+            .filter(|e| e.actual_place > 0.0 && e.forecast.is_finite())
+            .map(|e| (e.forecast, e.actual_place))
+            .collect();
+        if let Some(s) = chgk_rating::ndcg::score_field(t.id, &field) {
+            if s.ndcg.is_finite() {
+                run.fc[w].insert(t.id, s.ndcg);
+            }
+        }
         let mut f = Field::default();
         for e in &evs {
             let team = arena.team_ids[e.team as usize];
@@ -331,16 +347,16 @@ fn boot(a: &HashMap<i64, f64>, b: &HashMap<i64, f64>, w: &HashMap<i64, f64>, n: 
 
 fn header() -> String {
     let mut s = String::from(
-        "| row | tune NDCG (w) | tune NDCG | tune @3 (w) | SE(w) | test NDCG (w) | test NDCG | test @3 (w) | winner rule | guest losses up |\n",
+        "| row | tune NDCG (w) | tune NDCG | tune @3 (w) | SE(w) | test NDCG (w) | test NDCG | test @3 (w) | winner rule | guest losses up | forecast tune (w) | forecast test (w) |\n",
     );
-    s.push_str("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
+    s.push_str("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
     s
 }
 
 fn line(name: &str, r: &Run, base: Option<&Run>, w: &HashMap<i64, f64>, nboot: usize) -> String {
     let se = base.map_or(f64::NAN, |b| boot(&r.at3[0], &b.at3[0], w, nboot));
     format!(
-        "| {name} | {:.4} | {:.4} | {:.4} | {} | {:.4} | {:.4} | {:.4} | {} / {} | {:.1}% of {} |\n",
+        "| {name} | {:.4} | {:.4} | {:.4} | {} | {:.4} | {:.4} | {:.4} | {} / {} | {:.1}% of {} | {:.4} | {:.4} |\n",
         metric::wmean(&r.full[0], w),
         metric::umean(&r.full[0]),
         metric::wmean(&r.at3[0], w),
@@ -352,6 +368,8 @@ fn line(name: &str, r: &Run, base: Option<&Run>, w: &HashMap<i64, f64>, nboot: u
         r.shared,
         100.0 * r.guest_up as f64 / r.guest_losses.max(1) as f64,
         r.guest_losses,
+        metric::wmean(&r.fc[0], w),
+        metric::wmean(&r.fc[1], w),
     ) + &{
         let n = r.guest_losses.max(1) as f64;
         let g = r.guest_parts.map(|x| x / n);

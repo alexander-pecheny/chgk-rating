@@ -316,6 +316,18 @@ pub struct S2 {
     /// internal rating that publishes as 0 (-a_team / b_team). 0 is off.
     pub start_frac: f64,
     pub start_zero: f64,
+    /// Judge every team against the published forecast: the pairwise
+    /// expectation reads the forecast strengths of the field (the lineups that
+    /// turned up, plus the editor memory) instead of the ratings. The rating
+    /// then never enters its own expectation.
+    pub expect_forecast: bool,
+    /// chgk.gg's forecast: publish the field strength the update is judged at,
+    /// the rating corrected for the lineup, instead of the lineup alone.
+    pub forecast_rating: bool,
+    /// chgk.gg's correction, as a ratio on the published scale:
+    /// `Z + (R - Z) (Q(L) - Z) / (ref - Z)`, `Z = start_zero`, the ratio clipped
+    /// to [0.5, 2]; otherwise `R + lineup_adj (Q(L) - ref)`.
+    pub adj_mult: bool,
 }
 
 impl Default for S2 {
@@ -388,6 +400,9 @@ impl Default for S2 {
             start_drop: 0.0,
             start_frac: 0.0,
             start_zero: 5944.6,
+            expect_forecast: false,
+            forecast_rating: false,
+            adj_mult: false,
         }
     }
 }

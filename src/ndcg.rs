@@ -47,6 +47,26 @@ fn ndcg_at(rel: &[f64], k: usize) -> f64 {
     }
 }
 
+/// One field's score from (forecast, actual place) pairs; `None` under five
+/// teams. The parameter sweep scores its replays with this same function.
+pub fn score_field(tid: i64, field: &[(f64, f64)]) -> Option<Scored> {
+    if field.len() < 5 {
+        return None;
+    }
+    let mut ord: Vec<usize> = (0..field.len()).collect();
+    let mut rng = Rng::new(tid as u64);
+    for i in (1..ord.len()).rev() {
+        ord.swap(i, (rng.next_u64() % (i as u64 + 1)) as usize);
+    }
+    ord.sort_by(|&a, &b| field[b].0.total_cmp(&field[a].0));
+    let rel: Vec<f64> = ord.iter().map(|&i| 1.0 / field[i].1).collect();
+    Some(Scored {
+        tid,
+        ndcg: ndcg_at(&rel, rel.len()),
+        ndcg3: ndcg_at(&rel, 3),
+    })
+}
+
 /// Per-tournament NDCG of the `forecast` column over in-person tournaments with
 /// at least five teams. Ties in the forecast are broken by a shuffle seeded from
 /// the tournament id, so the stored finishing order never leaks into the rank.
@@ -63,20 +83,7 @@ pub fn per_tournament(conn: &Connection, from: &str, to: &str) -> rusqlite::Resu
     let mut cur = i64::MIN;
     let mut field: Vec<(f64, f64)> = Vec::new();
     let flush = |tid: i64, field: &mut Vec<(f64, f64)>, out: &mut Vec<Scored>| {
-        if field.len() >= 5 {
-            let mut ord: Vec<usize> = (0..field.len()).collect();
-            let mut rng = Rng::new(tid as u64);
-            for i in (1..ord.len()).rev() {
-                ord.swap(i, (rng.next_u64() % (i as u64 + 1)) as usize);
-            }
-            ord.sort_by(|&a, &b| field[b].0.total_cmp(&field[a].0));
-            let rel: Vec<f64> = ord.iter().map(|&i| 1.0 / field[i].1).collect();
-            out.push(Scored {
-                tid,
-                ndcg: ndcg_at(&rel, rel.len()),
-                ndcg3: ndcg_at(&rel, 3),
-            });
-        }
+        out.extend(score_field(tid, field));
         field.clear();
     };
     while let Some(r) = rows.next()? {
