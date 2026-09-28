@@ -171,6 +171,8 @@ pub struct Seasons {
     pub has: HashSet<(i64, i64)>,
     /// The base roster of each (team, season), player ids sorted.
     pub players: HashMap<(i64, i64), Vec<i64>>,
+    /// Each player's last published rating, clipped at 0.
+    pub strength: HashMap<i64, f64>,
 }
 
 impl Names {
@@ -202,7 +204,7 @@ impl Names {
 
 impl Seasons {
     pub fn load(path: &str) -> Seasons {
-        let mut s = Seasons { list: Vec::new(), has: HashSet::new(), players: HashMap::new() };
+        let mut s = Seasons { list: Vec::new(), has: HashSet::new(), players: HashMap::new(), strength: HashMap::new() };
         for l in std::fs::read_to_string(path).unwrap_or_default().lines() {
             let v: Vec<&str> = l.split('\t').collect();
             match v.as_slice() {
@@ -214,6 +216,11 @@ impl Seasons {
                 ["R", t, x] => {
                     if let (Ok(t), Ok(x)) = (t.parse(), x.parse()) {
                         s.has.insert((t, x));
+                    }
+                }
+                ["Q", pl, r] => {
+                    if let (Ok(pl), Ok(r)) = (pl.parse::<i64>(), r.parse::<f64>()) {
+                        s.strength.insert(pl, r.max(0.0));
                     }
                 }
                 ["P", t, x, pl] => {
@@ -250,6 +257,9 @@ impl Seasons {
         }
         for (t, x) in &self.has {
             let _ = writeln!(o, "R\t{t}\t{x}");
+        }
+        for (pl, r) in &self.strength {
+            let _ = writeln!(o, "Q\t{pl}\t{r:.0}");
         }
         for ((t, x), v) in &self.players {
             for pl in v {
@@ -321,6 +331,9 @@ pub struct Knobs {
     /// Scale a result by the share of that season's base roster still on the
     /// team's current one, to this power; 0 is off.
     pub overlap_k: f64,
+    /// "strength": the kept players' share of the roster's rating points;
+    /// "count": their share of its seats.
+    pub overlap_by: String,
     /// Published points added to a sole first place before the weights.
     pub win_bonus: f64,
 }
@@ -360,6 +373,7 @@ impl Default for Knobs {
             grace: 60,
             active_days: 365,
             overlap_k: 1.0,
+            overlap_by: "strength".into(),
             win_bonus: 0.0,
         }
     }
@@ -395,7 +409,8 @@ pub const KNOBS: &[(&str, &str, &str)] = &[
     ("base_rule", "Только свой состав", "1 — результат идёт в зачёт, только если не меньше 4 базовых и не больше 2 легионеров"),
     ("grace", "Без базы: дней", "Сколько дней нового сезона команда без заявленной базы остаётся в таблице; -1 — всегда"),
     ("active_days", "Активность, дней", "Команда в таблице, только если за столько дней у неё есть зачтённый результат; 0 — без требования"),
-    ("overlap_k", "Состав: степень", "Результат умножается на долю тогдашней базы (из не более чем шести), оставшейся в нынешней, в этой степени; 0 — не учитывать"),
+    ("overlap_k", "Состав: степень", "Результат умножается на долю тогдашней базы, оставшейся в нынешней, в этой степени; 0 — не учитывать"),
+    ("overlap_by", "Состав: по", "strength — по доле рейтинга игроков, count — по числу игроков (в обоих случаях шесть сильнейших)"),
     ("win_bonus", "Бонус за 1 место", "Очки, прибавляемые к игре за чистое первое место"),
 ];
 
@@ -431,6 +446,7 @@ impl Knobs {
             "grace" => self.grace.to_string(),
             "active_days" => self.active_days.to_string(),
             "overlap_k" => self.overlap_k.to_string(),
+            "overlap_by" => self.overlap_by.clone(),
             "win_bonus" => self.win_bonus.to_string(),
             _ => String::new(),
         }
@@ -473,6 +489,8 @@ impl Knobs {
             "grace" => self.grace = num()? as i32,
             "active_days" => self.active_days = num()? as i32,
             "overlap_k" => self.overlap_k = num()?,
+            "overlap_by" if ["strength", "count"].contains(&val) => self.overlap_by = val.into(),
+            "overlap_by" => return Err(format!("{key}: нет такого значения: {val}")),
             "win_bonus" => self.win_bonus = num()?,
             _ => return Err(format!("нет такой ручки: {key}")),
         }
@@ -703,7 +721,8 @@ pub fn fade(age: i32, v: &Val, k: &Knobs) -> f64 {
 /// The rating on the morning of `day`, and the results that make it, each
 /// with its faded value.
 /// The share of the base roster a result was earned with that is still on
-/// the team's roster on `day`, out of at most six, to the power `overlap_k`. 1 when either roster
+/// the team's roster on `day`, by seats or by rating points over the six
+/// strongest, to the power `overlap_k`. 1 when either roster
 /// is unknown.
 fn overlap(lab: &Lab, team: i64, season: i64, now: Option<&Vec<i64>>, k: &Knobs) -> f64 {
     if k.overlap_k == 0.0 {
@@ -713,10 +732,25 @@ fn overlap(lab: &Lab, team: i64, season: i64, now: Option<&Vec<i64>>, k: &Knobs)
     if then.is_empty() {
         return 1.0;
     }
-    // Six play at a time, so a roster of eight that keeps any six of its
-    // players has lost nothing it needed.
-    let kept = then.iter().filter(|p| now.binary_search(p).is_ok()).count();
-    (kept as f64 / then.len().min(6) as f64).min(1.0).powf(k.overlap_k)
+    // Six play at a time: both sides are read over their six strongest, so a
+    // roster of eight that keeps its best six has lost nothing it needed.
+    let weight = |p: &i64| {
+        if k.overlap_by == "count" {
+            1.0
+        } else {
+            lab.seasons.strength.get(p).copied().unwrap_or(0.0)
+        }
+    };
+    let top6 = |v: &mut Vec<f64>| -> f64 {
+        v.sort_by(|a, b| b.total_cmp(a));
+        v.iter().take(6).sum()
+    };
+    let all = top6(&mut then.iter().map(weight).collect());
+    let kept = top6(&mut then.iter().filter(|p| now.binary_search(p).is_ok()).map(weight).collect());
+    if all <= 0.0 {
+        return 1.0;
+    }
+    (kept / all).min(1.0).powf(k.overlap_k)
 }
 
 /// The rating on the morning of `day`, and the results that make it, each
@@ -1117,8 +1151,12 @@ pub fn render_lab(lab: &Lab, k: &Knobs, day: i32, n: usize, was: &HashMap<i64, u
         let cur = k.get(key);
         let changed = cur != d.get(key);
         let input = match *key {
-            "perf" | "fade" => {
-                let opts: &[&str] = if *key == "perf" { &["mix", "score", "place"] } else { &["yearly", "exp", "linear", "none"] };
+            "perf" | "fade" | "overlap_by" => {
+                let opts: &[&str] = match *key {
+                    "perf" => &["mix", "score", "place"],
+                    "fade" => &["yearly", "exp", "linear", "none"],
+                    _ => &["strength", "count"],
+                };
                 let mut s = format!("<select name=\"{key}\">");
                 for o in opts {
                     let _ = write!(s, "<option{}>{o}</option>", if *o == cur { " selected" } else { "" });

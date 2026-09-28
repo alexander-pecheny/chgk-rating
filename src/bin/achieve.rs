@@ -314,7 +314,16 @@ fn seasons(conn: &Connection) -> Seasons {
         v.dedup();
     }
     let has: HashSet<(i64, i64)> = players.keys().copied().collect();
-    Seasons { list, has, players }
+    // Each player's last published rating, from the fit the site serves.
+    let strength: HashMap<i64, f64> = Connection::open("out/ratings.db")
+        .and_then(|c| {
+            c.prepare("SELECT player_id, display, max(release_id) FROM player_ratings GROUP BY player_id")?
+                .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)))?
+                .collect::<Result<_, _>>()
+        })
+        .unwrap_or_default();
+    eprintln!("player strengths: {}", strength.len());
+    Seasons { list, has, players, strength }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
