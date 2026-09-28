@@ -377,6 +377,12 @@ struct Knobs {
     /// of the calendar. 0 is one clock for every result.
     slow_ref: f64,
     slow_k: f64,
+    /// After the full-value period a result halves every `half_life` days
+    /// (`sync_half_life` for a synchronous one) instead of falling linearly to
+    /// zero, and is dropped at `tail_days` of calendar age. 0 is the linear fade.
+    half_life: f64,
+    sync_half_life: f64,
+    tail_days: i32,
     top_x: usize,
     /// The divisor is the number of results held, but never below this; empty
     /// slots below it count as zero. `top_x` is the pure sum over `top_x`.
@@ -411,6 +417,9 @@ impl Default for Knobs {
             sync_zero: -1,
             slow_ref: 9000.0,
             slow_k: 0.0,
+            half_life: 0.0,
+            sync_half_life: 0.0,
+            tail_days: 1826,
             top_x: 10,
             min_slots: 0,
             base_rule: true,
@@ -447,6 +456,9 @@ fn apply(k: &Knobs, spec: &str) -> Result<Knobs, String> {
             "sync_zero" => k.sync_zero = num()? as i32,
             "slow_ref" => k.slow_ref = num()?,
             "slow_k" => k.slow_k = num()?,
+            "half_life" => k.half_life = num()?,
+            "sync_half_life" => k.sync_half_life = num()?,
+            "tail_days" => k.tail_days = num()? as i32,
             "top_x" => k.top_x = num()? as usize,
             "min_slots" => k.min_slots = num()? as usize,
             "base_rule" => k.base_rule = num()? != 0.0,
@@ -471,6 +483,9 @@ struct Val {
     sync: bool,
     place: f64,
     format: char,
+    /// The format weight and the field's top-k strength behind `w`.
+    wfmt: f64,
+    fs: f64,
 }
 
 struct Book {
@@ -486,11 +501,22 @@ fn fade(age: i32, v: &Val, k: &Knobs) -> f64 {
     } else {
         (k.full_days as f64, k.zero_days as f64)
     };
+    let days = age;
     let age = if k.slow_k != 0.0 && v.base > 0.0 {
         age as f64 * (k.slow_ref / v.base).powf(k.slow_k)
     } else {
         age as f64
     };
+    let hl = if v.sync && k.sync_half_life > 0.0 { k.sync_half_life } else { k.half_life };
+    if hl > 0.0 {
+        return if days >= k.tail_days {
+            0.0
+        } else if age <= full {
+            1.0
+        } else {
+            0.5f64.powf((age - full) / hl)
+        };
+    }
     if age <= full {
         1.0
     } else if age >= zero {
@@ -520,6 +546,7 @@ fn book(rs: &[Res], k: &Knobs) -> Book {
         by_t.entry(r.tid).or_default().push(r);
     }
     let mut wf = HashMap::new();
+    let mut fs_of = HashMap::new();
     for (&tid, v) in &by_t {
         let mut q: Vec<f64> = v.iter().map(|r| r.q).filter(|x| x.is_finite()).collect();
         q.sort_by(|a, b| b.total_cmp(a));
@@ -533,6 +560,7 @@ fn book(rs: &[Res], k: &Knobs) -> Book {
                 .clamp(k.field_min, if k.field_ref == 1.0 { f64::INFINITY } else { 1.0 })
         };
         wf.insert(tid, w);
+        fs_of.insert(tid, s);
     }
     let mut vals: HashMap<i64, Vec<Val>> = HashMap::new();
     for r in rs {
@@ -562,6 +590,8 @@ fn book(rs: &[Res], k: &Knobs) -> Book {
             sync,
             place: r.place,
             format: r.format,
+            wfmt,
+            fs: fs_of[&r.tid],
         });
     }
     Book { vals, wf }
@@ -718,6 +748,29 @@ fn team_ndcg(
 
 // ---------------------------------------------------------------------- main
 
+/// Why a result's weight is below 1, for the hover text of its cell.
+fn weight_title(v: &Val, k: &Knobs) -> String {
+    if v.w >= 0.995 {
+        return String::new();
+    }
+    let wf = v.w / v.wfmt.max(1e-9);
+    let mut parts = Vec::new();
+    if v.wfmt < 1.0 {
+        let f = if v.format == 'a' { "асинхрон" } else { "синхрон" };
+        parts.push(format!("{f}: ×{:.2}", v.wfmt));
+    }
+    if wf < 0.995 {
+        parts.push(format!(
+            "поле: средняя сила {} сильнейших составов {:.0}, вес ×{:.2} (0 при {:.0}, 1 при {:.0})",
+            k.field_k, v.fs, wf, k.field_zero, k.field_ref
+        ));
+    }
+    format!(
+        " title=\"{}\" style=\"text-decoration: underline dotted; cursor: help\"",
+        esc(&parts.join("; "))
+    )
+}
+
 fn esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
@@ -761,7 +814,7 @@ fn html_page(
          of six equal players who would expect to take as many questions on that package. The peak value is \
          that strength times the format weight (in-person 1, synchronous {ws}) and the field weight \
          (0 when the mean of the ten strongest lineups is {fz:.0} or less, 1 at {fr:.0} or more). \
-         An in-person result keeps its full value for {fd} days and is worth nothing after {zd}. {sync}{slow} \
+         {fade}{slow} \
          Only results played by the team's own lineup count (at least four base-roster players, at most two guests), \
          and a team without a base roster for the season leaves the table {g} days after the season starts. \
          Cities playing one package within two days of each other are one tournament. \
@@ -771,9 +824,23 @@ fn html_page(
         ws = k.w_sync,
         fz = k.field_zero,
         fr = k.field_ref,
-        fd = k.full_days,
-        zd = k.zero_days,
-        sync = sync_rule,
+        fade = if k.half_life > 0.0 {
+            format!(
+                "An in-person result keeps its full value for {} days, then halves every {:.0} days; \
+                 a synchronous one keeps it for {} days, then halves every {:.0} days. \
+                 Anything older than {:.0} years is dropped.",
+                k.full_days,
+                k.half_life,
+                if k.sync_zero >= 0 { k.sync_full } else { k.full_days },
+                if k.sync_half_life > 0.0 { k.sync_half_life } else { k.half_life },
+                k.tail_days as f64 / 365.25
+            )
+        } else {
+            format!(
+                "An in-person result keeps its full value for {} days and is worth nothing after {}. {}",
+                k.full_days, k.zero_days, sync_rule
+            )
+        },
         slow = slow,
         g = k.grace,
     );
@@ -783,7 +850,7 @@ fn html_page(
          <th class=\"num\" title=\"Место в турнире\">Место</th>\
          <th class=\"num\" title=\"Сила игры: как играли бы шесть равных игроков\">Игра</th>\
          <th class=\"num\" title=\"Вес формата × вес поля\">Вес</th>\
-         <th class=\"num\" title=\"Ценность результата в день игры\">Пик</th>\
+         <th class=\"num\" title=\"Ценность результата в день игры\">Игра × Вес</th>\
          <th class=\"num\" title=\"Доля ценности, оставшаяся сегодня\">Осталось</th>\
          <th class=\"num\" title=\"Ценность сегодня\">Сейчас</th></tr></thead><tbody>",
     );
@@ -814,7 +881,7 @@ fn html_page(
                 o,
                 "<tr><td></td><td><a href=\"/tournaments/{}/\">{}</a><span class=\"muted\">{}</span></td>\
                  <td class=\"num muted\">{}</td><td class=\"num\">{}</td><td class=\"num\">{:.0}</td>\
-                 <td class=\"num muted\">{:.2}</td><td class=\"num\">{:.0}</td>\
+                 <td class=\"num muted\"{}>{:.2}</td><td class=\"num\">{:.0}</td>\
                  <td class=\"num muted\">{:.0}%</td><td class=\"num\">{:.0}</td></tr>",
                 val.tid,
                 esc(tours.get(&val.tid).map_or("?", |s| s.as_str())),
@@ -822,6 +889,7 @@ fn html_page(
                 format_date(val.day),
                 place,
                 val.perf,
+                weight_title(val, k),
                 val.w,
                 val.base,
                 100.0 * now / val.base.max(1e-9),
