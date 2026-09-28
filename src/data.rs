@@ -61,6 +61,10 @@ pub struct TeamResult {
     /// `base_rosters`; all false when neither source knows the team.
     pub base: Vec<bool>,
     pub mask: Vec<u8>,
+    /// The tournament the result was played at and its place there, which
+    /// `merge_cities` keeps while it re-ranks `position` over the merged field.
+    pub venue: i64,
+    pub venue_position: f64,
 }
 
 pub struct Tournament {
@@ -225,6 +229,26 @@ fn merge_cities(ts: &mut Vec<Tournament>, days: i32) {
             continue;
         }
         groups += 1;
+        // A question dropped at any venue is dropped at all of them, and the
+        // scores are recounted, so every venue plays for the same questions.
+        let nq = t.teams.iter().map(|r| r.mask.len()).max().unwrap_or(0);
+        let mut drop = vec![false; nq];
+        for r in t.teams.iter().filter(|r| !r.mask.is_empty()) {
+            for (q, d) in drop.iter_mut().enumerate() {
+                if r.mask.get(q).map_or(true, |&y| y == SKIP) {
+                    *d = true;
+                }
+            }
+        }
+        for r in t.teams.iter_mut().filter(|r| !r.mask.is_empty()) {
+            r.mask.resize(nq, SKIP);
+            for (q, &d) in drop.iter().enumerate() {
+                if d {
+                    r.mask[q] = SKIP;
+                }
+            }
+            r.score = Some(r.mask.iter().filter(|&&y| y == CORRECT).count() as f64);
+        }
         let s: Vec<f64> = t.teams.iter().map(|r| r.score.unwrap_or(0.0)).collect();
         for (i, r) in t.teams.iter_mut().enumerate() {
             let above = s.iter().filter(|&&x| x > s[i]).count() as f64;
@@ -431,9 +455,13 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
         let town = town_of(row.get::<_, Option<String>>(13)?);
         let t = tournaments.last_mut().unwrap();
         t.n_q = t.n_q.max(mask.len());
+        let position = row.get::<_, Option<f64>>(5)?.unwrap_or(0.0);
+        let venue = t.id;
         t.teams.push(TeamResult {
             team,
-            position: row.get::<_, Option<f64>>(5)?.unwrap_or(0.0),
+            position,
+            venue,
+            venue_position: position,
             score,
             pred_pos,
             rated,
