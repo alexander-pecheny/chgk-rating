@@ -169,6 +169,8 @@ pub struct Names {
 pub struct Seasons {
     pub list: Vec<(i64, i32, i32)>,
     pub has: HashSet<(i64, i64)>,
+    /// The base roster of each (team, season), player ids sorted.
+    pub players: HashMap<(i64, i64), Vec<i64>>,
 }
 
 impl Names {
@@ -200,7 +202,7 @@ impl Names {
 
 impl Seasons {
     pub fn load(path: &str) -> Seasons {
-        let mut s = Seasons { list: Vec::new(), has: HashSet::new() };
+        let mut s = Seasons { list: Vec::new(), has: HashSet::new(), players: HashMap::new() };
         for l in std::fs::read_to_string(path).unwrap_or_default().lines() {
             let v: Vec<&str> = l.split('\t').collect();
             match v.as_slice() {
@@ -214,11 +216,32 @@ impl Seasons {
                         s.has.insert((t, x));
                     }
                 }
+                ["P", t, x, pl] => {
+                    if let (Ok(t), Ok(x), Ok(pl)) = (t.parse(), x.parse(), pl.parse()) {
+                        s.players.entry((t, x)).or_default().push(pl);
+                    }
+                }
                 _ => {}
             }
         }
         s.list.sort();
+        for v in s.players.values_mut() {
+            v.sort_unstable();
+            v.dedup();
+        }
         s
+    }
+
+    /// The season a day falls in.
+    pub fn season_of(&self, day: i32) -> Option<i64> {
+        self.list.iter().find(|x| day >= x.1 && day <= x.2).map(|x| x.0)
+    }
+
+    /// The roster a team is read at on `day`: this season's, or last season's
+    /// while this one has none.
+    pub fn current(&self, team: i64, day: i32) -> Option<&Vec<i64>> {
+        let s = self.season_of(day)?;
+        self.players.get(&(team, s)).or_else(|| self.players.get(&(team, s - 1)))
     }
     pub fn save(&self, path: &str) -> std::io::Result<()> {
         let mut o = String::new();
@@ -227,6 +250,11 @@ impl Seasons {
         }
         for (t, x) in &self.has {
             let _ = writeln!(o, "R\t{t}\t{x}");
+        }
+        for ((t, x), v) in &self.players {
+            for pl in v {
+                let _ = writeln!(o, "P\t{t}\t{x}\t{pl}");
+            }
         }
         std::fs::write(path, o)
     }
@@ -271,6 +299,9 @@ pub struct Knobs {
     pub sync_zero: i32,
     pub half_life: f64,
     pub sync_half_life: f64,
+    /// "yearly": the share of value lost per year of age, from the first day.
+    pub loss_ip: f64,
+    pub loss_sync: f64,
     pub tail_days: i32,
     /// A strong result fades slower: its age runs at (slow_ref / value)^slow_k.
     pub slow_ref: f64,
@@ -287,6 +318,9 @@ pub struct Knobs {
     /// A team is listed only with a counted result in the last `active_days`
     /// days; 0 lists it however long it has been idle.
     pub active_days: i32,
+    /// Scale a result by the share of that season's base roster still on the
+    /// team's current one, to this power; 0 is off.
+    pub overlap_k: f64,
     /// Published points added to a sole first place before the weights.
     pub win_bonus: f64,
 }
@@ -308,13 +342,15 @@ impl Default for Knobs {
             field_ref: 9000.0,
             field_gamma: 1.0,
             field_min: 0.0,
-            fade: "exp".into(),
+            fade: "yearly".into(),
             full_days: 365,
             zero_days: 730,
             sync_full: 90,
             sync_zero: 365,
             half_life: 180.0,
             sync_half_life: 137.0,
+            loss_ip: 0.1,
+            loss_sync: 0.5,
             tail_days: 1826,
             slow_ref: 9000.0,
             slow_k: 1.0,
@@ -322,7 +358,8 @@ impl Default for Knobs {
             min_slots: 5,
             base_rule: true,
             grace: 60,
-            active_days: 0,
+            active_days: 365,
+            overlap_k: 1.0,
             win_bonus: 0.0,
         }
     }
@@ -343,7 +380,9 @@ pub const KNOBS: &[(&str, &str, &str)] = &[
     ("field_ref", "Поле: вес 1 при", "Сила поля, при которой вес турнира 1"),
     ("field_gamma", "Поле: степень", "Степень кривой веса поля; 0 — все турниры с весом 1"),
     ("field_min", "Поле: мин. вес", "Нижняя граница веса поля"),
-    ("fade", "Затухание", "none — не затухает никогда; linear — линейно до нуля; exp — полураспад"),
+    ("fade", "Затухание", "yearly — теряет долю в год с первого дня; none — не затухает никогда; linear — линейно до нуля; exp — полураспад"),
+    ("loss_ip", "yearly: очный теряет в год", "yearly: доля ценности очного результата, теряемая за год"),
+    ("loss_sync", "yearly: синхрон теряет в год", "yearly: доля ценности синхронного результата, теряемая за год"),
     ("full_days", "Полная ценность, дней", "Сколько дней очный результат не затухает"),
     ("zero_days", "linear: ноль через", "linear: на какой день очный результат обнуляется"),
     ("half_life", "exp: полураспад, дней", "exp: за сколько дней очный результат теряет половину"),
@@ -356,6 +395,7 @@ pub const KNOBS: &[(&str, &str, &str)] = &[
     ("base_rule", "Только свой состав", "1 — результат идёт в зачёт, только если не меньше 4 базовых и не больше 2 легионеров"),
     ("grace", "Без базы: дней", "Сколько дней нового сезона команда без заявленной базы остаётся в таблице; -1 — всегда"),
     ("active_days", "Активность, дней", "Команда в таблице, только если за столько дней у неё есть зачтённый результат; 0 — без требования"),
+    ("overlap_k", "Состав: степень", "Результат умножается на долю тогдашней базы (из не более чем шести), оставшейся в нынешней, в этой степени; 0 — не учитывать"),
     ("win_bonus", "Бонус за 1 место", "Очки, прибавляемые к игре за чистое первое место"),
 ];
 
@@ -379,6 +419,8 @@ impl Knobs {
             "sync_full" => self.sync_full.to_string(),
             "sync_zero" => self.sync_zero.to_string(),
             "half_life" => self.half_life.to_string(),
+            "loss_ip" => self.loss_ip.to_string(),
+            "loss_sync" => self.loss_sync.to_string(),
             "sync_half_life" => self.sync_half_life.to_string(),
             "tail_days" => self.tail_days.to_string(),
             "slow_ref" => self.slow_ref.to_string(),
@@ -388,6 +430,7 @@ impl Knobs {
             "base_rule" => (self.base_rule as u8).to_string(),
             "grace" => self.grace.to_string(),
             "active_days" => self.active_days.to_string(),
+            "overlap_k" => self.overlap_k.to_string(),
             "win_bonus" => self.win_bonus.to_string(),
             _ => String::new(),
         }
@@ -398,7 +441,7 @@ impl Knobs {
         let num = || val.parse::<f64>().map_err(|_| format!("{key}: не число: {val}"));
         match key {
             "perf" if ["score", "place", "mix"].contains(&val) => self.perf = val.into(),
-            "fade" if ["none", "linear", "exp"].contains(&val) => self.fade = val.into(),
+            "fade" if ["none", "linear", "exp", "yearly"].contains(&val) => self.fade = val.into(),
             "perf" | "fade" => return Err(format!("{key}: нет такого значения: {val}")),
             "mix" => self.mix = num()?.clamp(0.0, 1.0),
             "shift" => self.shift = num()?,
@@ -418,6 +461,8 @@ impl Knobs {
             "sync_full" => self.sync_full = num()? as i32,
             "sync_zero" => self.sync_zero = num()? as i32,
             "half_life" => self.half_life = num()?,
+            "loss_ip" => self.loss_ip = num()?.clamp(0.0, 1.0),
+            "loss_sync" => self.loss_sync = num()?.clamp(0.0, 1.0),
             "sync_half_life" => self.sync_half_life = num()?,
             "tail_days" => self.tail_days = num()? as i32,
             "slow_ref" => self.slow_ref = num()?,
@@ -427,6 +472,7 @@ impl Knobs {
             "base_rule" => self.base_rule = num()? != 0.0,
             "grace" => self.grace = num()? as i32,
             "active_days" => self.active_days = num()? as i32,
+            "overlap_k" => self.overlap_k = num()?,
             "win_bonus" => self.win_bonus = num()?,
             _ => return Err(format!("нет такой ручки: {key}")),
         }
@@ -531,6 +577,8 @@ pub struct Val {
     pub fs: f64,
     pub nt: usize,
     pub nv: usize,
+    /// The season it was played in.
+    pub season: i64,
 }
 
 pub struct Book {
@@ -605,6 +653,7 @@ pub fn book(lab: &Lab, k: &Knobs) -> Book {
             fs,
             nt: f.n_teams,
             nv: f.n_venues,
+            season: lab.seasons.season_of(r.day).unwrap_or(-1),
         });
     }
     Book { vals }
@@ -626,6 +675,10 @@ pub fn fade(age: i32, v: &Val, k: &Knobs) -> f64 {
     } else {
         age as f64
     };
+    if k.fade == "yearly" {
+        let loss = if v.sync { k.loss_sync } else { k.loss_ip };
+        return (1.0 - loss).max(0.0).powf(age / 365.25);
+    }
     if k.fade == "exp" {
         let hl = if v.sync && k.sync_half_life > 0.0 { k.sync_half_life } else { k.half_life };
         return if days >= k.tail_days {
@@ -649,19 +702,43 @@ pub fn fade(age: i32, v: &Val, k: &Knobs) -> f64 {
 
 /// The rating on the morning of `day`, and the results that make it, each
 /// with its faded value.
-pub fn rating(b: &Book, team: i64, day: i32, k: &Knobs) -> (f64, Vec<(Val, f64)>) {
+/// The share of the base roster a result was earned with that is still on
+/// the team's roster on `day`, out of at most six, to the power `overlap_k`. 1 when either roster
+/// is unknown.
+fn overlap(lab: &Lab, team: i64, season: i64, now: Option<&Vec<i64>>, k: &Knobs) -> f64 {
+    if k.overlap_k == 0.0 {
+        return 1.0;
+    }
+    let (Some(now), Some(then)) = (now, lab.seasons.players.get(&(team, season))) else { return 1.0 };
+    if then.is_empty() {
+        return 1.0;
+    }
+    // Six play at a time, so a roster of eight that keeps any six of its
+    // players has lost nothing it needed.
+    let kept = then.iter().filter(|p| now.binary_search(p).is_ok()).count();
+    (kept as f64 / then.len().min(6) as f64).min(1.0).powf(k.overlap_k)
+}
+
+/// The rating on the morning of `day`, and the results that make it, each
+/// with its value on that day: faded, and scaled by the roster overlap.
+pub fn rating(lab: &Lab, b: &Book, team: i64, day: i32, k: &Knobs) -> (f64, Vec<(Val, f64)>) {
     let Some(v) = b.vals.get(&team) else { return (0.0, Vec::new()) };
+    let now = if k.overlap_k != 0.0 { lab.seasons.current(team, day) } else { None };
+    let mut ov: HashMap<i64, f64> = HashMap::new();
     let mut cur: Vec<(Val, f64)> = v
         .iter()
         .filter(|x| x.day < day)
-        .map(|x| (*x, x.base * fade(day - x.day, x, k)))
+        .map(|x| {
+            let o = *ov.entry(x.season).or_insert_with(|| overlap(lab, team, x.season, now, k));
+            (*x, x.base * fade(day - x.day, x, k) * o)
+        })
         .filter(|x| x.1 > 0.0)
         .collect();
     cur.sort_by(|a, b| b.1.total_cmp(&a.1));
     cur.truncate(k.top_x);
-    // A faded result holds only its faded share of a slot, so an old result
-    // near zero never drags the average down by taking a whole one.
-    let held: f64 = cur.iter().map(|x| fade(day - x.0.day, &x.0, k)).sum();
+    // A faded result holds only its remaining share of a slot, so an old
+    // result near zero never drags the average down by taking a whole one.
+    let held: f64 = cur.iter().map(|x| x.1 / x.0.base.max(1e-9)).sum();
     let slots = if k.min_slots == 0 {
         k.top_x as f64
     } else {
@@ -681,7 +758,7 @@ pub fn table(lab: &Lab, b: &Book, day: i32, k: &Knobs) -> Vec<(i64, f64, Vec<(Va
                 || b.vals[&t].iter().any(|x| x.day < day && day - x.day <= k.active_days)
         })
         .map(|&t| {
-            let (x, c) = rating(b, t, day, k);
+            let (x, c) = rating(lab, b, t, day, k);
             (t, x, c)
         })
         .filter(|x| x.1 > 0.0)
@@ -772,7 +849,7 @@ pub fn ndcg(rows: &[Res], mut score: impl FnMut(&Res) -> f64) -> (f64, f64) {
 
 /// The same metric for a set of knobs.
 pub fn ndcg_of(lab: &Lab, b: &Book, k: &Knobs) -> (f64, f64) {
-    ndcg(&lab.rows, |r| rating(b, r.team, r.day, k).0)
+    ndcg(&lab.rows, |r| rating(lab, b, r.team, r.day, k).0)
 }
 
 // ---------------------------------------------------------------------- page
@@ -829,6 +906,12 @@ pub fn describe(k: &Knobs, day: i32) -> String {
     let sync_full = if k.sync_zero >= 0 { k.sync_full } else { k.full_days };
     let fade = match k.fade.as_str() {
         "none" => "Results never fade.".to_string(),
+        "yearly" => format!(
+            "A result loses {:.0}% of its value per year if played in person and {:.0}% if synchronous, from \
+             the day it is played.",
+            100.0 * k.loss_ip,
+            100.0 * k.loss_sync
+        ),
         "exp" => format!(
             "An in-person result keeps its full value for {} days, then halves every {:.0} days; a synchronous \
              one keeps it for {} days, then halves every {:.0} days. Anything older than {:.1} years is dropped.",
@@ -918,7 +1001,8 @@ pub fn render_table(
          <th class=\"num\" title=\"Сила игры: как играли бы шесть равных игроков\">Игра</th>\
          <th class=\"num\" title=\"Вес формата × вес поля\">Вес</th>\
          <th class=\"num\" title=\"Ценность результата в день игры\">Игра × Вес</th>\
-         <th class=\"num\" title=\"Доля ценности, оставшаяся сегодня\">Осталось</th>\
+         <th class=\"num\" title=\"Доля ценности, оставшаяся после затухания\">Осталось</th>\
+         <th class=\"num\" title=\"Доля тогдашней базы, оставшаяся в нынешней\">Состав</th>\
          <th class=\"num\" title=\"Ценность сегодня\">Сейчас</th></tr></thead><tbody>",
     );
     let fmtp = |x: f64| if x.fract() == 0.0 { format!("{x:.0}") } else { format!("{x:.1}") };
@@ -927,7 +1011,7 @@ pub fn render_table(
         let _ = write!(
             o,
             "<tr class=\"row-split\"><td class=\"num strong\">{}</td>\
-             <td colspan=\"8\"><a href=\"/teams/{t}/\"><strong>{}</strong></a> \
+             <td colspan=\"9\"><a href=\"/teams/{t}/\"><strong>{}</strong></a> \
              <span class=\"muted\">было {}</span></td><td class=\"num strong\">{:.0}</td></tr>",
             i + 1,
             esc(&name),
@@ -935,6 +1019,7 @@ pub fn render_table(
             x
         );
         for (val, now) in c {
+            let f = fade(day - val.day, val, k);
             let fmt = match val.format {
                 'i' => "",
                 'a' => " (асинхрон)",
@@ -976,7 +1061,7 @@ pub fn render_table(
                  <td class=\"num muted\">{}</td><td class=\"num\"{}>{}</td>\
                  <td class=\"num muted\" title=\"команд: {}\">{:.0}</td><td class=\"num\"{}>{:.0}</td>\
                  <td class=\"num muted\"{}>{:.2}</td><td class=\"num\">{:.0}</td>\
-                 <td class=\"num muted\">{:.0}%</td><td class=\"num\">{:.0}</td></tr>",
+                 <td class=\"num muted\">{:.0}%</td><td class=\"num muted\">{:.0}%</td><td class=\"num\">{:.0}</td></tr>",
                 title,
                 fmt,
                 merged,
@@ -990,15 +1075,16 @@ pub fn render_table(
                 weight_title(val, k),
                 val.w,
                 val.base,
-                100.0 * now / val.base.max(1e-9),
+                100.0 * f,
+                100.0 * now / (val.base * f).max(1e-9),
                 now
             );
         }
-        let held: f64 = c.iter().map(|(val, _)| fade(day - val.day, val, k)).sum();
+        let held: f64 = c.iter().map(|(val, now)| now / val.base.max(1e-9)).sum();
         let empty = if k.min_slots == 0 { k.top_x } else { k.min_slots.min(k.top_x) };
         for _ in c.len()..empty.max((held.ceil() as usize).min(k.top_x)) {
             o.push_str(
-                "<tr><td></td><td class=\"muted\">пустой слот</td><td></td><td></td><td></td><td></td>\
+                "<tr><td></td><td class=\"muted\">пустой слот</td><td></td><td></td><td></td><td></td><td></td>\
                  <td></td><td></td><td></td><td class=\"num muted\">0</td></tr>",
             );
         }
@@ -1032,7 +1118,7 @@ pub fn render_lab(lab: &Lab, k: &Knobs, day: i32, n: usize, was: &HashMap<i64, u
         let changed = cur != d.get(key);
         let input = match *key {
             "perf" | "fade" => {
-                let opts: &[&str] = if *key == "perf" { &["mix", "score", "place"] } else { &["exp", "linear", "none"] };
+                let opts: &[&str] = if *key == "perf" { &["mix", "score", "place"] } else { &["yearly", "exp", "linear", "none"] };
                 let mut s = format!("<select name=\"{key}\">");
                 for o in opts {
                     let _ = write!(s, "<option{}>{o}</option>", if *o == cur { " selected" } else { "" });

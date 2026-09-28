@@ -280,7 +280,7 @@ fn names(conn: &Connection, sql: &str) -> HashMap<i64, String> {
         .collect()
 }
 
-/// Seasons and base-roster seasons from the chgk.gg history and `buff.db`.
+/// Seasons and every base roster, from the chgk.gg history and `buff.db`.
 fn seasons(conn: &Connection) -> Seasons {
     let list = conn
         .prepare("SELECT id, substr(date_start,1,10), substr(date_end,1,10) FROM seasons")
@@ -290,22 +290,31 @@ fn seasons(conn: &Connection) -> Seasons {
         .filter_map(|x| x.ok())
         .filter_map(|(i, a, b)| Some((i, parse_date(&a)?, parse_date(&b)?)))
         .collect();
-    let mut has = HashSet::new();
+    let mut players: HashMap<(i64, i64), Vec<i64>> = HashMap::new();
     for l in std::fs::read_to_string(chgk_rating::data::BASE_ROSTERS).unwrap_or_default().lines().skip(1) {
         let f: Vec<&str> = l.split(',').collect();
-        if let (Some(Ok(t)), Some(Ok(s))) = (f.first().map(|x| x.parse()), f.get(2).map(|x| x.parse())) {
-            has.insert((t, s));
+        if let (Some(Ok(t)), Some(Ok(pl)), Some(Ok(s))) =
+            (f.first().map(|x| x.parse()), f.get(1).map(|x| x.parse()), f.get(2).map(|x| x.parse()))
+        {
+            players.entry((t, s)).or_default().push(pl);
         }
     }
-    let rows: Vec<(i64, i64)> = conn
-        .prepare("SELECT DISTINCT team_id, season_id FROM team_seasons WHERE player_id > 0")
+    let rows: Vec<(i64, i64, i64)> = conn
+        .prepare("SELECT team_id, season_id, player_id FROM team_seasons WHERE player_id > 0")
         .unwrap()
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
         .unwrap()
         .filter_map(|x| x.ok())
         .collect();
-    has.extend(rows);
-    Seasons { list, has }
+    for (t, s, pl) in rows {
+        players.entry((t, s)).or_default().push(pl);
+    }
+    for v in players.values_mut() {
+        v.sort_unstable();
+        v.dedup();
+    }
+    let has: HashSet<(i64, i64)> = players.keys().copied().collect();
+    Seasons { list, has, players }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -322,6 +331,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("loaded {} tournaments, {} teams", arena.tournaments.len(), arena.n_teams());
         let rs = build(&arena, &cfg);
         ac::save_results(&rs, &results)?;
+        eprintln!("wrote {results}: {} results", rs.len());
+    }
+    if args().iter().any(|a| a == "--build" || a == "--rosters")
+        || !std::path::Path::new(&format!("{dir}/rosters.tsv")).exists()
+    {
         let conn = Connection::open(&cfg.data.db_path)?;
         Names {
             teams: names(&conn, "SELECT id, name FROM teams"),
@@ -329,7 +343,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         .save(&format!("{dir}/names.tsv"))?;
         seasons(&conn).save(&format!("{dir}/rosters.tsv"))?;
-        eprintln!("wrote {dir}: {} results", rs.len());
     }
     let lab = Lab::load(&dir)?;
     let at = arg("--at").and_then(|d| parse_date(&d)).unwrap_or(lab.last + 1);
