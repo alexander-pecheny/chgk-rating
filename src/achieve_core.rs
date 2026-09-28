@@ -284,6 +284,9 @@ pub struct Knobs {
     /// Days into a season the last season's roster still lists a team; -1 lists
     /// every team whatever its roster.
     pub grace: i32,
+    /// A team is listed only with a counted result in the last `active_days`
+    /// days; 0 lists it however long it has been idle.
+    pub active_days: i32,
     /// Published points added to a sole first place before the weights.
     pub win_bonus: f64,
 }
@@ -317,6 +320,7 @@ impl Default for Knobs {
             min_slots: 5,
             base_rule: true,
             grace: 60,
+            active_days: 0,
             win_bonus: 0.0,
         }
     }
@@ -349,6 +353,7 @@ pub const KNOBS: &[(&str, &str, &str)] = &[
     ("slow_ref", "Сильное медленнее, опора", "Ценность, при которой возраст идёт с обычной скоростью"),
     ("base_rule", "Только свой состав", "1 — результат идёт в зачёт, только если не меньше 4 базовых и не больше 2 легионеров"),
     ("grace", "Без базы: дней", "Сколько дней нового сезона команда без заявленной базы остаётся в таблице; -1 — всегда"),
+    ("active_days", "Активность, дней", "Команда в таблице, только если за столько дней у неё есть зачтённый результат; 0 — без требования"),
     ("win_bonus", "Бонус за 1 место", "Очки, прибавляемые к игре за чистое первое место"),
 ];
 
@@ -380,6 +385,7 @@ impl Knobs {
             "min_slots" => self.min_slots.to_string(),
             "base_rule" => (self.base_rule as u8).to_string(),
             "grace" => self.grace.to_string(),
+            "active_days" => self.active_days.to_string(),
             "win_bonus" => self.win_bonus.to_string(),
             _ => String::new(),
         }
@@ -418,6 +424,7 @@ impl Knobs {
             "min_slots" => self.min_slots = (num()? as usize).min(100),
             "base_rule" => self.base_rule = num()? != 0.0,
             "grace" => self.grace = num()? as i32,
+            "active_days" => self.active_days = num()? as i32,
             "win_bonus" => self.win_bonus = num()?,
             _ => return Err(format!("нет такой ручки: {key}")),
         }
@@ -667,6 +674,10 @@ pub fn table(lab: &Lab, b: &Book, day: i32, k: &Knobs) -> Vec<(i64, f64, Vec<(Va
         .vals
         .keys()
         .filter(|&&t| lab.seasons.listed(t, day, k))
+        .filter(|&&t| {
+            k.active_days <= 0
+                || b.vals[&t].iter().any(|x| x.day < day && day - x.day <= k.active_days)
+        })
         .map(|&t| {
             let (x, c) = rating(b, t, day, k);
             (t, x, c)
@@ -851,6 +862,11 @@ pub fn describe(k: &Knobs, day: i32) -> String {
             k.min_slots.min(k.top_x)
         )
     };
+    let active = if k.active_days > 0 {
+        format!(" A team is listed only with a counted result in the last {} days.", k.active_days)
+    } else {
+        String::new()
+    };
     let roster = if k.grace < 0 {
         "Every team is listed, whatever its roster.".to_string()
     } else {
@@ -863,7 +879,7 @@ pub fn describe(k: &Knobs, day: i32) -> String {
         "On {date}. A team's rating is the sum of its {x} best current results, {slots}. Each result is worth \
          what the team played like, {how} The peak value is that strength times the format weight (in-person 1, \
          synchronous {ws}) and the field weight (0 when the mean of the {fk} strongest lineups is {fz:.0} or \
-         less, 1 at {fr:.0} or more). {fade}{slow} {own}{roster} Cities playing one package within two days of \
+         less, 1 at {fr:.0} or more). {fade}{slow} {own}{roster}{active} Cities playing one package within two days of \
          each other are one tournament.",
         date = show_day(day),
         x = k.top_x,
@@ -1049,6 +1065,7 @@ pub fn render_lab(lab: &Lab, k: &Knobs, day: i32, n: usize, was: &HashMap<i64, u
     let presets: &[(&str, &str)] = &[
         ("10 результатов", "top_x=10&min_slots=10"),
         ("без затухания", "fade=none"),
+        ("без затухания, только активные за год", "fade=none&active_days=365"),
         ("только по месту", "perf=place"),
         ("только по взятым", "perf=score"),
         ("синхрон как очный", "w_sync=1&sync_zero=-1&sync_half_life=0"),
