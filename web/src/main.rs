@@ -231,6 +231,12 @@ fn handle(req: Request, s: &Site, c: &Connection, assets: &Path) {
         }
         ["releases"] => ("Релизы".into(), pages::releases_page(s, c)),
         ["method"] => ("Методика".into(), method::BODY.to_string()),
+        // The achievement rating under trial: a body `achieve --html` writes,
+        // read on every request so a new run shows without a restart.
+        ["achieve"] => match std::fs::read_to_string("out/achieve/page.html") {
+            Ok(b) => ("Рейтинг достижений".into(), b),
+            Err(_) => return not_found(req, s),
+        },
         ["search"] => {
             let q = query_param(&query, "q").unwrap_or_default();
             (format!("Поиск: {q}"), pages::search_page(c, &q))

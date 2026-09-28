@@ -491,6 +491,10 @@ pub struct Data {
     /// merged under the lowest id and re-ranked by questions taken.
     #[serde(default)]
     pub merge_cities: bool,
+    /// Days apart two such fields may be and still merge: a package played on
+    /// Saturday in Europe is Friday in California. 0 is the same day only.
+    #[serde(default)]
+    pub merge_days: i32,
     /// Weight of one of those tournaments, on top of its format weight.
     #[serde(default = "one")]
     pub w_unrated: f64,

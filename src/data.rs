@@ -183,12 +183,12 @@ fn parse_mask(s: &str, out: &mut Vec<u8>) {
     }
 }
 
-/// `data.merge_cities`: the in-person fields of one day that share their
+/// `data.merge_cities`: the in-person fields of one day (or `days` apart) that share their
 /// editors and question count played one package in several cities, so they
 /// are one field. Each group is folded into its lowest id, provided every
 /// result carries a score, and re-ranked by it, ties sharing the mean place.
-fn merge_cities(ts: &mut Vec<Tournament>) {
-    let mut key_of: HashMap<(i32, Vec<u32>, usize), usize> = HashMap::new();
+fn merge_cities(ts: &mut Vec<Tournament>, days: i32) {
+    let mut key_of: HashMap<(Vec<u32>, usize), Vec<(i32, usize)>> = HashMap::new();
     let mut into: Vec<Option<usize>> = vec![None; ts.len()];
     for (k, t) in ts.iter().enumerate() {
         if t.format != Format::InPerson || t.train_only || t.editors.is_empty() || t.n_q == 0 {
@@ -199,11 +199,10 @@ fn merge_cities(ts: &mut Vec<Tournament>) {
         }
         let mut ed = t.editors.clone();
         ed.sort_unstable();
-        match key_of.get(&(t.day, ed.clone(), t.n_q)) {
-            Some(&first) => into[k] = Some(first),
-            None => {
-                key_of.insert((t.day, ed, t.n_q), k);
-            }
+        let firsts = key_of.entry((ed, t.n_q)).or_default();
+        match firsts.iter().find(|&&(d, _)| (t.day - d).abs() <= days) {
+            Some(&(_, first)) => into[k] = Some(first),
+            None => firsts.push((t.day, k)),
         }
     }
     let mut merged = vec![false; ts.len()];
@@ -446,7 +445,7 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
     }
     tournaments.retain(|t| !t.teams.is_empty());
     if cfg.data.merge_cities {
-        merge_cities(&mut tournaments);
+        merge_cities(&mut tournaments, cfg.data.merge_days);
     }
     let rosters = base_rosters(&conn);
     for t in tournaments.iter_mut() {
