@@ -151,7 +151,10 @@ fn ref20(rosters: &[Vec<u32>], players: &qm::Players, day: i32, ip: bool, cfg: &
     qs.iter().take(20).sum()
 }
 
-fn build(arena: &Arena, cfg: &Config, seasons: &Seasons) -> Vec<Res> {
+fn build(arena: &Arena, cfg: &Config, seasons: &Seasons, geo: &HashMap<String, (i64, i64)>) -> Vec<Res> {
+    // Each town of the arena as (town id, country id), -1 where unknown.
+    let town_geo: Vec<(i64, i64)> =
+        arena.towns.iter().map(|n| geo.get(n).copied().unwrap_or((-1, -1))).collect();
     // Every season's base rosters as player indices of this arena.
     let pidx: HashMap<i64, u32> = arena.player_ids.iter().enumerate().map(|(i, &p)| (p, i as u32)).collect();
     let mut by_season: HashMap<i64, Vec<Vec<u32>>> = HashMap::new();
@@ -298,6 +301,8 @@ fn build(arena: &Arena, cfg: &Config, seasons: &Seasons) -> Vec<Res> {
                         qual: qual.contains(&(t.id, arena.team_ids[r.team as usize])),
                         tw: tw.get(&t.id).copied().unwrap_or(0.0),
                         ref20: if t.format == Format::InPerson { ref_ip } else { ref_sync },
+                        town: town_geo.get(r.town as usize).map_or(-1, |g| g.0),
+                        country: town_geo.get(r.town as usize).map_or(-1, |g| g.1),
                     });
                 }
             }
@@ -394,7 +399,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let arena = chgk_rating::data::load(&cfg, &cfg.data.from, &cfg.data.to)?;
         eprintln!("loaded {} tournaments, {} teams", arena.tournaments.len(), arena.n_teams());
         let conn = Connection::open(&cfg.data.db_path)?;
-        let rs = build(&arena, &cfg, &seasons(&conn));
+        // Town name to (town id, country id): results carry the name only.
+        let geo: HashMap<String, (i64, i64)> = conn
+            .prepare("SELECT name, min(id), coalesce(max(country_id), -1) FROM towns GROUP BY name")?
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))))?
+            .collect::<Result<_, _>>()?;
+        let rs = build(&arena, &cfg, &seasons(&conn), &geo);
         ac::save_results(&rs, &results)?;
         eprintln!("wrote {results}: {} results", rs.len());
     }

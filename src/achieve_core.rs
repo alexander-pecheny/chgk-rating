@@ -93,9 +93,12 @@ pub struct Res {
     /// The combined strength of the season's 20 strongest base rosters that
     /// week, read the way this tournament's lineups are.
     pub ref20: f64,
+    /// The team's town and country on the day, -1 where unknown.
+    pub town: i64,
+    pub country: i64,
 }
 
-const HEADER: &str = "tid\tday\tformat\tteam\tplace\trated\tn\tn_base\tq\tperf_s\tperf_p\ttaken\tn_q\tfair_mu\tvenue\tvplace\tqual\ttw\tref20";
+const HEADER: &str = "tid\tday\tformat\tteam\tplace\trated\tn\tn_base\tq\tperf_s\tperf_p\ttaken\tn_q\tfair_mu\tvenue\tvplace\tqual\ttw\tref20\ttown\tcountry";
 
 pub fn save_results(rs: &[Res], path: &str) -> std::io::Result<()> {
     let mut s = String::from(HEADER);
@@ -103,7 +106,7 @@ pub fn save_results(rs: &[Res], path: &str) -> std::io::Result<()> {
     for r in rs {
         let _ = writeln!(
             s,
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}\t{}\t{}\t{:.1}\t{}\t{}\t{}\t{}\t{:.0}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}\t{}\t{}\t{:.1}\t{}\t{}\t{}\t{}\t{:.0}\t{}\t{}",
             r.tid,
             show_day(r.day),
             r.format,
@@ -122,7 +125,9 @@ pub fn save_results(rs: &[Res], path: &str) -> std::io::Result<()> {
             r.vplace,
             r.qual as u8,
             r.tw,
-            r.ref20
+            r.ref20,
+            r.town,
+            r.country
         );
     }
     std::fs::write(path, s)
@@ -156,6 +161,8 @@ pub fn load_results(path: &str) -> std::io::Result<Vec<Res>> {
                 qual: v.get(16).is_some_and(|x| *x == "1"),
                 tw: v.get(17).map_or(0.0, |x| f(x)),
                 ref20: v.get(18).map_or(f64::NAN, |x| f(x)),
+                town: v.get(19).and_then(|x| x.parse().ok()).unwrap_or(-1),
+                country: v.get(20).and_then(|x| x.parse().ok()).unwrap_or(-1),
             })
         })
         .collect())
@@ -310,6 +317,13 @@ pub struct Knobs {
     pub field_ref: f64,
     pub field_gamma: f64,
     pub field_min: f64,
+    /// In person only: times (countries in the field)^country_pow and
+    /// (towns in the field)^town_pow, a country or town counting once it
+    /// sends `country_min` / `town_min` teams.
+    pub country_pow: f64,
+    pub country_min: usize,
+    pub town_pow: f64,
+    pub town_min: usize,
     /// "linear" to zero at `zero_days`, "exp" halving every `half_life` days
     /// and dropped at `tail_days`, or "none": a result keeps its value forever.
     pub fade: String,
@@ -366,8 +380,12 @@ impl Default for Knobs {
             field_k: 20,
             field_zero: 2000.0,
             field_ref: 9000.0,
-            field_gamma: 1.0,
+            field_gamma: 3.0,
             field_min: 0.0,
+            country_pow: 0.5,
+            country_min: 1,
+            town_pow: 0.0,
+            town_min: 1,
             fade: "yearly".into(),
             full_days: 365,
             zero_days: 730,
@@ -409,6 +427,10 @@ pub const KNOBS: &[(&str, &str, &str)] = &[
     ("field_ref", "Поле: вес 1 при", "Сила поля, при которой вес турнира 1"),
     ("field_gamma", "Поле: степень", "Степень кривой веса поля; 0 — все турниры с весом 1"),
     ("field_min", "Поле: мин. вес", "Нижняя граница веса поля"),
+    ("country_pow", "Страны: степень", "Очный турнир: вес умножается на (число стран участников)^степень; 0 — не учитывать"),
+    ("country_min", "Страны: от команд", "Страна считается, если от неё не меньше стольких команд"),
+    ("town_pow", "Города: степень", "Очный турнир: вес умножается на (число городов участников)^степень; 0 — не учитывать"),
+    ("town_min", "Города: от команд", "Город считается, если от него не меньше стольких команд"),
     ("fade", "Затухание", "yearly — теряет долю в год с первого дня; none — не затухает никогда; linear — линейно до нуля; exp — полураспад"),
     ("loss_ip", "yearly: очный теряет в год", "yearly: доля ценности очного результата, теряемая за год"),
     ("loss_sync", "yearly: синхрон теряет в год", "yearly: доля ценности синхронного результата, теряемая за год"),
@@ -445,6 +467,10 @@ impl Knobs {
             "field_ref" => self.field_ref.to_string(),
             "field_gamma" => self.field_gamma.to_string(),
             "field_min" => self.field_min.to_string(),
+            "country_pow" => self.country_pow.to_string(),
+            "country_min" => self.country_min.to_string(),
+            "town_pow" => self.town_pow.to_string(),
+            "town_min" => self.town_min.to_string(),
             "fade" => self.fade.clone(),
             "full_days" => self.full_days.to_string(),
             "zero_days" => self.zero_days.to_string(),
@@ -492,6 +518,10 @@ impl Knobs {
             "field_ref" => self.field_ref = num()?,
             "field_gamma" => self.field_gamma = num()?,
             "field_min" => self.field_min = num()?,
+            "country_pow" => self.country_pow = num()?,
+            "country_min" => self.country_min = (num()? as usize).max(1),
+            "town_pow" => self.town_pow = num()?,
+            "town_min" => self.town_min = (num()? as usize).max(1),
             "full_days" => self.full_days = num()? as i32,
             "zero_days" => self.zero_days = num()? as i32,
             "sync_full" => self.sync_full = num()? as i32,
@@ -550,6 +580,10 @@ pub struct Field {
     pub venues: Vec<i64>,
     /// The season's 20 strongest base rosters that week, summed.
     pub ref20: f64,
+    pub in_person: bool,
+    /// Teams per country and per town, largest first.
+    pub countries: Vec<usize>,
+    pub towns: Vec<usize>,
 }
 
 /// The frozen values, the names and the rosters, loaded once.
@@ -572,7 +606,16 @@ impl Lab {
 
     pub fn from_results(rs: Vec<Res>, names: Names, seasons: Seasons) -> Lab {
         let mut by_t: HashMap<i64, (Vec<f64>, usize, HashSet<i64>, f64)> = HashMap::new();
+        let mut geo: HashMap<i64, (bool, HashMap<i64, usize>, HashMap<i64, usize>)> = HashMap::new();
         for r in &rs {
+            let g = geo.entry(r.tid).or_default();
+            g.0 = r.format == 'i';
+            if r.country >= 0 {
+                *g.1.entry(r.country).or_default() += 1;
+            }
+            if r.town >= 0 {
+                *g.2.entry(r.town).or_default() += 1;
+            }
             let e = by_t.entry(r.tid).or_default();
             e.3 = r.ref20;
             if r.q.is_finite() {
@@ -588,7 +631,25 @@ impl Lab {
                 q.truncate(50);
                 let mut venues: Vec<i64> = v.into_iter().collect();
                 venues.sort_unstable();
-                (t, Field { top_q: q, n_teams: n, n_venues: venues.len(), venues, ref20 })
+                let g = geo.remove(&t).unwrap_or_default();
+                let counts = |m: HashMap<i64, usize>| {
+                    let mut v: Vec<usize> = m.into_values().collect();
+                    v.sort_by(|a, b| b.cmp(a));
+                    v
+                };
+                (
+                    t,
+                    Field {
+                        top_q: q,
+                        n_teams: n,
+                        n_venues: venues.len(),
+                        venues,
+                        ref20,
+                        in_person: g.0,
+                        countries: counts(g.1),
+                        towns: counts(g.2),
+                    },
+                )
             })
             .collect();
         let last = rs.iter().map(|r| r.day).max().unwrap_or(0);
@@ -622,6 +683,10 @@ pub struct Val {
     pub season: i64,
     /// The world's top 20 base rosters that week, summed.
     pub ref20: f64,
+    /// The reach factor and the counts behind it.
+    pub geo: f64,
+    pub n_countries: usize,
+    pub n_towns: usize,
 }
 
 pub struct Book {
@@ -666,6 +731,17 @@ pub fn field_weight(f: &Field, k: &Knobs) -> (f64, f64) {
     (w.max(k.field_min.min(1.0)), s)
 }
 
+/// The in-person reach factor and the country and town counts behind it.
+pub fn reach(f: &Field, k: &Knobs) -> (f64, usize, usize) {
+    let nc = f.countries.iter().filter(|&&c| c >= k.country_min).count();
+    let nt = f.towns.iter().filter(|&&c| c >= k.town_min).count();
+    if !f.in_person {
+        return (1.0, nc, nt);
+    }
+    let x = (nc.max(1) as f64).powf(k.country_pow) * (nt.max(1) as f64).powf(k.town_pow);
+    (x, nc, nt)
+}
+
 pub fn book(lab: &Lab, k: &Knobs) -> Book {
     let mut fw: HashMap<i64, (f64, f64)> = HashMap::new();
     let mut vals: HashMap<i64, Vec<Val>> = HashMap::new();
@@ -685,7 +761,8 @@ pub fn book(lab: &Lab, k: &Knobs) -> Book {
         }
         let Some(f) = lab.fields.get(&r.tid) else { continue };
         let (wf, fs) = *fw.entry(r.tid).or_insert_with(|| field_weight(f, k));
-        let w = wfmt * wf;
+        let (geo, n_countries, n_towns) = reach(f, k);
+        let w = wfmt * wf * geo;
         let base = w * (perf.max(0.0) + if r.place == 1.0 { k.win_bonus } else { 0.0 });
         vals.entry(r.team).or_default().push(Val {
             day: r.day,
@@ -706,6 +783,9 @@ pub fn book(lab: &Lab, k: &Knobs) -> Book {
             nv: f.n_venues,
             season: lab.seasons.season_of(r.day).unwrap_or(-1),
             ref20: f.ref20,
+            geo,
+            n_countries,
+            n_towns,
         });
     }
     Book { vals }
@@ -930,10 +1010,10 @@ const HELP: &str = " style=\"text-decoration: underline dotted; cursor: help\"";
 
 /// Why a result's weight is below 1, for the hover text of its cell.
 fn weight_title(v: &Val, k: &Knobs) -> String {
-    if v.w >= 0.995 {
+    if (v.w - 1.0).abs() < 0.005 && v.geo == 1.0 {
         return String::new();
     }
-    let wf = v.w / v.wfmt.max(1e-9);
+    let wf = v.w / (v.wfmt * v.geo).max(1e-9);
     let mut parts = Vec::new();
     if v.wfmt < 1.0 {
         let f = match v.format {
@@ -955,6 +1035,16 @@ fn weight_title(v: &Val, k: &Knobs) -> String {
             "поле: средняя сила {} сильнейших составов {:.0}, вес ×{:.2} (0 при {:.0}, 1 при {:.0})",
             k.field_k, v.fs, wf, k.field_zero, k.field_ref
         ));
+    }
+    if v.geo != 1.0 {
+        let mut g = Vec::new();
+        if k.country_pow != 0.0 {
+            g.push(format!("стран {}", v.n_countries));
+        }
+        if k.town_pow != 0.0 {
+            g.push(format!("городов {}", v.n_towns));
+        }
+        parts.push(format!("география: {}, ×{:.2}", g.join(", "), v.geo));
     }
     format!(" title=\"{}\"{HELP}", esc(&parts.join("; ")))
 }
@@ -1045,16 +1135,40 @@ pub fn describe(k: &Knobs, day: i32) -> String {
     format!(
         "On {date}. A team's rating is the sum of its {x} best current results, {slots}. Each result is worth \
          what the team played like, {how} The peak value is that times the format weight (in-person 1, \
-         synchronous {ws}) and the field weight: {field}. {fade}{slow} {own}{roster}{active} Cities playing one package within two days of \
+         synchronous {ws}) and the field weight: {field}. {geo}{fade}{slow} {own}{roster}{active} Cities playing one package within two days of \
          each other are one tournament.",
         date = show_day(day),
+        geo = {
+            let mut g = Vec::new();
+            if k.country_pow != 0.0 {
+                g.push(format!(
+                    "the number of countries its teams come from (a country counting from {} team{}) to the power {}",
+                    k.country_min,
+                    if k.country_min == 1 { "" } else { "s" },
+                    k.country_pow
+                ));
+            }
+            if k.town_pow != 0.0 {
+                g.push(format!(
+                    "the number of towns (from {} team{}) to the power {}",
+                    k.town_min,
+                    if k.town_min == 1 { "" } else { "s" },
+                    k.town_pow
+                ));
+            }
+            if g.is_empty() {
+                String::new()
+            } else {
+                format!("An in-person result is further multiplied by {}. ", g.join(" and by "))
+            }
+        },
         x = k.top_x,
         ws = k.w_sync,
         field = if k.field_mode == "world" {
             format!(
                 "the combined strength of the tournament's {} strongest lineups over that of the season's 20 \
-                 strongest base rosters that week, at most 1",
-                k.field_k
+                 strongest base rosters that week, at most 1, to the power {}",
+                k.field_k, k.field_gamma
             )
         } else {
             format!(
@@ -1089,7 +1203,7 @@ pub fn render_table(
          <th class=\"num\" title=\"Место в турнире (в сводном зачёте, если площадок несколько)\">Место</th>\
          <th class=\"num\" title=\"Средняя сила сильнейших составов турнира\">Сила поля</th>\
          <th class=\"num\" title=\"Сила игры: как играли бы шесть равных игроков\">Игра</th>\
-         <th class=\"num\" title=\"Вес формата × вес поля\">Вес</th>\
+         <th class=\"num\" title=\"Вес формата × вес поля × география\">Вес</th>\
          <th class=\"num\" title=\"Ценность результата в день игры\">Игра × Вес</th>\
          <th class=\"num\" title=\"Доля ценности, оставшаяся после затухания\">Осталось</th>\
          <th class=\"num\" title=\"Доля тогдашней базы, оставшаяся в нынешней\">Состав</th>\
