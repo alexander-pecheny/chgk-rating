@@ -328,6 +328,18 @@ pub struct S2 {
     /// `Z + (R - Z) (Q(L) - Z) / (ref - Z)`, `Z = start_zero`, the ratio clipped
     /// to [0.5, 2]; otherwise `R + lineup_adj (Q(L) - ref)`.
     pub adj_mult: bool,
+    /// The best-results rating: a team's rating is the mean of its `best_n`
+    /// best counted performances, empty slots and anything below the published
+    /// zero counting as zero. A performance is the strength at which the
+    /// lineup's place is what the field's forecasts expect, less how far the
+    /// lineup stood above the team's base roster. A new result expires at most
+    /// one result older than `best_window` days, so an idle team keeps its
+    /// number. 0 is off.
+    pub best_n: usize,
+    pub best_window: i32,
+    /// Pseudo-games against the team's own forecast that keep a performance
+    /// finite for a first or last place.
+    pub perf_prior: f64,
 }
 
 impl Default for S2 {
@@ -403,6 +415,9 @@ impl Default for S2 {
             expect_forecast: false,
             forecast_rating: false,
             adj_mult: false,
+            best_n: 0,
+            best_window: 365,
+            perf_prior: 1.0,
         }
     }
 }

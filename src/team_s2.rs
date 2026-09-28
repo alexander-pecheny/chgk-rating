@@ -456,6 +456,35 @@ pub struct TeamsS2 {
     /// core is kept under every setting so the sweep can find guest-heavy
     /// results whichever rule moves the rating.
     pub guest_gap: Vec<f64>,
+    /// Under `best_n`: every counted performance still in the pool, as (day,
+    /// points above the published zero), oldest first.
+    pool: Vec<Vec<(i32, f64)>>,
+    /// Under `best_n`: the performance and the legionnaire cut of each event of
+    /// the last `step_rows`, NaN elsewhere.
+    pub perf: Vec<(f64, f64)>,
+}
+
+/// The strength at which a team's place is what the field expects: the root of
+/// `sum_j P(x beats f_j) + m P(x beats own) = wins + m/2`, by bisection.
+fn performance(own: f64, others: &[f64], wins: f64, m: f64, c: f64) -> f64 {
+    let g = |x: f64| {
+        others.iter().map(|&f| 1.0 / (1.0 + (c * (f - x)).exp())).sum::<f64>()
+            + m / (1.0 + (c * (own - x)).exp())
+            - wins
+            - m / 2.0
+    };
+    let lo0 = others.iter().copied().fold(own, f64::min) - 8.0 / c;
+    let hi0 = others.iter().copied().fold(own, f64::max) + 8.0 / c;
+    let (mut lo, mut hi) = (lo0, hi0);
+    while hi - lo > 0.5 {
+        let mid = 0.5 * (lo + hi);
+        if g(mid) < 0.0 {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    0.5 * (lo + hi)
 }
 
 /// What the pairwise stage needs, read off the pre-tournament states.
@@ -587,6 +616,8 @@ impl TeamsS2 {
             seats: vec![6.0; n],
             pr: Vec::new(),
             guest_gap: Vec::new(),
+            pool: vec![Vec::new(); n],
+            perf: Vec::new(),
         }
     }
 
@@ -665,6 +696,12 @@ impl TeamsS2 {
     /// diagnostics; `None` before the team has a core.
     pub fn parts_of(&self, i: usize, p: &S2) -> Option<(f64, f64)> {
         (!self.core[i].is_empty()).then(|| (self.core_q(i, p), self.b[i]))
+    }
+
+    /// Under `best_n`, the results a team's rating is drawn from, as (day,
+    /// points above the published zero), oldest first.
+    pub fn pool_of(&self, i: usize) -> &[(i32, f64)] {
+        &self.pool[i]
     }
 
     pub fn n_teams(&self) -> usize {
@@ -784,7 +821,11 @@ impl TeamsS2 {
             } else {
                 // An unrated result never opens a state; it still stands in the field.
                 if res.rated {
-                    self.r[idx] = q - p.start_drop - p.start_frac * (q - p.start_zero).max(0.0);
+                    self.r[idx] = if p.best_n > 0 {
+                        p.start_zero
+                    } else {
+                        q - p.start_drop - p.start_frac * (q - p.start_zero).max(0.0)
+                    };
                     self.qbar[idx] = q;
                     self.b[idx] = 0.0;
                     self.core[idx].clear();
@@ -931,9 +972,40 @@ impl TeamsS2 {
             .filter(|e| e.place.is_finite())
             .map(|e| e.place)
             .fold(f64::INFINITY, f64::min);
+        // Under `best_n`, every placed team's performance against the published
+        // forecasts of the rest of the field.
+        let perf: Vec<f64> = if p.best_n > 0 {
+            (0..n)
+                .map(|k| {
+                    if !es[k].place.is_finite() {
+                        return f64::NAN;
+                    }
+                    let mut others = Vec::with_capacity(n);
+                    let mut wins = 0.0;
+                    for (j, o) in es.iter().enumerate() {
+                        if j == k || !o.place.is_finite() || !o.fc.is_finite() {
+                            continue;
+                        }
+                        others.push(o.fc);
+                        wins += if o.place > es[k].place {
+                            1.0
+                        } else if o.place == es[k].place {
+                            0.5
+                        } else {
+                            0.0
+                        };
+                    }
+                    performance(es[k].fc, &others, wins, p.perf_prior, c)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        self.perf.clear();
         let mut out = Vec::with_capacity(n);
         for (k, e) in es.iter().enumerate() {
             let (mut d_place, mut d_pull) = (f64::NAN, f64::NAN);
+            let mut shown = (f64::NAN, f64::NAN);
             // Under `two_part`, the roster's share of the move: the old core at
             // today's player ratings, then the attendance update.
             let (mut d_drift, mut d_attend) = (0.0, 0.0);
@@ -946,7 +1018,29 @@ impl TeamsS2 {
                 // A provisional team moves faster: K_n = K max(1, n0 / n).
                 let kn = p.k * (p.n0 / e.games.max(1.0)).max(1.0);
                 d_place = kn * w * p.d * spair[k];
-                if p.place_sign {
+                if p.best_n > 0 && perf[k].is_finite() {
+                    // The lineup's lift over the base roster is not the team's.
+                    let cut = if e.q.is_finite() && !self.core[e.idx].is_empty() {
+                        (e.q - self.core_q(e.idx, p)).max(0.0)
+                    } else {
+                        0.0
+                    };
+                    shown = (perf[k], cut);
+                    let pool = &mut self.pool[e.idx];
+                    pool.push((day, (perf[k] - cut - p.start_zero).max(0.0)));
+                    // The best of the year before this game; a short year is
+                    // topped up with the most recent results before it, so a
+                    // returning team's new results push out its oldest ones.
+                    let from = day - p.best_window;
+                    let mut v: Vec<f64> = pool.iter().filter(|x| x.0 >= from).map(|x| x.1).collect();
+                    v.sort_by(|a, b| b.total_cmp(a));
+                    v.truncate(p.best_n);
+                    let older = pool.iter().rev().filter(|x| x.0 < from);
+                    let need = p.best_n - v.len();
+                    v.extend(older.take(need).map(|x| x.1));
+                    let sum: f64 = v.iter().sum();
+                    d_place = p.start_zero + sum / p.best_n as f64 - before;
+                } else if p.place_sign {
                     d_place = if rows[e.ri].position <= fplace[k] {
                         d_place.max(0.0)
                     } else {
@@ -1024,6 +1118,7 @@ impl TeamsS2 {
                 }
             }
             self.guest_gap.push(gap);
+            self.perf.push(shown);
             out.push(TeamEvent {
                 d_place,
                 d_pull,

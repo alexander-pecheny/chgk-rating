@@ -99,6 +99,9 @@ fn set(p: &mut Point, key: &str, val: &str) -> Result<(), String> {
         "expect_forecast" => p.s2.expect_forecast = val == "true",
         "forecast_rating" => p.s2.forecast_rating = val == "true",
         "adj_mult" => p.s2.adj_mult = val == "true",
+        "best_n" => p.s2.best_n = num()? as usize,
+        "best_window" => p.s2.best_window = num()? as i32,
+        "perf_prior" => p.s2.perf_prior = num()?,
         _ => return Err(format!("unknown parameter {key}")),
     }
     Ok(())
@@ -184,11 +187,22 @@ fn replay(cache: &[Cached], arena: &Arena, qual: &HashSet<(i64, i64)>, p: &Point
 /// The team table at the end of the replay: the `n` best teams with five rated
 /// games or more and one in the trailing year, as `team_id<TAB>rating<TAB>games`.
 fn top(teams: &TeamsS2, arena: &Arena, day: i32, n: usize) -> String {
-    let mut v: Vec<_> = teams.rows(day, 365).into_iter().filter(|r| r.4 >= 5.0).collect();
+    // `TOP_ALL=1` lists every team however long idle, the best-results rule's table.
+    let window = if std::env::var("TOP_ALL").is_ok() { 100 * 365 } else { 365 };
+    let mut v: Vec<_> = teams.rows(day, window).into_iter().filter(|r| r.4 >= 5.0).collect();
     v.sort_by(|a, b| b.1.total_cmp(&a.1));
     v.iter()
         .take(n)
-        .map(|r| format!("{}\t{:.0}\t{:.0}\n", arena.team_ids[r.0], r.1, r.4))
+        .map(|r| {
+            let last = teams.state_of(r.0).map_or(0, |s| s.3);
+            format!(
+                "{}\t{:.0}\t{:.0}\t{}\n",
+                arena.team_ids[r.0],
+                r.1,
+                r.4,
+                chgk_rating::util::format_date(last)
+            )
+        })
         .collect()
 }
 
@@ -542,6 +556,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         out.push_str(&line(&format!("`{spec}`"), &r, Some(&base_run), &w, nboot));
         for &id in &explain {
             let Some(i) = arena.team_ids.iter().position(|&x| x == id) else { continue };
+            if p.s2.best_n > 0 {
+                let mut v: Vec<(i32, f64)> = teams.pool_of(i).to_vec();
+                v.sort_by(|a, b| b.1.total_cmp(&a.1));
+                let s: Vec<String> = v
+                    .iter()
+                    .map(|(d, x)| format!("{} {:.0}", chgk_rating::util::format_date(*d), x))
+                    .collect();
+                eprintln!("{spec} team {id}: pool {} — {}", v.len(), s.join(", "));
+            }
             if let (Some((q, b)), Some((rt, _, g, _))) = (teams.parts_of(i, &p.s2), teams.state_of(i)) {
                 eprintln!("{spec} team {id}: R {rt:.0} = core {q:.0} + b {b:+.0}, games {g:.0}");
             }
