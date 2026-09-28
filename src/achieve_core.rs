@@ -90,9 +90,12 @@ pub struct Res {
     /// In the team metric's qualifying set, and the tournament's metric weight.
     pub qual: bool,
     pub tw: f64,
+    /// The combined strength of the season's 20 strongest base rosters that
+    /// week, read the way this tournament's lineups are.
+    pub ref20: f64,
 }
 
-const HEADER: &str = "tid\tday\tformat\tteam\tplace\trated\tn\tn_base\tq\tperf_s\tperf_p\ttaken\tn_q\tfair_mu\tvenue\tvplace\tqual\ttw";
+const HEADER: &str = "tid\tday\tformat\tteam\tplace\trated\tn\tn_base\tq\tperf_s\tperf_p\ttaken\tn_q\tfair_mu\tvenue\tvplace\tqual\ttw\tref20";
 
 pub fn save_results(rs: &[Res], path: &str) -> std::io::Result<()> {
     let mut s = String::from(HEADER);
@@ -100,7 +103,7 @@ pub fn save_results(rs: &[Res], path: &str) -> std::io::Result<()> {
     for r in rs {
         let _ = writeln!(
             s,
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}\t{}\t{}\t{:.1}\t{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}\t{}\t{}\t{:.1}\t{}\t{}\t{}\t{}\t{:.0}",
             r.tid,
             show_day(r.day),
             r.format,
@@ -118,7 +121,8 @@ pub fn save_results(rs: &[Res], path: &str) -> std::io::Result<()> {
             r.venue,
             r.vplace,
             r.qual as u8,
-            r.tw
+            r.tw,
+            r.ref20
         );
     }
     std::fs::write(path, s)
@@ -151,6 +155,7 @@ pub fn load_results(path: &str) -> std::io::Result<Vec<Res>> {
                 vplace: v.get(15).map_or(f(v[4]), |x| f(x)),
                 qual: v.get(16).is_some_and(|x| *x == "1"),
                 tw: v.get(17).map_or(0.0, |x| f(x)),
+                ref20: v.get(18).map_or(f64::NAN, |x| f(x)),
             })
         })
         .collect())
@@ -285,15 +290,21 @@ impl Seasons {
 
 #[derive(Clone, Debug)]
 pub struct Knobs {
+    /// "strength_place": the score-based strength over place^place_pow;
     /// "score", "place" or "mix": `mix` of score and 1 - mix of place.
     pub perf: String,
+    pub place_pow: f64,
     pub mix: f64,
     /// Added to the score-based number to put it on the lineup scale.
     pub shift: f64,
     pub w_sync: f64,
     pub w_strict: f64,
     pub w_async: f64,
-    /// Field strength is the mean of the top `field_k` lineups, empty seats at 0.
+    /// "world": the field's top `field_k` lineups over the season's top 20 base
+    /// rosters that week, capped at 1; "anchors": the mean of the top
+    /// `field_k` lineups placed between `field_zero` and `field_ref`.
+    pub field_mode: String,
+    /// Field strength is read over the top `field_k` lineups, empty seats at 0.
     pub field_k: usize,
     pub field_zero: f64,
     pub field_ref: f64,
@@ -342,7 +353,8 @@ impl Default for Knobs {
     /// The variant on the site's page.
     fn default() -> Knobs {
         Knobs {
-            perf: "mix".into(),
+            perf: "strength_place".into(),
+            place_pow: 0.5,
             mix: 0.5,
             shift: -800.0,
             w_sync: 0.75,
@@ -350,6 +362,7 @@ impl Default for Knobs {
             w_async: 0.0,
             // Twenty lineups, with the anchors moved to where 5000 and 9500
             // on the top-10 mean fall on the top-20 one (S20 = 1.55 S10 - 5700).
+            field_mode: "world".into(),
             field_k: 20,
             field_zero: 2000.0,
             field_ref: 9000.0,
@@ -367,8 +380,8 @@ impl Default for Knobs {
             tail_days: 1826,
             slow_ref: 9000.0,
             slow_k: 1.0,
-            top_x: 5,
-            min_slots: 5,
+            top_x: 7,
+            min_slots: 7,
             base_rule: true,
             grace: 60,
             active_days: 365,
@@ -383,12 +396,14 @@ impl Default for Knobs {
 pub const KNOBS: &[(&str, &str, &str)] = &[
     ("top_x", "Результатов", "Сколько лучших результатов складывается в рейтинг"),
     ("min_slots", "Мин. слотов", "Делитель не меньше этого числа (пустой слот = 0); 0 — всегда делить на число результатов"),
-    ("perf", "Игра по", "score — по взятым вопросам, place — по месту в поле, mix — смесь"),
+    ("perf", "Игра по", "strength_place — показанная сила / место^степень; score — по взятым вопросам; place — по месту в поле; mix — смесь двух последних"),
+    ("place_pow", "Степень места", "strength_place: показанная сила делится на место в этой степени (0.5 — корень)"),
     ("mix", "Доля взятых", "В смеси: доля оценки по взятым вопросам"),
     ("shift", "Сдвиг взятых", "Добавляется к оценке по взятым, чтобы она была на шкале составов"),
     ("w_sync", "Вес синхрона", "Множитель синхронного результата"),
     ("w_strict", "Вес строгого синхрона", "Множитель строго синхронного результата"),
     ("w_async", "Вес асинхрона", "Множитель асинхронного результата (0 — не считать)"),
+    ("field_mode", "Поле: режим", "world — сумма сильнейших составов турнира / сумма 20 сильнейших баз мира на ту неделю (не больше 1); anchors — по порогам ниже"),
     ("field_k", "Поле: топ-k", "Сила поля — средняя сила k сильнейших составов, недостающие считаются нулём"),
     ("field_zero", "Поле: вес 0 при", "Сила поля, при которой вес турнира 0"),
     ("field_ref", "Поле: вес 1 при", "Сила поля, при которой вес турнира 1"),
@@ -418,6 +433,8 @@ impl Knobs {
     pub fn get(&self, key: &str) -> String {
         match key {
             "perf" => self.perf.clone(),
+            "place_pow" => self.place_pow.to_string(),
+            "field_mode" => self.field_mode.clone(),
             "mix" => self.mix.to_string(),
             "shift" => self.shift.to_string(),
             "w_sync" => self.w_sync.to_string(),
@@ -456,7 +473,10 @@ impl Knobs {
         let val = val.trim();
         let num = || val.parse::<f64>().map_err(|_| format!("{key}: не число: {val}"));
         match key {
-            "perf" if ["score", "place", "mix"].contains(&val) => self.perf = val.into(),
+            "perf" if ["strength_place", "score", "place", "mix"].contains(&val) => self.perf = val.into(),
+            "field_mode" if ["world", "anchors"].contains(&val) => self.field_mode = val.into(),
+            "field_mode" => return Err(format!("{key}: нет такого значения: {val}")),
+            "place_pow" => self.place_pow = num()?,
             "fade" if ["none", "linear", "exp", "yearly"].contains(&val) => self.fade = val.into(),
             "perf" | "fade" => return Err(format!("{key}: нет такого значения: {val}")),
             "mix" => self.mix = num()?.clamp(0.0, 1.0),
@@ -528,6 +548,8 @@ pub struct Field {
     pub n_venues: usize,
     /// The tournaments merged into this field, by id.
     pub venues: Vec<i64>,
+    /// The season's 20 strongest base rosters that week, summed.
+    pub ref20: f64,
 }
 
 /// The frozen values, the names and the rosters, loaded once.
@@ -549,9 +571,10 @@ impl Lab {
     }
 
     pub fn from_results(rs: Vec<Res>, names: Names, seasons: Seasons) -> Lab {
-        let mut by_t: HashMap<i64, (Vec<f64>, usize, HashSet<i64>)> = HashMap::new();
+        let mut by_t: HashMap<i64, (Vec<f64>, usize, HashSet<i64>, f64)> = HashMap::new();
         for r in &rs {
             let e = by_t.entry(r.tid).or_default();
+            e.3 = r.ref20;
             if r.q.is_finite() {
                 e.0.push(r.q);
             }
@@ -560,12 +583,12 @@ impl Lab {
         }
         let fields = by_t
             .into_iter()
-            .map(|(t, (mut q, n, v))| {
+            .map(|(t, (mut q, n, v, ref20))| {
                 q.sort_by(|a, b| b.total_cmp(a));
                 q.truncate(50);
                 let mut venues: Vec<i64> = v.into_iter().collect();
                 venues.sort_unstable();
-                (t, Field { top_q: q, n_teams: n, n_venues: venues.len(), venues })
+                (t, Field { top_q: q, n_teams: n, n_venues: venues.len(), venues, ref20 })
             })
             .collect();
         let last = rs.iter().map(|r| r.day).max().unwrap_or(0);
@@ -597,6 +620,8 @@ pub struct Val {
     pub nv: usize,
     /// The season it was played in.
     pub season: i64,
+    /// The world's top 20 base rosters that week, summed.
+    pub ref20: f64,
 }
 
 pub struct Book {
@@ -611,6 +636,7 @@ fn own_lineup(r: &Res) -> bool {
 fn perf_of(r: &Res, k: &Knobs) -> (f64, f64, f64) {
     let (s, p) = (r.perf_s + k.shift, r.perf_p);
     let v = match k.perf.as_str() {
+        "strength_place" if r.place > 0.0 => s / r.place.powf(k.place_pow),
         "place" => p,
         "mix" if s.is_finite() && p.is_finite() => k.mix * s + (1.0 - k.mix) * p,
         _ if s.is_finite() => s,
@@ -621,16 +647,23 @@ fn perf_of(r: &Res, k: &Knobs) -> (f64, f64, f64) {
 
 /// The field weight and the field strength it was read from.
 pub fn field_weight(f: &Field, k: &Knobs) -> (f64, f64) {
-    let s: f64 = f.top_q.iter().take(k.field_k).map(|x| x.max(0.0)).sum::<f64>() / k.field_k.max(1) as f64;
-    let w = if k.field_gamma == 0.0 || k.field_ref <= k.field_zero {
+    let sum: f64 = f.top_q.iter().take(k.field_k).map(|x| x.max(0.0)).sum();
+    let s = sum / k.field_k.max(1) as f64;
+    if k.field_gamma == 0.0 {
+        return (1.0, s);
+    }
+    let w = if k.field_mode == "world" {
+        if f.ref20 > 0.0 {
+            (sum / f.ref20).min(1.0).powf(k.field_gamma)
+        } else {
+            1.0
+        }
+    } else if k.field_ref <= k.field_zero {
         1.0
     } else {
-        ((s - k.field_zero) / (k.field_ref - k.field_zero))
-            .max(0.0)
-            .powf(k.field_gamma)
-            .clamp(k.field_min.min(1.0), 1.0)
+        ((s - k.field_zero) / (k.field_ref - k.field_zero)).max(0.0).powf(k.field_gamma).min(1.0)
     };
-    (w, s)
+    (w.max(k.field_min.min(1.0)), s)
 }
 
 pub fn book(lab: &Lab, k: &Knobs) -> Book {
@@ -672,6 +705,7 @@ pub fn book(lab: &Lab, k: &Knobs) -> Book {
             nt: f.n_teams,
             nv: f.n_venues,
             season: lab.seasons.season_of(r.day).unwrap_or(-1),
+            ref20: f.ref20,
         });
     }
     Book { vals }
@@ -909,7 +943,14 @@ fn weight_title(v: &Val, k: &Knobs) -> String {
         };
         parts.push(format!("{f}: ×{:.2}", v.wfmt));
     }
-    if wf < 0.995 {
+    if wf < 0.995 && k.field_mode == "world" {
+        parts.push(format!(
+            "поле: 20 сильнейших составов турнира вместе {:.0}, 20 сильнейших баз мира в ту неделю {:.0}, вес ×{:.2}",
+            v.fs * k.field_k as f64,
+            v.ref20,
+            wf
+        ));
+    } else if wf < 0.995 {
         parts.push(format!(
             "поле: средняя сила {} сильнейших составов {:.0}, вес ×{:.2} (0 при {:.0}, 1 при {:.0})",
             k.field_k, v.fs, wf, k.field_zero, k.field_ref
@@ -921,6 +962,13 @@ fn weight_title(v: &Val, k: &Knobs) -> String {
 /// The rules in force, in English, for the lede.
 pub fn describe(k: &Knobs, day: i32) -> String {
     let how = match k.perf.as_str() {
+        "strength_place" => format!(
+            "the strength it demonstrated divided by its place to the power {}: the demonstrated strength is \
+             that of a lineup of six equal players who would expect to take as many questions on that package. \
+             In a tournament played in several cities the place is in the combined standings, and a question \
+             dropped at one venue is dropped at all of them.",
+            k.place_pow
+        ),
         "place" => "the strength at which a lineup would expect to finish where the team finished against the \
                     lineups of this field."
             .to_string(),
@@ -996,16 +1044,24 @@ pub fn describe(k: &Knobs, day: i32) -> String {
     };
     format!(
         "On {date}. A team's rating is the sum of its {x} best current results, {slots}. Each result is worth \
-         what the team played like, {how} The peak value is that strength times the format weight (in-person 1, \
-         synchronous {ws}) and the field weight (0 when the mean of the {fk} strongest lineups is {fz:.0} or \
-         less, 1 at {fr:.0} or more). {fade}{slow} {own}{roster}{active} Cities playing one package within two days of \
+         what the team played like, {how} The peak value is that times the format weight (in-person 1, \
+         synchronous {ws}) and the field weight: {field}. {fade}{slow} {own}{roster}{active} Cities playing one package within two days of \
          each other are one tournament.",
         date = show_day(day),
         x = k.top_x,
         ws = k.w_sync,
-        fk = k.field_k,
-        fz = k.field_zero,
-        fr = k.field_ref,
+        field = if k.field_mode == "world" {
+            format!(
+                "the combined strength of the tournament's {} strongest lineups over that of the season's 20 \
+                 strongest base rosters that week, at most 1",
+                k.field_k
+            )
+        } else {
+            format!(
+                "0 when the mean of the {} strongest lineups is {:.0} or less, 1 at {:.0} or more",
+                k.field_k, k.field_zero, k.field_ref
+            )
+        },
         own = if k.base_rule {
             "Only results played by the team's own lineup count (at least four base-roster players, at most two \
              guests). "
@@ -1084,7 +1140,14 @@ pub fn render_table(
             } else {
                 (String::new(), String::new())
             };
-            let perf_title = if k.perf == "mix" && val.by_score.is_finite() && val.by_place.is_finite() {
+            let perf_title = if k.perf == "strength_place" && val.by_score.is_finite() {
+                format!(
+                    " title=\"показанная сила {:.0} / место {}^{}\"{HELP}",
+                    val.by_score,
+                    fmtp(val.place),
+                    k.place_pow
+                )
+            } else if k.perf == "mix" && val.by_score.is_finite() && val.by_place.is_finite() {
                 format!(" title=\"по взятым вопросам {:.0}, по месту {:.0}\"{HELP}", val.by_score, val.by_place)
             } else {
                 String::new()
@@ -1151,9 +1214,10 @@ pub fn render_lab(lab: &Lab, k: &Knobs, day: i32, n: usize, was: &HashMap<i64, u
         let cur = k.get(key);
         let changed = cur != d.get(key);
         let input = match *key {
-            "perf" | "fade" | "overlap_by" => {
+            "perf" | "fade" | "overlap_by" | "field_mode" => {
                 let opts: &[&str] = match *key {
-                    "perf" => &["mix", "score", "place"],
+                    "perf" => &["strength_place", "mix", "score", "place"],
+                    "field_mode" => &["world", "anchors"],
                     "fade" => &["yearly", "exp", "linear", "none"],
                     _ => &["strength", "count"],
                 };
@@ -1192,6 +1256,7 @@ pub fn render_lab(lab: &Lab, k: &Knobs, day: i32, n: usize, was: &HashMap<i64, u
         ("10 результатов", "top_x=10&min_slots=10"),
         ("без затухания", "fade=none"),
         ("без затухания, только активные за год", "fade=none&active_days=365"),
+        ("смесь взятых и места", "perf=mix"),
         ("только по месту", "perf=place"),
         ("только по взятым", "perf=score"),
         ("синхрон как очный", "w_sync=1&sync_zero=-1&sync_half_life=0"),

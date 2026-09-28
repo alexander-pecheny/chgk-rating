@@ -20,7 +20,7 @@ use chgk_rating::editor_memory::EditorMemory;
 use chgk_rating::gauge::{self, Activity};
 use chgk_rating::question_model as qm;
 use chgk_rating::team_ndcg as metric;
-use chgk_rating::team_s2::{rows_of, TeamsS2};
+use chgk_rating::team_s2::{lineup_strength, player_rating, rows_of, TeamsS2};
 use chgk_rating::util::{next_thursday, parse_date};
 use rusqlite::Connection;
 use std::collections::{HashMap, HashSet};
@@ -120,7 +120,50 @@ fn fmt_char(f: Format) -> char {
 
 /// The player pass of `team_sweep`, with each result's performance read off the
 /// question fit of its own tournament and the fair rule replayed beside it.
-fn build(arena: &Arena, cfg: &Config) -> Vec<Res> {
+/// The combined strength of the 20 strongest base rosters of the season on
+/// `day`, on the published scale, each roster read over its six strongest
+/// known players the way a lineup is: in-person strength when `ip`, the plain
+/// rating otherwise.
+fn ref20(rosters: &[Vec<u32>], players: &qm::Players, day: i32, ip: bool, cfg: &Config) -> f64 {
+    let p = &cfg.team.s2;
+    let disp = |x: f64| cfg.display.a_team + cfg.display.b_team * x;
+    let mut qs: Vec<f64> = rosters
+        .iter()
+        .filter_map(|r| {
+            let mut rs: Vec<f64> = r
+                .iter()
+                .map(|&i| i as usize)
+                .filter(|&i| players.state[i].seen)
+                .map(|i| {
+                    let th = players.theta(i) + if ip { players.phi(i) } else { 0.0 };
+                    player_rating(th - p.sigma_c * players.sigma_at(i, day, cfg), cfg)
+                })
+                .collect();
+            if rs.len() < 4 {
+                return None;
+            }
+            rs.sort_by(|a, b| b.total_cmp(a));
+            rs.truncate(6);
+            Some(disp(lineup_strength(&rs, p)).max(0.0))
+        })
+        .collect();
+    qs.sort_by(|a, b| b.total_cmp(a));
+    qs.iter().take(20).sum()
+}
+
+fn build(arena: &Arena, cfg: &Config, seasons: &Seasons) -> Vec<Res> {
+    // Every season's base rosters as player indices of this arena.
+    let pidx: HashMap<i64, u32> = arena.player_ids.iter().enumerate().map(|(i, &p)| (p, i as u32)).collect();
+    let mut by_season: HashMap<i64, Vec<Vec<u32>>> = HashMap::new();
+    for ((_, s), v) in &seasons.players {
+        let r: Vec<u32> = v.iter().filter_map(|p| pidx.get(p).copied()).collect();
+        if r.len() >= 4 {
+            by_season.entry(*s).or_default().push(r);
+        }
+    }
+    let empty = Vec::new();
+    // Recomputed once a week, like a release.
+    let mut refs: Option<(i32, f64, f64)> = None;
     let qual = metric::qualify(metric::QUALIFY);
     let tw = metric::weights(metric::WEIGHTS);
     let passes = cfg.data.passes;
@@ -163,6 +206,17 @@ fn build(arena: &Arena, cfg: &Config) -> Vec<Res> {
             let params = qm::fit_all(&field, None, cfg);
             let grads = qm::player_grads(&field, &params, cfg);
             if last && !t.train_only {
+                let week = next_rel;
+                if refs.map_or(true, |r| r.0 != week) {
+                    let season = seasons.season_of(t.day).unwrap_or(-1);
+                    let rs = by_season.get(&season).unwrap_or(&empty);
+                    refs = Some((
+                        week,
+                        ref20(rs, &players, t.day, true, cfg),
+                        ref20(rs, &players, t.day, false, cfg),
+                    ));
+                }
+                let (_, ref_ip, ref_sync) = refs.unwrap();
                 let ctx = chgk_rating::team_s2::Context {
                     chem: &chem,
                     diff: &diff,
@@ -243,6 +297,7 @@ fn build(arena: &Arena, cfg: &Config) -> Vec<Res> {
                         vplace: r.venue_position,
                         qual: qual.contains(&(t.id, arena.team_ids[r.team as usize])),
                         tw: tw.get(&t.id).copied().unwrap_or(0.0),
+                        ref20: if t.format == Format::InPerson { ref_ip } else { ref_sync },
                     });
                 }
             }
@@ -338,7 +393,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args().iter().any(|a| a == "--build") || !std::path::Path::new(&results).exists() {
         let arena = chgk_rating::data::load(&cfg, &cfg.data.from, &cfg.data.to)?;
         eprintln!("loaded {} tournaments, {} teams", arena.tournaments.len(), arena.n_teams());
-        let rs = build(&arena, &cfg);
+        let conn = Connection::open(&cfg.data.db_path)?;
+        let rs = build(&arena, &cfg, &seasons(&conn));
         ac::save_results(&rs, &results)?;
         eprintln!("wrote {results}: {} results", rs.len());
     }
