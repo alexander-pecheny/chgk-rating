@@ -301,9 +301,11 @@ impl Default for Knobs {
             w_sync: 0.75,
             w_strict: 0.75,
             w_async: 0.0,
-            field_k: 10,
-            field_zero: 5000.0,
-            field_ref: 9500.0,
+            // Twenty lineups, with the anchors moved to where 5000 and 9500
+            // on the top-10 mean fall on the top-20 one (S20 = 1.55 S10 - 5700).
+            field_k: 20,
+            field_zero: 2000.0,
+            field_ref: 9000.0,
             field_gamma: 1.0,
             field_min: 0.0,
             fade: "exp".into(),
