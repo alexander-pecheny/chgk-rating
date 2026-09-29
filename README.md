@@ -56,7 +56,7 @@ Everything done by hand has a recipe; `just` with no argument lists them.
 
 ```
 just deploy          # publish this checkout to rating2.pecheny.me
-just ship my-branch  # merge a branch into master and publish it
+just ship my-branch  # merge a branch into main and publish it
 just deploy-dry      # the same pipeline here, no service touched
 just status          # the last lines of out/update.log and whether the site answers
 just diagnose        # where the forecast still loses

@@ -24,7 +24,7 @@ deploy-here: build
 deploy-dry: build
     SKIP_SYNC=1 SKIP_RESTART=1 REPO="{{repo}}" deploy/update.sh
 
-# Fast-forward master in the production checkout to this branch, build there, publish.
+# Fast-forward main in the production checkout to this branch, build there, publish.
 # From a worktree; `just ship` then `just deploy`.
 prod := "/home/pecheny/new_chgk_rating"
 ship:
