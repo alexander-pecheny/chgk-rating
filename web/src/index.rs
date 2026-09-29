@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// Bumped whenever the index grows a table or column the server reads, so a
 /// deploy rebuilds it instead of serving a page with nothing behind it.
-pub const VERSION: &str = "10";
+pub const VERSION: &str = "11";
 
 /// How names compare when the question is "is this the same name": ignoring the
 /// padding people type and the case they type it in. SQLite's own `lower()` is
@@ -64,6 +64,7 @@ CREATE TABLE team_rank (rank INTEGER PRIMARY KEY, team_id INTEGER, display REAL,
 CREATE TABLE anomaly (rank INTEGER PRIMARY KEY, player_id INTEGER, k REAL, k_f REAL, k_m REAL,
                       f_gap REAL, f_on INTEGER, f_ip INTEGER, m_gap REAL, m_on INTEGER,
                       m_ip INTEGER);
+CREATE TABLE venue (tournament_id INTEGER PRIMARY KEY, field_id INTEGER);
 CREATE TABLE base_roster (team_id INTEGER, player_id INTEGER, name TEXT, date_added TEXT);
 CREATE TABLE place_hist (kind INTEGER, id INTEGER, places BLOB, PRIMARY KEY (kind, id)) WITHOUT ROWID;
 CREATE VIRTUAL TABLE player_fts USING fts5(name, tokenize='unicode61 remove_diacritics 0');
@@ -79,6 +80,7 @@ CREATE INDEX idx_trank_team ON team_rank(team_id);
 CREATE INDEX idx_tour_date ON tournament(date);
 CREATE INDEX idx_anom_player ON anomaly(player_id);
 CREATE INDEX idx_base_team ON base_roster(team_id);
+CREATE INDEX idx_venue_field ON venue(field_id);
 ";
 
 /// The ratings database is written once by `fit` and read for ever after, so a
@@ -190,6 +192,22 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
         }
     }
     eprintln!("index: {} tournaments [{:.1}s]", tour_date.len(), t0.elapsed().as_secs_f64());
+
+    // ── merged fields ────────────────────────────────────────────────────────
+    // One package played in several cities is one field in the achievement
+    // rating, which records each result's venue and the field it went into.
+    // Only fields of two venues or more are kept: they are the pages that show
+    // every venue at once.
+    if crate::data::table_exists(&r, "achieve_values") {
+        let mut st = r
+            .prepare("select distinct tournament_id, field_id from achieve_values where n_venues > 1")
+            .unwrap();
+        let mut ins = w.prepare("insert or ignore into venue values (?1, ?2)").unwrap();
+        let mut rows = st.query([]).unwrap();
+        while let Some(x) = rows.next().unwrap() {
+            ins.execute(params![x.get::<_, i64>(0).unwrap(), x.get::<_, i64>(1).unwrap()]).unwrap();
+        }
+    }
 
     // ── what a team is called ────────────────────────────────────────────────
     // A result carries the name a team entered that one tournament under, which
