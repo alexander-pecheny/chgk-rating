@@ -282,19 +282,23 @@ pub fn team_table(s: &Site, c: &Connection, page: usize) -> String {
     out.push_str(&head(
         "Команды",
         &format!(
-            "Релиз от {}. В таблице {} команд, из них {} с установившимся рейтингом. \
-             Команда попадает в список, если сыграла рейтинговый турнир за последние 365 дней.",
+            "Релиз от {}. В таблице {} команд. Рейтинг команды — сумма семи её лучших результатов, \
+             делённая на семь: чем сильнее сыграно, чем выше место и сильнее поле, тем дороже \
+             результат, и со временем он дешевеет. В таблице команды с заявленной базой и хотя бы \
+             одним зачтённым результатом за последний год. <a href=\"/method/\">Как это считается</a>.",
             e(&s.release_date),
             s.n_teams,
-            firm
         ),
     ));
     out.push_str("<section class=\"section\">");
-    out.push_str(&prov_toggle(
-        rows.iter().filter(|r| r.8).count(),
-        (firm < s.n_teams).then(|| firm / PAGE + 1),
-        page,
-    ));
+    // The switch only matters when some team is provisional.
+    if firm < s.n_teams {
+        out.push_str(&prov_toggle(
+            rows.iter().filter(|r| r.8).count(),
+            Some(firm / PAGE + 1),
+            page,
+        ));
+    }
     let url = |i: usize| if i == 1 { "/".to_string() } else { format!("/page/{i}/") };
     out.push_str(&pager(page, pages, &url));
     let _ = write!(
@@ -304,7 +308,7 @@ pub fn team_table(s: &Site, c: &Connection, page: usize) -> String {
          <th class=\"num\">Рейтинг</th>{}\
          <th class=\"num\">Изменение</th></tr></thead><tbody>",
         if s.d.s2 {
-            "<th class=\"num\" title=\"Зачтённых турниров\">Турниров</th>"
+            "<th class=\"num\" title=\"Сколько результатов из семи входит в рейтинг\">Результатов</th>"
         } else {
             "<th class=\"num\" title=\"Неопределённость оценки\">±</th>"
         }
@@ -804,33 +808,37 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
             ),
         }
     );
+    // ── the achievement rating, when the database carries it ─────────────────
+    let rules = achieve_rules(c);
+    let team_row: Option<(f64, f64, i64)> = c
+        .query_row(
+            "select rating, divisor, n_results from achieve_team where team_id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .ok();
+
     out.push_str("<dl class=\"stats\">");
     match now {
-        Some((display, sigma, evidence, core)) => {
-            out.push_str(&stat("Рейтинг", &e(&disp(display))));
-            if s.d.s2 {
-                out.push_str(&stat("Рейтинговых турниров", &format!("{evidence:.0}")));
-                if core.is_finite() {
-                    out.push_str(&stat(
-                        "Обычный состав",
-                        &e(&disp(s.d.a_team + s.d.b_team * core)),
-                    ));
-                }
-            } else {
-                out.push_str(&stat(
-                    "Неопределённость",
-                    &format!("±{}", e(&disp(s.d.b_team * sigma))),
-                ));
-                out.push_str(&stat("Наигранность", &format!("{evidence:.1}")));
-            }
-        }
+        Some((display, _, _, _)) => out.push_str(&stat("Рейтинг", &e(&disp(display)))),
         None => out.push_str(&stat("Рейтинг", "—")),
     }
     out.push_str(&stat(
-        "Изменение за неделю",
+        "Место",
+        &rank.map(|r| format!("№{}", r.0)).unwrap_or_else(|| "—".into()),
+    ));
+    out.push_str(&stat(
+        "За неделю",
         &rank.and_then(|r| r.1).map(signed).unwrap_or_else(|| "—".into()),
     ));
+    if let (Some((_, _, n)), Some(x)) = (team_row, rules.get("top_x")) {
+        out.push_str(&stat("Результатов в рейтинге", &format!("{n} из {x}")));
+    }
     out.push_str("</dl>");
+
+    if let Some((rating, divisor, _)) = team_row {
+        out.push_str(&achieve_breakdown(c, id, rating, divisor, &rules));
+    }
 
     out.push_str(&chart_section(
         s,
@@ -840,7 +848,7 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         "select release_id, mu, sigma from team_ratings where team_id = ?1",
         s.d.a_team,
         s.d.b_team,
-        !s.d.s2,
+        false,
     ));
 
     // The base roster in force at the last release, strongest first; a player
@@ -874,17 +882,30 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         out.push_str("</ul></section>");
     }
 
-    let have = crate::data::columns(c, "team_events");
+    // ── every result, with what it was worth and whether it counts today ─────
+    let have_values = crate::data::table_exists(c, "achieve_values");
     let sql = format!(
-        "select v.tournament_id, t.name, coalesce(v.date, t.date) as d, v.forecast_place, \
-         v.actual_place, v.mu_before, v.mu_after, v.c, v.rated, {}, {}, t.type \
-         from team_events v left join x.tournament t on t.id = v.tournament_id \
+        "select v.tournament_id, t.name, coalesce(v.date, t.date) as d, v.actual_place, \
+         v.mu_before, v.mu_after, v.rated, t.type, {}, {}, {}, {}, {} \
+         from team_events v left join x.tournament t on t.id = v.tournament_id {} \
          where v.team_id = ?1 order by d desc, v.tournament_id desc",
-        crate::data::col(&have, "d_place"),
-        crate::data::col(&have, "d_pull"),
+        if have_values { "a.peak" } else { "null" },
+        if have_values { "a.n_teams" } else { "null" },
+        if have_values { "a.gain" } else { "null" },
+        if have_values { "a.strength, a.w, a.place" } else { "null, null, null" },
+        if have_values {
+            "exists(select 1 from achieve_parts p where p.team_id = v.team_id and p.tournament_id = v.tournament_id)"
+        } else {
+            "0"
+        },
+        if have_values {
+            "left join achieve_values a on a.tournament_id = v.tournament_id and a.team_id = v.team_id"
+        } else {
+            ""
+        },
     );
     let mut st = c.prepare(&sql).unwrap();
-    type Ev = (i64, String, String, Option<f64>, Option<f64>, Option<f64>, Option<f64>, f64, bool, Option<f64>, Option<f64>, String);
+    type Ev = (i64, String, String, Option<f64>, Option<f64>, Option<f64>, bool, String, Option<f64>, Option<i64>, Option<f64>, Option<f64>, Option<f64>, Option<f64>, bool);
     let evs: Vec<Ev> = st
         .query_map([id], |r| {
             Ok((
@@ -894,101 +915,274 @@ pub fn team_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
                 r.get(3)?,
                 r.get(4)?,
                 r.get(5)?,
-                r.get(6)?,
-                r.get::<_, Option<f64>>(7)?.unwrap_or(0.0),
-                r.get::<_, Option<i64>>(8)?.unwrap_or(1) != 0,
+                r.get::<_, Option<i64>>(6)?.unwrap_or(1) != 0,
+                r.get::<_, Option<String>>(7)?.unwrap_or_default(),
+                r.get(8)?,
                 r.get(9)?,
                 r.get(10)?,
-                r.get::<_, Option<String>>(11)?.unwrap_or_default(),
+                r.get(11)?,
+                r.get(12)?,
+                r.get(13)?,
+                r.get::<_, Option<i64>>(14)?.unwrap_or(0) != 0,
             ))
         })
         .unwrap()
         .map(|r| r.unwrap())
         .collect();
-    // The split of the step, shown only when a pull moved some rating: under
-    // the fair rule the whole of Δ is the placement step.
-    let split = evs
-        .iter()
-        .any(|v| v.9.is_some() && v.10.is_some_and(|dl| (s.d.b_team * dl).round() != 0.0));
 
     let _ = write!(
         out,
-        "<section class=\"section\"><h2 class=\"subhead\">Сыгранные турниры ({})</h2>",
+        "<section class=\"section\"><h2 class=\"subhead\">Все результаты ({})</h2>",
         evs.len()
     );
     if evs.is_empty() {
         out.push_str("<p class=\"empty\">Рейтинговых турниров нет.</p></section>");
         return Some(out);
     }
-    // Under S2 continuity is only the rated flag, which the row already carries.
-    let _ = write!(
-        out,
-        "<div class=\"table-scroll\"><table class=\"data-table\"><thead><tr>\
-         <th>Дата</th><th>Турнир</th><th>Тип</th><th class=\"num\">Прогноз</th><th class=\"num\">Место</th>\
-         <th class=\"num\">Было</th><th class=\"num\">Стало</th><th class=\"num\">Δ</th>{}{}\
-         </tr></thead><tbody>",
-        if split {
-            "<th class=\"num\" title=\"Шаг за место: против ожидания по силе команд в поле\">за место</th>\
-             <th class=\"num\" title=\"Подтягивание рейтинга к силе вышедшего состава\">к составу</th>"
-        } else {
-            ""
-        },
-        if s.d.s2 {
-            ""
-        } else {
-            "<th class=\"num\" title=\"Доля наигранного состава, вышедшая на этот турнир\">c</th>"
-        }
+    out.push_str(
+        "<p class=\"hint\">Ценность — сколько результат стоил в день турнира. Прибавка — насколько \
+         вырос рейтинг, когда результат вошёл в семь лучших; результат, не вошедший в них, рейтинг \
+         не меняет. Отмеченные ● входят в рейтинг сейчас. Прочерк в ценности — результат вне \
+         рейтинга или без данных о взятых вопросах. Как получена ценность, видно при наведении.</p>",
     );
-    for v in &evs {
-        let beat = match (v.3, v.4) {
-            (Some(f), Some(a)) if a < f - 0.5 => " place-better",
-            (Some(f), Some(a)) if a > f + 0.5 => " place-worse",
-            _ => "",
-        };
+    // The last three years show; older results open with the switch.
+    let cutoff = {
+        let y: i32 = s.release_date.get(..4).and_then(|x| x.parse().ok()).unwrap_or(0);
+        format!("{}{}", y - 3, s.release_date.get(4..).unwrap_or(""))
+    };
+    let older = evs.iter().filter(|v| v.2 < cutoff).count();
+    if older > 0 {
         let _ = write!(
             out,
-            "<tr><td class=\"nowrap\">{}</td><td><a href=\"/tournaments/{}/\">{}</a>{}</td>\
-             <td class=\"muted\">{}</td><td class=\"num muted\">{}</td><td class=\"num{beat}\">{}</td>{}{}{}</tr>",
+            "<label class=\"checkbox older-toggle\"><input type=\"checkbox\"> Показать и старые результаты \
+             <span class=\"prov-count\">ещё {older}, до {}</span></label>",
+            e(&cutoff)
+        );
+    }
+    out.push_str(
+        "<div class=\"table-scroll\"><table class=\"data-table\"><thead><tr>\
+         <th>Дата</th><th>Турнир</th><th>Тип</th><th class=\"num\">Место</th>\
+         <th class=\"num\" title=\"Сколько результат стоил в день турнира\">Ценность</th>\
+         <th class=\"num\" title=\"Входит ли результат в рейтинг сейчас\">В рейтинге</th>\
+         <th class=\"num\" title=\"Насколько вырос рейтинг, когда результат вошёл в семь лучших\">Прибавка</th>\
+         </tr></thead><tbody>",
+    );
+    for v in &evs {
+        let delta = match v.10 {
+            Some(g) if g.round() > 0.0 => format!("<td class=\"num delta-up\">{}</td>", signed(g)),
+            _ => "<td class=\"num muted\"></td>".into(),
+        };
+        let field = v.9.map(|n| format!(" <span class=\"muted\">из {n}</span>")).unwrap_or_default();
+        let _ = write!(
+            out,
+            "<tr{}><td class=\"nowrap\">{}</td><td><a href=\"/tournaments/{}/\">{}</a>{}</td>\
+             <td class=\"muted\">{}</td><td class=\"num nowrap\">{}{field}</td><td class=\"num\"{}>{}</td>\
+             <td class=\"num\">{}</td>{delta}</tr>",
+            match (v.14, v.2 < cutoff) {
+                (true, _) => " class=\"counts\"",
+                (false, true) => " class=\"older-row\"",
+                _ => "",
+            },
             e(&v.2),
             v.0,
             e(if v.1.is_empty() { "без названия" } else { &v.1 }),
-            unrated_tag(v.8),
-            e(tour_type(&v.11)),
+            unrated_tag(v.6),
+            e(tour_type(&v.7)),
             place(v.3),
-            place(v.4),
-            // A result before the team had a state shows dashes, not the map of zero.
-            step_cells(s.d.a_team, s.d.b_team, v.5, v.6),
-            if !split {
-                String::new()
-            } else if let (Some(dp), Some(dl)) = (v.9, v.10) {
-                let (dp, dl) = (s.d.b_team * dp, s.d.b_team * dl);
-                format!(
-                    "<td class=\"num {}\">{}</td><td class=\"num {}\">{}</td>",
-                    delta_class(dp),
-                    signed(dp),
-                    delta_class(dl),
-                    signed(dl)
-                )
-            } else {
-                "<td class=\"num muted\">—</td><td class=\"num muted\">—</td>".into()
+            match (v.11, v.12, v.13) {
+                (Some(st), Some(w), Some(pl)) => format!(
+                    " title=\"игра {}{} × вес {}\"",
+                    disp(st),
+                    if pl != 1.0 { format!(" ÷ место {}^0,6", place(Some(pl))) } else { String::new() },
+                    w2(w)
+                ),
+                _ => String::new(),
             },
-            if s.d.s2 {
-                String::new()
-            } else {
-                format!("<td class=\"num muted\">{:.2}</td>", v.7)
-            }
+            v.8.map(disp).unwrap_or_else(|| "—".into()),
+            if v.14 { "<span class=\"dot-in\" title=\"входит в рейтинг\">●</span>" } else { "" },
         );
     }
-    out.push_str("</tbody></table></div>");
-    if split {
-        out.push_str(
-            "<p class=\"hint\">Δ складывается из шага за место — против ожидания по силе команд \
-             в поле — и подтягивания к силе вышедшего состава. Разбор каждого турнира — на его \
-             странице.</p>",
-        );
-    }
-    out.push_str("</section>");
+    out.push_str("</tbody></table></div></section>");
     Some(out)
+}
+
+/// The knobs the achievement rating was published with, by name.
+fn achieve_rules(c: &Connection) -> HashMap<String, String> {
+    if !crate::data::table_exists(c, "achieve_meta") {
+        return HashMap::new();
+    }
+    c.prepare("select key, value from achieve_meta")
+        .and_then(|mut st| st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect())
+        .unwrap_or_default()
+}
+
+/// A number from the rules, formatted for a sentence: 0.1 → "10%".
+fn rule_pct(rules: &HashMap<String, String>, key: &str) -> String {
+    rules
+        .get(key)
+        .and_then(|v| v.parse::<f64>().ok())
+        .map(|x| format!("{:.0}%", 100.0 * x))
+        .unwrap_or_else(|| "?".into())
+}
+
+/// The rating taken apart: the results it is the sum of, each with what it was
+/// worth on the day, how much of that is left, and what it adds.
+fn achieve_breakdown(
+    c: &Connection,
+    id: i64,
+    rating: f64,
+    divisor: f64,
+    rules: &HashMap<String, String>,
+) -> String {
+    type Part = (i64, String, String, f64, f64, i64, i64, f64, f64, f64, f64, f64, f64, f64, f64, String);
+    let parts: Vec<Part> = c
+        .prepare(
+            "select p.tournament_id, coalesce(t.name, ''), a.date, a.place, a.venue_place, a.n_teams, \
+             a.n_venues, a.strength, a.w_format, a.w_field, a.w_reach, p.peak, p.fade, p.overlap, \
+             p.contribution, a.format \
+             from achieve_parts p join achieve_values a on a.tournament_id = p.tournament_id and a.team_id = p.team_id \
+             left join x.tournament t on t.id = p.tournament_id \
+             where p.team_id = ?1 order by p.slot",
+        )
+        .and_then(|mut st| {
+            st.query_map([id], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                    r.get(9)?,
+                    r.get(10)?,
+                    r.get(11)?,
+                    r.get(12)?,
+                    r.get(13)?,
+                    r.get(14)?,
+                    r.get(15)?,
+                ))
+            })?
+            .collect()
+        })
+        .unwrap_or_default();
+    let x = rules.get("top_x").cloned().unwrap_or_else(|| format!("{divisor:.0}"));
+    let pow = rules.get("place_pow").cloned().unwrap_or_else(|| "0.6".into());
+    let mut o = String::new();
+    o.push_str("<section class=\"section\"><h2 class=\"subhead\">Из чего складывается рейтинг</h2>");
+    let _ = write!(
+        o,
+        "<p class=\"hint\">Рейтинг — сумма {x} лучших результатов команды, делённая на {x}. \
+         Результат стоит столько, насколько сильно команда сыграла, делённое на место<sup>{pow}</sup> и \
+         умноженное на вес турнира. Затем ценность убывает: очный результат теряет {} в год, синхронный — {}. \
+         Если из того состава в базе осталась только часть игроков, результат стоит меньше. Подробности — \
+         в <a href=\"/method/\">методике</a>.</p>",
+        rule_pct(rules, "loss_ip"),
+        rule_pct(rules, "loss_sync"),
+    );
+    o.push_str(
+        "<div class=\"table-scroll\"><table class=\"data-table breakdown\"><thead><tr>\
+         <th>Турнир</th><th class=\"num\">Место</th>\
+         <th class=\"num\" title=\"Сколько результат стоил в день турнира\">Ценность</th>\
+         <th class=\"num\" title=\"Доля ценности, оставшаяся сегодня\">Осталось</th>\
+         <th class=\"num\" title=\"Ценность сегодня: ценность × осталось\">Сейчас</th>\
+         </tr></thead><tbody>",
+    );
+    let mut sum = 0.0;
+    for p in &parts {
+        let (tid, name, date, place_all, place_own, n, nv, strength, wfmt, wfield, wreach, peak, fade, ov, contrib, fmt) =
+            (p.0, &p.1, &p.2, p.3, p.4, p.5, p.6, p.7, p.8, p.9, p.10, p.11, p.12, p.13, p.14, &p.15);
+        sum += contrib;
+        let place_txt = |x: f64| if x.fract() == 0.0 { format!("{x:.0}") } else { format!("{x:.1}") };
+        // How the value on the day was made, in one line under the name.
+        let mut how = vec![format!("игра {}", disp(strength))];
+        if place_all != 1.0 {
+            how.push(format!("÷ место<sup>{pow}</sup>"));
+        }
+        let w = wfmt * wfield * wreach;
+        if (w - 1.0).abs() >= 0.005 {
+            let mut why = Vec::new();
+            if wfmt < 0.999 {
+                why.push(format!("{} ×{}", if fmt == "S" { "строгий синхрон" } else { "синхрон" }, w2(wfmt)));
+            }
+            if wfield < 0.995 {
+                why.push(format!("поле ×{}", w2(wfield)));
+            }
+            if wreach < 0.995 {
+                why.push(format!("охват ×{}", w2(wreach)));
+            }
+            how.push(format!("× вес {} ({})", w2(w), why.join(", ")));
+        }
+        if how.len() > 1 {
+            how.push(format!("= {}", disp(peak)));
+        }
+        let left = fade * ov;
+        let left_title = if ov < 0.995 {
+            format!(
+                " title=\"затухание {:.0}% × доля нынешнего состава {:.0}%\"",
+                100.0 * fade,
+                100.0 * ov
+            )
+        } else {
+            format!(" title=\"затухание: осталось {:.0}%\"", 100.0 * fade)
+        };
+        let merged = if nv > 1 {
+            format!(
+                "<span class=\"muted\"> · сводный зачёт {} {}, на своей — {}</span>",
+                nv,
+                plural(nv, "площадки", "площадки", "площадок"),
+                place_txt(place_own)
+            )
+        } else {
+            String::new()
+        };
+        let _ = write!(
+            o,
+            "<tr><td><a href=\"/tournaments/{tid}/\">{}</a> <span class=\"muted nowrap\">{}</span>{merged}\
+             <div class=\"how\">{}</div></td>\
+             <td class=\"num nowrap\">{} <span class=\"muted\">из {n}</span></td>\
+             <td class=\"num\">{}</td><td class=\"num muted\"{left_title}>{:.0}%</td>\
+             <td class=\"num strong\">{}</td></tr>",
+            e(if name.is_empty() { "без названия" } else { name }),
+            e(date),
+            how.join(" "),
+            place_txt(place_all),
+            disp(peak),
+            100.0 * left,
+            disp(contrib * divisor),
+        );
+    }
+    let slots: usize = x.parse().unwrap_or(parts.len());
+    for _ in parts.len()..slots {
+        o.push_str(
+            "<tr class=\"empty-slot\"><td class=\"muted\">пустой слот</td><td></td><td></td><td></td>\
+             <td class=\"num muted\">0</td></tr>",
+        );
+    }
+    let _ = write!(
+        o,
+        "</tbody><tfoot><tr><td colspan=\"4\">Сумма {} ÷ {divisor:.0} = рейтинг</td>\
+         <td class=\"num strong\">{}</td></tr></tfoot></table></div></section>",
+        disp(sum * divisor),
+        disp(rating)
+    );
+    o
+}
+
+/// The Russian noun form after a count: 2 площадки, 5 площадок.
+fn plural<'a>(n: i64, one: &'a str, few: &'a str, many: &'a str) -> &'a str {
+    match (n % 10, n % 100) {
+        (1, x) if x != 11 => one,
+        (2..=4, x) if !(12..=14).contains(&x) => few,
+        _ => many,
+    }
+}
+
+/// A weight to two places, with a decimal comma.
+fn w2(x: f64) -> String {
+    format!("{x:.2}").replace('.', ",")
 }
 
 pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
@@ -1103,16 +1297,25 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         lineup: Option<f64>,
         d_place: Option<f64>,
         d_pull: Option<f64>,
+        value: Option<f64>,
+        gain: Option<f64>,
     }
     let have = crate::data::columns(c, "team_events");
+    let have_values = crate::data::table_exists(c, "achieve_values");
     let sql = format!(
         "select v.team_id, m.name, v.forecast_place, v.actual_place, v.mu_before, v.mu_after, \
-         v.rated, r.score, r.name, v.s_r, {}, {} \
+         v.rated, r.score, r.name, v.s_r, {}, {}, {} \
          from team_events v left join x.team m on m.id = v.team_id \
-         left join x.result_ r on r.tournament_id = v.tournament_id and r.team_id = v.team_id \
+         left join x.result_ r on r.tournament_id = v.tournament_id and r.team_id = v.team_id {} \
          where v.tournament_id = ?1 order by v.actual_place",
         crate::data::col(&have, "d_place"),
         crate::data::col(&have, "d_pull"),
+        if have_values { "a.peak, a.gain" } else { "null, null" },
+        if have_values {
+            "left join achieve_values a on a.tournament_id = v.tournament_id and a.team_id = v.team_id"
+        } else {
+            ""
+        },
     );
     let mut st = c.prepare(&sql).unwrap();
     let evs: Vec<Row> = st
@@ -1130,6 +1333,8 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
                 lineup: r.get(9)?,
                 d_place: r.get(10)?,
                 d_pull: r.get(11)?,
+                value: r.get(12)?,
+                gain: r.get(13)?,
             })
         })
         .unwrap()
@@ -1224,8 +1429,14 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
          <th class=\"num\">Место</th><th class=\"num\">Прогноз</th><th>Команда</th>\
          <th class=\"num\">Взято</th>\
          <th class=\"num\" title=\"Сила вышедшего состава по рейтингам игроков на утро турнира\">Состав</th>\
-         <th class=\"num\">Было</th><th class=\"num\">Стало</th><th class=\"num\">Δ</th>{}{}\
+         <th class=\"num\" title=\"Сколько результат стоит в рейтинге команды в день турнира\">Ценность</th>\
+         {}{}{}\
          </tr></thead><tbody>",
+        if have_values {
+            "<th class=\"num\" title=\"Насколько вырос рейтинг команды, когда результат вошёл в семь её лучших\">Прибавка</th>"
+        } else {
+            "<th class=\"num\">Было</th><th class=\"num\">Стало</th><th class=\"num\">Δ</th>"
+        },
         if split {
             "<th class=\"num\" title=\"Шаг за место: против ожидания по силе команд в поле\">за место</th>\
              <th class=\"num\" title=\"Подтягивание рейтинга к силе вышедшего состава\">к составу</th>"
@@ -1291,7 +1502,7 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
             out,
             "<tr><td class=\"num{beat}\">{}</td><td class=\"num muted\">{}</td>\
              <td><a href=\"/teams/{}/\">{}</a>{}{}{}</td><td class=\"num\">{}</td>\
-             <td class=\"num muted\">{}</td>{}{}{}</tr>",
+             <td class=\"num muted\">{}</td><td class=\"num\">{}</td>{}{}{}</tr>",
             place(v.actual),
             place(v.forecast),
             v.team,
@@ -1301,7 +1512,15 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
             open,
             v.score.map(|x| x.to_string()).unwrap_or_else(|| "—".into()),
             v.lineup.map(|q| disp(s.d.a_team + s.d.b_team * q)).unwrap_or_else(|| "—".into()),
-            step_cells(s.d.a_team, s.d.b_team, v.before, v.after),
+            v.value.map(disp).unwrap_or_else(|| "—".into()),
+            if have_values {
+                match v.gain {
+                    Some(g) if g.round() > 0.0 => format!("<td class=\"num delta-up\">{}</td>", signed(g)),
+                    _ => "<td class=\"num muted\"></td>".into(),
+                }
+            } else {
+                step_cells(s.d.a_team, s.d.b_team, v.before, v.after)
+            },
             if split {
                 match p {
                     Some((dp, dl, _)) => format!(
@@ -1333,6 +1552,14 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         "<p class=\"hint\">Состав — сила вышедшего состава по рейтингам игроков на утро турнира; \
          по ней и строится прогноз, рейтинг команды в прогноз не входит.",
     );
+    if have_values {
+        out.push_str(
+            " Ценность — сколько результат стоит в рейтинге команды: сила игры, делённая на место \
+             в степени 0,6 и умноженная на вес турнира. Прочерк — результат не идёт в зачёт команде. \
+             Прибавка — насколько вырос рейтинг команды, когда результат вошёл в семь её лучших; \
+             результат, не вошедший в них, рейтинг не меняет.",
+        );
+    }
     if split {
         out.push_str(
             " Δ складывается из двух шагов. За место — насколько команда обошла ожидание \

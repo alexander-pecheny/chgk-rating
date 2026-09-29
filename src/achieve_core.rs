@@ -894,7 +894,7 @@ pub fn fade(age: i32, v: &Val, k: &Knobs) -> f64 {
 /// the team's roster on `day`, by seats or by rating points over the six
 /// strongest, to the power `overlap_k`. 1 when either roster
 /// is unknown.
-fn overlap(lab: &Lab, team: i64, season: i64, now: Option<&Vec<i64>>, k: &Knobs) -> f64 {
+pub fn overlap(lab: &Lab, team: i64, season: i64, now: Option<&Vec<i64>>, k: &Knobs) -> f64 {
     if k.overlap_k == 0.0 {
         return 1.0;
     }
@@ -967,17 +967,21 @@ pub fn rating_slots(lab: &Lab, b: &Book, team: i64, day: i32, k: &Knobs) -> (f64
     (out.iter().map(|x| x.1).sum::<f64>() / slots, out, slots)
 }
 
+/// Whether a team is in the table on `day`: a base roster for the season (or
+/// the last one, early in a season) and a counted result recent enough.
+pub fn listed(lab: &Lab, b: &Book, team: i64, day: i32, k: &Knobs) -> bool {
+    lab.seasons.listed(team, day, k)
+        && (k.active_days <= 0
+            || b.vals.get(&team).is_some_and(|v| v.iter().any(|x| x.day < day && day - x.day <= k.active_days)))
+}
+
 /// Every listed team with a positive rating on `day`, best first, published
 /// through the display map `a·x^p`, which is returned beside them.
 pub fn table(lab: &Lab, b: &Book, day: i32, k: &Knobs) -> (Vec<(i64, f64, Vec<(Val, f64)>, f64)>, (f64, f64)) {
     let mut v: Vec<(i64, f64, Vec<(Val, f64)>, f64)> = b
         .vals
         .keys()
-        .filter(|&&t| lab.seasons.listed(t, day, k))
-        .filter(|&&t| {
-            k.active_days <= 0
-                || b.vals[&t].iter().any(|x| x.day < day && day - x.day <= k.active_days)
-        })
+        .filter(|&&t| listed(lab, b, t, day, k))
         .map(|&t| {
             let (x, c, sl) = rating_slots(lab, b, t, day, k);
             (t, x, c, sl)

@@ -1,7 +1,3 @@
-// The achievement rating's aggregate, shared with `src/bin/achieve.rs`.
-#[path = "../../src/achieve_core.rs"]
-#[allow(dead_code)]
-mod achieve_core;
 mod anomaly;
 mod data;
 mod html;
@@ -235,10 +231,6 @@ fn handle(req: Request, s: &Site, c: &Connection, assets: &Path) {
         }
         ["releases"] => ("Релизы".into(), pages::releases_page(s, c)),
         ["method"] => ("Методика".into(), method::BODY.to_string()),
-        ["achieve"] => match achieve(c, &query) {
-            Some(b) => ("Рейтинг достижений".into(), b),
-            None => return not_found(req, s),
-        },
         ["search"] => {
             let q = query_param(&query, "q").unwrap_or_default();
             (format!("Поиск: {q}"), pages::search_page(c, &q))
@@ -283,47 +275,4 @@ fn not_found(req: Request, s: &Site) {
     let body = "<header class=\"page-head\"><h1>Не найдено</h1>\
                 <p class=\"lede\">Такой страницы нет. Попробуйте поиск в шапке.</p></header>";
     send_html(req, 404, layout(s, "Не найдено — Рейтинг ЧГК", body));
-}
-
-/// The achievement lab: the frozen values `achieve --build` writes to
-/// `out/achieve/`, loaded on the first visit and re-aggregated under the
-/// knobs of the query string on every request.
-fn achieve(c: &Connection, query: &str) -> Option<String> {
-    use achieve_core::{Knobs, Lab, KNOBS};
-    static LAB: std::sync::OnceLock<Option<Lab>> = std::sync::OnceLock::new();
-    let lab = LAB
-        .get_or_init(|| {
-            let t = std::time::Instant::now();
-            let lab = Lab::load("out/achieve").map_err(|e| eprintln!("achieve: {e}")).ok();
-            eprintln!("achieve: lab loaded in {:.1}s", t.elapsed().as_secs_f64());
-            lab
-        })
-        .as_ref()?;
-    let mut k = Knobs::default();
-    let mut err = Vec::new();
-    let (mut day, mut n) = (lab.last + 1, 100usize);
-    for (key, val) in query.split('&').filter_map(|kv| kv.split_once('=')) {
-        let val = decode(val);
-        match key {
-            "at" => match achieve_core::parse_day(&val) {
-                Some(d) => day = d,
-                None => err.push(format!("at={val}")),
-            },
-            "n" => n = val.trim().parse().unwrap_or(100).clamp(1, 1000),
-            _ if KNOBS.iter().any(|x| x.0 == key) => {
-                if let Err(e) = k.set(key, &val) {
-                    err.push(e);
-                }
-            }
-            _ => {}
-        }
-    }
-    let was: std::collections::HashMap<i64, usize> = c
-        .prepare("select team_id, rank from x.team_rank where provisional = 0")
-        .and_then(|mut st| {
-            st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)? as usize)))?
-                .collect::<Result<_, _>>()
-        })
-        .unwrap_or_default();
-    Some(achieve_core::render_lab(lab, &k, day, n, &was, &err))
 }

@@ -13,6 +13,11 @@ pub struct Display {
     pub s2: bool,
 }
 
+/// Whether a table exists, for pages that read an optional one.
+pub fn table_exists(db: &Connection, table: &str) -> bool {
+    !columns(db, table).is_empty()
+}
+
 /// Column names a table actually has, so the server survives the schema growing
 /// `display`, `change` or `date` under it.
 pub fn columns(db: &Connection, table: &str) -> HashSet<String> {

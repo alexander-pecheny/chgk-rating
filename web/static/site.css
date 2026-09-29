@@ -701,3 +701,44 @@ td:has(.roster-open input:checked) .roster-open span {
   font-variant-numeric: tabular-nums;
   color: var(--text-strong);
 }
+
+/* ── the rating taken apart, on a team page ──────────────── */
+
+.breakdown .how {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.breakdown tfoot td {
+  border-top: 1px solid var(--grid);
+  font-weight: var(--fw-semibold);
+  color: var(--text-strong);
+}
+
+.breakdown .empty-slot td {
+  color: var(--muted);
+}
+
+.data-table tr.counts td {
+  background: color-mix(in srgb, var(--green-dark) 6%, transparent);
+}
+
+.dot-in {
+  color: var(--green-dark);
+}
+
+/* A team's results older than three years stay folded until asked for. */
+.older-row {
+  display: none;
+}
+
+.section:has(.older-toggle input:checked) .older-row {
+  display: table-row;
+}
+
+.older-toggle {
+  align-self: flex-start;
+  color: var(--text);
+}

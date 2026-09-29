@@ -60,6 +60,21 @@ if ! ./target/release/eval > out/eval.md 2>&1; then
 fi
 log "eval done"
 
+# The team rating the site publishes is the achievement rating: its own player
+# pass freezes every result's value, then it replaces the team rows of the fit.
+log "achieve"
+if ! ./target/release/achieve --build --top 1 > out/achieve.log 2>&1; then
+    log "achieve failed, see out/achieve.log; the site keeps the old numbers"
+    tail -n 20 out/achieve.log
+    exit 1
+fi
+if ! ./target/release/achieve --publish out/ratings.db >> out/achieve.log 2>&1; then
+    log "achieve publish failed, see out/achieve.log"
+    tail -n 20 out/achieve.log
+    exit 1
+fi
+log "achieve done: $(tail -n 1 out/achieve.log)"
+
 if [ "${SKIP_RESTART:-}" = "1" ]; then
     log "restart skipped"
 else
