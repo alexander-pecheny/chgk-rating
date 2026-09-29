@@ -450,7 +450,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (tune, test) = ac::ndcg_of(&lab, &b, &k);
         let name = if spec.is_empty() { "achievement (base)".to_string() } else { format!("`{spec}`") };
         let _ = writeln!(table, "| {name} | {tune:.4} | {test:.4} | {:+.4} |", test - lab.fair.1);
-        let v = ac::table(&lab, &b, at, &k);
+        let (v, _) = ac::table(&lab, &b, at, &k);
         let mut md = format!("# Achievement rating on {}\n\nKnobs: `{k:?}`\n\n", ac::show_day(at));
         let _ = writeln!(md, "| # | was | team | rating | counted |\n|---|---|---|---|---|");
         for (i, (t, x, c)) in v.iter().take(top_n).enumerate() {

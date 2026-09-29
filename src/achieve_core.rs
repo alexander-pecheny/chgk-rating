@@ -317,6 +317,14 @@ pub struct Knobs {
     pub field_ref: f64,
     pub field_gamma: f64,
     pub field_min: f64,
+    /// "sum" mode, in person: (the sum of every lineup's strength / sum_ref)
+    /// ^ sum_gamma, uncapped, so a field the size of the biggest festivals
+    /// weighs about 1 and a bigger or stronger one more.
+    pub sum_ref: f64,
+    pub sum_gamma: f64,
+    /// The published rating is the mean of the current values times this; 0
+    /// picks it so the top 100 average what their counted results demonstrated.
+    pub scale: f64,
     /// In person only: times (countries in the field)^country_pow and
     /// (towns in the field)^town_pow, a country or town counting once it
     /// sends `country_min` / `town_min` teams.
@@ -376,13 +384,16 @@ impl Default for Knobs {
             w_async: 0.0,
             // Twenty lineups, with the anchors moved to where 5000 and 9500
             // on the top-10 mean fall on the top-20 one (S20 = 1.55 S10 - 5700).
-            field_mode: "world".into(),
+            field_mode: "sum".into(),
             field_k: 20,
             field_zero: 2000.0,
             field_ref: 9000.0,
             field_gamma: 3.0,
             field_min: 0.0,
-            country_pow: 0.5,
+            sum_ref: 1_000_000.0,
+            sum_gamma: 0.5,
+            scale: 0.0,
+            country_pow: 0.0,
             country_min: 1,
             town_pow: 0.0,
             town_min: 1,
@@ -421,7 +432,10 @@ pub const KNOBS: &[(&str, &str, &str)] = &[
     ("w_sync", "Вес синхрона", "Множитель синхронного результата"),
     ("w_strict", "Вес строгого синхрона", "Множитель строго синхронного результата"),
     ("w_async", "Вес асинхрона", "Множитель асинхронного результата (0 — не считать)"),
-    ("field_mode", "Поле: режим", "world — сумма сильнейших составов турнира / сумма 20 сильнейших баз мира на ту неделю (не больше 1); anchors — по порогам ниже"),
+    ("field_mode", "Поле: режим", "sum — очный: (сумма сил всех составов / опора)^степень, синхрон: как world; world — сумма сильнейших составов турнира / сумма 20 сильнейших баз мира на ту неделю (не больше 1); anchors — по порогам"),
+    ("scale", "Масштаб", "Рейтинг = среднее «Сейчас» × масштаб; 0 — монотонная шкала a·x^p, подобранная так, чтобы у первой сотни рейтинг был близок к показанной силе"),
+    ("sum_ref", "sum: опора", "sum: сумма сил всех составов очного турнира, при которой вес 1"),
+    ("sum_gamma", "sum: степень", "sum: степень отношения суммы к опоре"),
     ("field_k", "Поле: топ-k", "Сила поля — средняя сила k сильнейших составов, недостающие считаются нулём"),
     ("field_zero", "Поле: вес 0 при", "Сила поля, при которой вес турнира 0"),
     ("field_ref", "Поле: вес 1 при", "Сила поля, при которой вес турнира 1"),
@@ -457,6 +471,9 @@ impl Knobs {
             "perf" => self.perf.clone(),
             "place_pow" => self.place_pow.to_string(),
             "field_mode" => self.field_mode.clone(),
+            "sum_ref" => self.sum_ref.to_string(),
+            "scale" => self.scale.to_string(),
+            "sum_gamma" => self.sum_gamma.to_string(),
             "mix" => self.mix.to_string(),
             "shift" => self.shift.to_string(),
             "w_sync" => self.w_sync.to_string(),
@@ -500,9 +517,12 @@ impl Knobs {
         let num = || val.parse::<f64>().map_err(|_| format!("{key}: не число: {val}"));
         match key {
             "perf" if ["strength_place", "score", "place", "mix"].contains(&val) => self.perf = val.into(),
-            "field_mode" if ["world", "anchors"].contains(&val) => self.field_mode = val.into(),
+            "field_mode" if ["sum", "world", "anchors"].contains(&val) => self.field_mode = val.into(),
             "field_mode" => return Err(format!("{key}: нет такого значения: {val}")),
             "place_pow" => self.place_pow = num()?,
+            "sum_ref" => self.sum_ref = num()?.max(1.0),
+            "scale" => self.scale = num()?.max(0.0),
+            "sum_gamma" => self.sum_gamma = num()?,
             "fade" if ["none", "linear", "exp", "yearly"].contains(&val) => self.fade = val.into(),
             "perf" | "fade" => return Err(format!("{key}: нет такого значения: {val}")),
             "mix" => self.mix = num()?.clamp(0.0, 1.0),
@@ -580,6 +600,8 @@ pub struct Field {
     pub venues: Vec<i64>,
     /// The season's 20 strongest base rosters that week, summed.
     pub ref20: f64,
+    /// Every lineup's strength, summed, negatives at 0.
+    pub sum_all: f64,
     pub in_person: bool,
     /// Teams per country and per town, largest first.
     pub countries: Vec<usize>,
@@ -627,6 +649,7 @@ impl Lab {
         let fields = by_t
             .into_iter()
             .map(|(t, (mut q, n, v, ref20))| {
+                let sum_all: f64 = q.iter().map(|x| x.max(0.0)).sum();
                 q.sort_by(|a, b| b.total_cmp(a));
                 q.truncate(50);
                 let mut venues: Vec<i64> = v.into_iter().collect();
@@ -645,6 +668,7 @@ impl Lab {
                         n_venues: venues.len(),
                         venues,
                         ref20,
+                        sum_all,
                         in_person: g.0,
                         countries: counts(g.1),
                         towns: counts(g.2),
@@ -683,6 +707,7 @@ pub struct Val {
     pub season: i64,
     /// The world's top 20 base rosters that week, summed.
     pub ref20: f64,
+    pub sum_all: f64,
     /// The reach factor and the counts behind it.
     pub geo: f64,
     pub n_countries: usize,
@@ -717,7 +742,11 @@ pub fn field_weight(f: &Field, k: &Knobs) -> (f64, f64) {
     if k.field_gamma == 0.0 {
         return (1.0, s);
     }
-    let w = if k.field_mode == "world" {
+    if k.field_mode == "sum" && f.in_person {
+        let w = (f.sum_all / k.sum_ref).powf(k.sum_gamma);
+        return (w.max(k.field_min.min(1.0)), s);
+    }
+    let w = if k.field_mode == "world" || k.field_mode == "sum" {
         if f.ref20 > 0.0 {
             (sum / f.ref20).min(1.0).powf(k.field_gamma)
         } else {
@@ -783,6 +812,7 @@ pub fn book(lab: &Lab, k: &Knobs) -> Book {
             nv: f.n_venues,
             season: lab.seasons.season_of(r.day).unwrap_or(-1),
             ref20: f.ref20,
+            sum_all: f.sum_all,
             geo,
             n_countries,
             n_towns,
@@ -895,8 +925,9 @@ pub fn rating(lab: &Lab, b: &Book, team: i64, day: i32, k: &Knobs) -> (f64, Vec<
     (cur.iter().map(|x| x.1).sum::<f64>() / slots, cur)
 }
 
-/// Every listed team with a positive rating on `day`, best first.
-pub fn table(lab: &Lab, b: &Book, day: i32, k: &Knobs) -> Vec<(i64, f64, Vec<(Val, f64)>)> {
+/// Every listed team with a positive rating on `day`, best first, published
+/// through the display map `a·x^p`, which is returned beside them.
+pub fn table(lab: &Lab, b: &Book, day: i32, k: &Knobs) -> (Vec<(i64, f64, Vec<(Val, f64)>)>, (f64, f64)) {
     let mut v: Vec<(i64, f64, Vec<(Val, f64)>)> = b
         .vals
         .keys()
@@ -912,7 +943,36 @@ pub fn table(lab: &Lab, b: &Book, day: i32, k: &Knobs) -> Vec<(i64, f64, Vec<(Va
         .filter(|x| x.1 > 0.0)
         .collect();
     v.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
-    v
+    // The display map makes the numbers read as strengths: a·x^p, fitted in
+    // logs over the top 100 so each team's number sits near the mean strength
+    // its counted results demonstrated. It is monotone, so the order stands.
+    let (a, p) = if k.scale > 0.0 {
+        (k.scale, 1.0)
+    } else {
+        let pts: Vec<(f64, f64)> = v
+            .iter()
+            .take(100)
+            .filter_map(|(_, x, c)| {
+                let d: Vec<f64> = c.iter().map(|(val, _)| val.by_score).filter(|x| x.is_finite() && *x > 0.0).collect();
+                (!d.is_empty() && *x > 0.0).then(|| (x.ln(), (d.iter().sum::<f64>() / d.len() as f64).ln()))
+            })
+            .collect();
+        let n = pts.len() as f64;
+        if n < 5.0 {
+            (1.0, 1.0)
+        } else {
+            let (mx, my) = (pts.iter().map(|q| q.0).sum::<f64>() / n, pts.iter().map(|q| q.1).sum::<f64>() / n);
+            let sxy: f64 = pts.iter().map(|q| (q.0 - mx) * (q.1 - my)).sum();
+            let sxx: f64 = pts.iter().map(|q| (q.0 - mx) * (q.0 - mx)).sum();
+            let p = if sxx > 0.0 { (sxy / sxx).clamp(0.05, 1.0) } else { 1.0 };
+            ((my - p * mx).exp(), p)
+        }
+    };
+    for x in v.iter_mut() {
+        x.1 = a * x.1.powf(p);
+    }
+    let scale = (a, p);
+    (v, scale)
 }
 
 // -------------------------------------------------------------------- metric
@@ -1012,6 +1072,22 @@ const HELP: &str = " style=\"text-decoration: underline dotted; cursor: help\"";
 fn weight_title(v: &Val, k: &Knobs) -> String {
     if (v.w - 1.0).abs() < 0.005 && v.geo == 1.0 {
         return String::new();
+    }
+    if k.field_mode == "sum" && v.format == 'i' {
+        let wf = v.w / v.geo.max(1e-9);
+        let mut t = format!(
+            "поле: сумма сил всех {} составов {:.0}, опора {:.0}, вес ({:.2})^{} = ×{:.2}",
+            v.nt,
+            v.sum_all,
+            k.sum_ref,
+            v.sum_all / k.sum_ref,
+            k.sum_gamma,
+            wf
+        );
+        if v.geo != 1.0 {
+            let _ = write!(t, "; география ×{:.2}", v.geo);
+        }
+        return format!(" title=\"{}\"{HELP}", esc(&t));
     }
     let wf = v.w / (v.wfmt * v.geo).max(1e-9);
     let mut parts = Vec::new();
@@ -1164,7 +1240,15 @@ pub fn describe(k: &Knobs, day: i32) -> String {
         },
         x = k.top_x,
         ws = k.w_sync,
-        field = if k.field_mode == "world" {
+        field = if k.field_mode == "sum" {
+            format!(
+                "in person, (the summed strength of every lineup in the field / {:.0})<sup>{}</sup>, with no cap, \
+                 so a field the size of the biggest festivals weighs about 1; synchronous, the combined strength of \
+                 the {} strongest lineups over that of the season's 20 strongest base rosters that week, at most 1, \
+                 to the power {}",
+                k.sum_ref, k.sum_gamma, k.field_k, k.field_gamma
+            )
+        } else if k.field_mode == "world" {
             format!(
                 "the combined strength of the tournament's {} strongest lineups over that of the season's 20 \
                  strongest base rosters that week, at most 1, to the power {}",
@@ -1308,7 +1392,7 @@ pub fn render_table(
 pub fn render_lab(lab: &Lab, k: &Knobs, day: i32, n: usize, was: &HashMap<i64, usize>, err: &[String]) -> String {
     let t0 = std::time::Instant::now();
     let b = book(lab, k);
-    let v = table(lab, &b, day, k);
+    let (v, scale) = table(lab, &b, day, k);
     let (tune, test) = ndcg_of(lab, &b, k);
     let ms = t0.elapsed().as_millis();
     let mut o = String::new();
@@ -1331,7 +1415,7 @@ pub fn render_lab(lab: &Lab, k: &Knobs, day: i32, n: usize, was: &HashMap<i64, u
             "perf" | "fade" | "overlap_by" | "field_mode" => {
                 let opts: &[&str] = match *key {
                     "perf" => &["strength_place", "mix", "score", "place"],
-                    "field_mode" => &["world", "anchors"],
+                    "field_mode" => &["sum", "world", "anchors"],
                     "fade" => &["yearly", "exp", "linear", "none"],
                     _ => &["strength", "count"],
                 };
@@ -1389,12 +1473,14 @@ pub fn render_lab(lab: &Lab, k: &Knobs, day: i32, n: usize, was: &HashMap<i64, u
         o,
         "<p class=\"muted\">Команд в таблице: {}. Предсказательная сила (NDCG порядка команд с базовым составом \
          на очных турнирах): обучение {:.4}, проверка {:.4}; у нынешнего рейтинга сайта {:.4} и {:.4}. \
-         Пересчёт занял {ms} мс. Жирным отмечены ручки, изменённые относительно умолчаний.</p>",
+         Рейтинг = {a:.1} × (среднее значений «Сейчас»)<sup>{p:.2}</sup> — монотонная шкала, подобранная так, чтобы у первой сотни рейтинг был близок к силе, показанной в зачтённых результатах; порядок она не меняет. Пересчёт занял {ms} мс. Жирным отмечены ручки, изменённые относительно умолчаний.</p>",
         v.len(),
         tune,
         test,
         lab.fair.0,
-        lab.fair.1
+        lab.fair.1,
+        a = scale.0,
+        p = scale.1
     );
     o.push_str(&render_table(&v, k, day, n, was, &lab.names, &lab.fields));
     o.push_str("</section>");
