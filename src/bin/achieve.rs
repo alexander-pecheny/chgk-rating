@@ -386,6 +386,153 @@ fn seasons(conn: &Connection) -> Seasons {
     Seasons { list, has, players, strength }
 }
 
+// ------------------------------------------------------------------- search
+
+/// xorshift, seeded, so a search is reproducible.
+struct Rand(u64);
+
+impl Rand {
+    fn u(&mut self) -> f64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        (self.0 >> 11) as f64 / (1u64 << 53) as f64
+    }
+    fn range(&mut self, a: f64, b: f64) -> f64 {
+        a + (b - a) * self.u()
+    }
+    fn pick<'a>(&mut self, v: &[&'a str]) -> &'a str {
+        v[((self.u() * v.len() as f64) as usize).min(v.len() - 1)]
+    }
+}
+
+/// Every knob that can change the order of a field, with how to draw it. The
+/// listing rules (grace, activity) and the display scale cannot, so they are
+/// not searched.
+fn draw(key: &str, r: &mut Rand) -> String {
+    let int = |r: &mut Rand, a: f64, b: f64| (r.range(a, b + 1.0).floor()).to_string();
+    match key {
+        "top_x" => int(r, 3.0, 15.0),
+        "min_slots" => int(r, 0.0, 15.0),
+        "perf" => r.pick(&["strength_place", "strength_place", "mix", "score", "place"]).into(),
+        "place_pow" => format!("{:.2}", r.range(0.0, 1.2)),
+        "mix" => format!("{:.2}", r.range(0.0, 1.0)),
+        "w_sync" => format!("{:.2}", r.range(0.0, 1.2)),
+        "w_strict" => format!("{:.2}", r.range(0.0, 1.2)),
+        "field_mode" => r.pick(&["sum", "world", "anchors"]).into(),
+        "field_k" => r.pick(&["5", "10", "20", "30"]).into(),
+        "field_gamma" => format!("{:.2}", r.range(0.0, 5.0)),
+        "field_zero" => format!("{:.0}", r.range(0.0, 6000.0)),
+        "field_ref" => format!("{:.0}", r.range(8000.0, 11000.0)),
+        "sum_ref" => format!("{:.0}", (r.range(12.0, 14.6)).exp()),
+        "sum_gamma" => format!("{:.2}", r.range(0.0, 1.5)),
+        "country_pow" => format!("{:.2}", if r.u() < 0.4 { 0.0 } else { r.range(0.0, 1.0) }),
+        "country_min" => int(r, 1.0, 3.0),
+        "town_pow" => format!("{:.2}", if r.u() < 0.4 { 0.0 } else { r.range(0.0, 0.8) }),
+        "town_min" => int(r, 1.0, 3.0),
+        "fade" => r.pick(&["yearly", "yearly", "exp", "linear", "none"]).into(),
+        "loss_ip" => format!("{:.2}", r.range(0.0, 0.7)),
+        "loss_sync" => format!("{:.2}", r.range(0.0, 0.95)),
+        "full_days" => int(r, 0.0, 730.0),
+        "zero_days" => int(r, 400.0, 2000.0),
+        "half_life" => int(r, 60.0, 1500.0),
+        "sync_full" => int(r, 0.0, 365.0),
+        "sync_zero" => int(r, 200.0, 1000.0),
+        "sync_half_life" => int(r, 30.0, 700.0),
+        "tail_days" => int(r, 730.0, 5000.0),
+        "slow_k" => format!("{:.2}", r.range(0.0, 2.0)),
+        "overlap_k" => format!("{:.2}", if r.u() < 0.3 { 0.0 } else { r.range(0.0, 2.0) }),
+        "overlap_by" => r.pick(&["strength", "count"]).into(),
+        "base_rule" => r.pick(&["0", "1"]).into(),
+        "win_bonus" => format!("{:.0}", if r.u() < 0.5 { 0.0 } else { r.range(0.0, 2000.0) }),
+        _ => String::new(),
+    }
+}
+
+const SEARCHED: &[&str] = &[
+    "top_x", "min_slots", "perf", "place_pow", "mix", "w_sync", "w_strict", "field_mode", "field_k",
+    "field_gamma", "field_zero", "field_ref", "sum_ref", "sum_gamma", "country_pow", "country_min",
+    "town_pow", "town_min", "fade", "loss_ip", "loss_sync", "full_days", "zero_days", "half_life",
+    "sync_full", "sync_zero", "sync_half_life", "tail_days", "slow_k", "overlap_k", "overlap_by",
+    "base_rule", "win_bonus",
+];
+
+fn knobs_of(vals: &[String]) -> Knobs {
+    let mut k = Knobs::default();
+    for (key, v) in SEARCHED.iter().zip(vals) {
+        let _ = k.set(key, v);
+    }
+    k
+}
+
+/// Random search, then local refinement of the best on the tune window; every
+/// point scored on both windows and written as a row of `path`.
+fn search(lab: &Lab, n: usize, rounds: usize, seed: u64, threads: usize, path: &str) -> std::io::Result<()> {
+    use rayon::prelude::*;
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+    let score = |pts: &[Vec<String>]| -> Vec<(f64, f64)> {
+        pool.install(|| {
+            pts.par_iter()
+                .map(|v| {
+                    let k = knobs_of(v);
+                    let b = ac::book(lab, &k);
+                    ac::ndcg_of(lab, &b, &k)
+                })
+                .collect()
+        })
+    };
+    let mut out = String::new();
+    let _ = writeln!(out, "phase\ttune\ttest\t{}", SEARCHED.join("\t"));
+    let mut all: Vec<(Vec<String>, f64, f64)> = Vec::new();
+    type Pt = (Vec<String>, f64, f64);
+    fn record(all: &mut Vec<Pt>, phase: &str, pts: Vec<Vec<String>>, sc: Vec<(f64, f64)>, out: &mut String) {
+        for (v, (a, b)) in pts.into_iter().zip(sc) {
+            let _ = writeln!(out, "{phase}\t{a:.5}\t{b:.5}\t{}", v.join("\t"));
+            all.push((v, a, b));
+        }
+    }
+    // The default first, as the reference row.
+    let d = Knobs::default();
+    let def: Vec<String> = SEARCHED.iter().map(|k| d.get(k)).collect();
+    let sc = score(&[def.clone()]);
+    record(&mut all, "default", vec![def], sc, &mut out);
+    let mut r = Rand(seed | 1);
+    let t0 = std::time::Instant::now();
+    for chunk in 0..n.div_ceil(200) {
+        let pts: Vec<Vec<String>> = (0..200.min(n - chunk * 200))
+            .map(|_| SEARCHED.iter().map(|k| draw(k, &mut r)).collect())
+            .collect();
+        let sc = score(&pts);
+        record(&mut all, "random", pts, sc, &mut out);
+        std::fs::write(path, &out)?;
+        let best = all.iter().map(|x| x.1).fold(f64::MIN, f64::max);
+        eprintln!("random {} / {n}, best tune {best:.4}, {:.0}s", all.len() - 1, t0.elapsed().as_secs_f64());
+    }
+    // Local refinement: mutate a few knobs of the best eight at a time.
+    for round in 0..rounds {
+        let mut best: Vec<&(Vec<String>, f64, f64)> = all.iter().collect();
+        best.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let parents: Vec<Vec<String>> = best.iter().take(8).map(|x| x.0.clone()).collect();
+        let pts: Vec<Vec<String>> = (0..96)
+            .map(|i| {
+                let mut v = parents[i % parents.len()].clone();
+                let m = 1 + (r.u() * 3.0) as usize;
+                for _ in 0..m {
+                    let j = ((r.u() * SEARCHED.len() as f64) as usize).min(SEARCHED.len() - 1);
+                    v[j] = draw(SEARCHED[j], &mut r);
+                }
+                v
+            })
+            .collect();
+        let sc = score(&pts);
+        record(&mut all, "local", pts, sc, &mut out);
+        std::fs::write(path, &out)?;
+        let b = all.iter().max_by(|a, b| a.1.total_cmp(&b.1)).unwrap();
+        eprintln!("local {}/{rounds}, best tune {:.4} (test {:.4}), {:.0}s", round + 1, b.1, b.2, t0.elapsed().as_secs_f64());
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cfg_path = arg("--config").unwrap_or_else(|| "config.toml".into());
     let mut cfg = Config::load(&cfg_path)?;
@@ -420,6 +567,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         seasons(&conn).save(&format!("{dir}/rosters.tsv"))?;
     }
     let lab = Lab::load(&dir)?;
+    if let Some(n) = arg("--search").and_then(|v| v.parse::<usize>().ok()) {
+        let rounds = arg("--rounds").map_or(20, |v| v.parse().unwrap_or(20));
+        let seed = arg("--seed").map_or(1, |v| v.parse().unwrap_or(1));
+        let threads = arg("--threads").map_or(3, |v| v.parse().unwrap_or(3));
+        let path = arg("--search-out").unwrap_or_else(|| format!("{dir}/search.tsv"));
+        search(&lab, n, rounds, seed, threads, &path)?;
+        eprintln!("wrote {path}");
+        return Ok(());
+    }
     let at = arg("--at").and_then(|d| parse_date(&d)).unwrap_or(lab.last + 1);
     let top_n: usize = arg("--top").map_or(30, |v| v.parse().unwrap_or(30));
     let out_dir = arg("--out").unwrap_or_else(|| dir.clone());

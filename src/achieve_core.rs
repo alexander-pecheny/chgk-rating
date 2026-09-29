@@ -392,7 +392,7 @@ impl Default for Knobs {
             field_min: 0.0,
             sum_ref: 1_000_000.0,
             sum_gamma: 0.5,
-            scale: 0.0,
+            scale: 1.0,
             country_pow: 0.0,
             country_min: 1,
             town_pow: 0.0,
