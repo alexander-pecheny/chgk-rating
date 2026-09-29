@@ -1223,16 +1223,72 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         )
         .ok()?;
 
+    // One package played in several cities is one field: whichever venue the
+    // reader opens, the page shows every venue's teams, ranked together.
+    let venues: Vec<(i64, String)> = c
+        .prepare(
+            "select v.tournament_id, coalesce(t.name, '') from x.venue v \
+             left join x.tournament t on t.id = v.tournament_id \
+             where v.field_id = (select field_id from x.venue where tournament_id = ?1) \
+             order by v.tournament_id",
+        )
+        .and_then(|mut st| st.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect())
+        .unwrap_or_default();
+    let merged = venues.len() > 1;
+    // Ids straight from the index, so they go into the SQL as a literal list.
+    let ids = if merged {
+        venues.iter().map(|v| v.0.to_string()).collect::<Vec<_>>().join(",")
+    } else {
+        id.to_string()
+    };
+    let venue_name = |v: i64| -> &str {
+        venues.iter().find(|x| x.0 == v).map_or("", |x| x.1.as_str())
+    };
+
     let mut out = String::with_capacity(16384);
     let _ = write!(
         out,
-        "<header class=\"page-head\"><h1>{}</h1><p class=\"muted\">{} · {} · вес {weight:.2}</p></header>",
+        "<header class=\"page-head\"><h1>{}</h1><p class=\"muted\">{} · {} · вес {weight:.2}</p>",
         e(if name.is_empty() { "Турнир без названия" } else { &name }),
         e(&date),
         e(tour_type(&ttype))
     );
+    if merged {
+        let links: Vec<String> = venues
+            .iter()
+            .map(|(v, n)| {
+                let n = e(if n.is_empty() { "без названия" } else { n });
+                if *v == id {
+                    format!("<strong>{n}</strong>")
+                } else {
+                    format!("<a href=\"/tournaments/{v}/\">{n}</a>")
+                }
+            })
+            .collect();
+        let _ = write!(
+            out,
+            "<p class=\"muted\">Сводный зачёт {} {}: {}</p>",
+            venues.len(),
+            plural(venues.len() as i64, "площадки", "площадок", "площадок"),
+            links.join(", ")
+        );
+    }
+    out.push_str("</header>");
+    let n_teams = if merged {
+        c.query_row(&format!("select sum(n_teams) from x.tournament where id in ({ids})"), [], |r| {
+            r.get::<_, Option<i64>>(0)
+        })
+        .ok()
+        .flatten()
+        .unwrap_or(n_teams)
+    } else {
+        n_teams
+    };
     out.push_str("<dl class=\"stats\">");
     out.push_str(&stat("Команд", &n_teams.to_string()));
+    if merged {
+        out.push_str(&stat("Площадок", &venues.len().to_string()));
+    }
     out.push_str(&stat("Вопросов", &if n_q > 0 { n_q.to_string() } else { "—".into() }));
     if let Some(dl) = truedl {
         out.push_str(&stat("Сложность", &format!("{dl:.1}")));
@@ -1299,15 +1355,21 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         d_pull: Option<f64>,
         value: Option<f64>,
         gain: Option<f64>,
+        venue: i64,
+        strength: Option<f64>,
+        /// Place and forecast over every venue of a merged field; the venue's
+        /// own are `actual` and `forecast`.
+        all_actual: Option<f64>,
+        all_forecast: Option<f64>,
     }
     let have = crate::data::columns(c, "team_events");
     let have_values = crate::data::table_exists(c, "achieve_values");
     let sql = format!(
         "select v.team_id, m.name, v.forecast_place, v.actual_place, v.mu_before, v.mu_after, \
-         v.rated, r.score, r.name, v.s_r, {}, {}, {} \
+         v.rated, r.score, r.name, v.s_r, {}, {}, {}, v.tournament_id, v.forecast \
          from team_events v left join x.team m on m.id = v.team_id \
          left join x.result_ r on r.tournament_id = v.tournament_id and r.team_id = v.team_id {} \
-         where v.tournament_id = ?1 order by v.actual_place",
+         where v.tournament_id in ({ids}) order by v.actual_place",
         crate::data::col(&have, "d_place"),
         crate::data::col(&have, "d_pull"),
         if have_values { "a.peak, a.gain" } else { "null, null" },
@@ -1318,8 +1380,8 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         },
     );
     let mut st = c.prepare(&sql).unwrap();
-    let evs: Vec<Row> = st
-        .query_map([id], |r| {
+    let mut evs: Vec<Row> = st
+        .query_map([], |r| {
             Ok(Row {
                 team: r.get(0)?,
                 name: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
@@ -1335,11 +1397,45 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
                 d_pull: r.get(11)?,
                 value: r.get(12)?,
                 gain: r.get(13)?,
+                venue: r.get(14)?,
+                strength: r.get(15)?,
+                all_actual: None,
+                all_forecast: None,
             })
         })
         .unwrap()
         .map(|r| r.unwrap())
         .collect();
+    if merged {
+        // The merged place is by questions taken across every venue, ties
+        // sharing the mean place; the forecast is by strength, which the model
+        // puts on one scale whichever city a team played in.
+        let rank = |xs: &[Option<f64>]| -> Vec<Option<f64>> {
+            xs.iter()
+                .map(|x| {
+                    let x = (*x)?;
+                    let above = xs.iter().flatten().filter(|&&y| y > x).count() as f64;
+                    let level = xs.iter().flatten().filter(|&&y| y == x).count() as f64;
+                    Some(above + (level + 1.0) / 2.0)
+                })
+                .collect()
+        };
+        let places = rank(&evs.iter().map(|v| v.score.map(|x| x as f64)).collect::<Vec<_>>());
+        let fplaces = rank(&evs.iter().map(|v| v.strength).collect::<Vec<_>>());
+        for (v, (p, f)) in evs.iter_mut().zip(places.into_iter().zip(fplaces)) {
+            v.all_actual = p;
+            v.all_forecast = f;
+        }
+        evs.sort_by(|a, b| {
+            let key = |v: &Row| v.all_actual.unwrap_or(f64::INFINITY);
+            key(a).total_cmp(&key(b)).then_with(|| a.venue.cmp(&b.venue))
+        });
+    } else {
+        for v in evs.iter_mut() {
+            v.all_actual = v.actual;
+            v.all_forecast = v.forecast;
+        }
+    }
 
     // ── the lineups, with each player's number on the morning of the game ──
     struct Member {
@@ -1350,16 +1446,16 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         provisional: bool,
     }
     let mut st = c
-        .prepare(
+        .prepare(&format!(
             "select g.team_id, g.player_id, p.name, v.theta_before, v.theta_after, v.phi_before, \
-             v.sigma_before from x.player_game g left join x.player p on p.id = g.player_id \
+             v.sigma_before, g.tournament_id from x.player_game g left join x.player p on p.id = g.player_id \
              left join player_events v on v.player_id = g.player_id and v.tournament_id = g.tournament_id \
-             where g.tournament_id = ?1",
-        )
+             where g.tournament_id in ({ids})"
+        ))
         .unwrap();
-    let mut rosters: HashMap<i64, Vec<Member>> = HashMap::new();
+    let mut rosters: HashMap<(i64, i64), Vec<Member>> = HashMap::new();
     for m in st
-        .query_map([id], |r| {
+        .query_map([], |r| {
             let theta: Option<f64> = r.get(3)?;
             let after: Option<f64> = r.get(4)?;
             let phi: f64 = r.get::<_, Option<f64>>(5)?.unwrap_or(0.0);
@@ -1367,7 +1463,7 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
             // The published player number is the strength at an in-person
             // table, theta + phi, and that is what the roster lists.
             Ok((
-                r.get::<_, i64>(0)?,
+                (r.get::<_, i64>(7)?, r.get::<_, i64>(0)?),
                 Member {
                     player: r.get(1)?,
                     name: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
@@ -1423,15 +1519,31 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
             "<label class=\"checkbox roster-toggle\"><input type=\"checkbox\"> Показывать составы</label>",
         );
     }
+    if merged {
+        out.push_str(
+            "<label class=\"field venue-filter\"><span>Площадка</span><select class=\"input\">\
+             <option value=\"\">Все площадки</option>",
+        );
+        for (v, n) in &venues {
+            let k = evs.iter().filter(|x| x.venue == *v).count();
+            let _ = write!(
+                out,
+                "<option value=\"{v}\">{} ({k})</option>",
+                e(if n.is_empty() { "без названия" } else { n })
+            );
+        }
+        out.push_str("</select></label>");
+    }
     let _ = write!(
         out,
         "<div class=\"table-scroll\"><table class=\"data-table\"><thead><tr>\
-         <th class=\"num\">Место</th><th class=\"num\">Прогноз</th><th>Команда</th>\
+         <th class=\"num\">Место</th><th class=\"num\">Прогноз</th><th>Команда</th>{}\
          <th class=\"num\">Взято</th>\
          <th class=\"num\" title=\"Сила вышедшего состава по рейтингам игроков на утро турнира\">Состав</th>\
          <th class=\"num\" title=\"Сколько результат стоит в рейтинге команды в день турнира\">Ценность</th>\
          {}{}{}\
          </tr></thead><tbody>",
+        if merged { "<th>Площадка</th>" } else { "" },
         if have_values {
             "<th class=\"num\" title=\"Насколько вырос рейтинг команды, когда результат вошёл в семь её лучших\">Прибавка</th>"
         } else {
@@ -1449,11 +1561,42 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
             ""
         }
     );
+    let beat = |f: Option<f64>, a: Option<f64>| match (f, a) {
+        (Some(f), Some(a)) if a < f - 0.5 => " place-better",
+        (Some(f), Some(a)) if a > f + 0.5 => " place-worse",
+        _ => "",
+    };
     for v in &evs {
-        let beat = match (v.forecast, v.actual) {
-            (Some(f), Some(a)) if a < f - 0.5 => " place-better",
-            (Some(f), Some(a)) if a > f + 0.5 => " place-worse",
-            _ => "",
+        // A merged field shows the places over every venue; the filter swaps in
+        // the venue's own, which each cell carries beside them.
+        let (place_cell, forecast_cell, venue_cell) = if merged {
+            let vn = venue_name(v.venue);
+            (
+                format!(
+                    "<td class=\"num{}\" data-own=\"{}\" data-own-class=\"num{}\">{}</td>",
+                    beat(v.all_forecast, v.all_actual),
+                    place(v.actual),
+                    beat(v.forecast, v.actual),
+                    place(v.all_actual)
+                ),
+                format!(
+                    "<td class=\"num muted\" data-own=\"{}\">{}</td>",
+                    place(v.forecast),
+                    place(v.all_forecast)
+                ),
+                format!(
+                    "<td><a href=\"/tournaments/{}/\">{}</a> <span class=\"muted nowrap\">место {}</span></td>",
+                    v.venue,
+                    e(if vn.is_empty() { "без названия" } else { vn }),
+                    place(v.actual)
+                ),
+            )
+        } else {
+            (
+                format!("<td class=\"num{}\">{}</td>", beat(v.forecast, v.actual), place(v.actual)),
+                format!("<td class=\"num muted\">{}</td>", place(v.forecast)),
+                String::new(),
+            )
         };
         // The link says the team's own name; the name it entered under, when it
         // is a different one, goes next to it.
@@ -1465,7 +1608,7 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         } else {
             String::new()
         };
-        let roster = rosters.get(&v.team).filter(|r| !r.is_empty());
+        let roster = rosters.get(&(v.venue, v.team)).filter(|r| !r.is_empty());
         // The lineup sits inside the team's own cell, one player to a line, and
         // opens under the name: by the switch beside it or the one above the table.
         let open = match roster {
@@ -1500,11 +1643,10 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
         let p = parts(v);
         let _ = write!(
             out,
-            "<tr><td class=\"num{beat}\">{}</td><td class=\"num muted\">{}</td>\
-             <td><a href=\"/teams/{}/\">{}</a>{}{}{}</td><td class=\"num\">{}</td>\
+            "<tr data-venue=\"{}\">{place_cell}{forecast_cell}\
+             <td><a href=\"/teams/{}/\">{}</a>{}{}{}</td>{venue_cell}<td class=\"num\">{}</td>\
              <td class=\"num muted\">{}</td><td class=\"num\">{}</td>{}{}{}</tr>",
-            place(v.actual),
-            place(v.forecast),
+            v.venue,
             v.team,
             e(if shown.is_empty() { "—" } else { shown }),
             played_as,
@@ -1578,6 +1720,14 @@ pub fn tournament_page(s: &Site, c: &Connection, id: i64) -> Option<String> {
     if !rosters.is_empty() {
         out.push_str(
             " В составе у каждого игрока — его рейтинг на утро турнира и сдвиг по итогам.",
+        );
+    }
+    if merged {
+        out.push_str(
+            " Один пакет сыгран на нескольких площадках, поэтому зачёт сводный: место — по взятым \
+             вопросам среди всех команд, прогноз — по силе составов. Выбор площадки оставляет её \
+             команды и показывает места на ней. В рейтинге команд вопрос, снятый на одной площадке, \
+             снят на всех, поэтому место там может отличаться.",
         );
     }
     out.push_str("</p></section>");

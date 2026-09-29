@@ -654,6 +654,21 @@ a:hover {
   color: var(--text-strong);
 }
 
+/* The venue filter of a merged field: a label and a select on one line, the
+   select free to shrink on a phone rather than push the page sideways. */
+.venue-filter {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+  max-width: 100%;
+}
+
+.venue-filter select {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .section:has(.roster-toggle input:checked) .cell-roster,
 td:has(.roster-open input:checked) .cell-roster {
   display: block;

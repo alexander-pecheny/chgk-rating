@@ -212,3 +212,39 @@
     if (ev.target.closest && ev.target.closest(".roster-open, .roster-toggle")) layout();
   });
 })();
+
+/* A package played in several cities is one field. The page lists every venue;
+   the filter keeps one and swaps each place for the place at that venue, which
+   the cell carries in data-own. The choice rides in ?venue= so it can be shared. */
+(function () {
+  var sel = document.querySelector(".venue-filter select");
+  if (!sel) return;
+  var table = sel.parentNode.parentNode.querySelector(".data-table");
+  if (!table) return;
+  var rows = [].slice.call(table.querySelectorAll("tbody tr"));
+  var cells = [].slice.call(table.querySelectorAll("td[data-own]"));
+  cells.forEach(function (td) {
+    td.dataset.all = td.textContent;
+    td.dataset.allClass = td.className;
+  });
+  function apply() {
+    var v = sel.value;
+    rows.forEach(function (tr) {
+      tr.hidden = v !== "" && tr.dataset.venue !== v;
+    });
+    cells.forEach(function (td) {
+      td.textContent = v ? td.dataset.own : td.dataset.all;
+      td.className = v ? (td.dataset.ownClass || td.dataset.allClass) : td.dataset.allClass;
+    });
+  }
+  var m = /[?&]venue=(\d+)/.exec(location.search);
+  if (m && sel.querySelector('option[value="' + m[1] + '"]')) sel.value = m[1];
+  apply();
+  sel.addEventListener("change", function () {
+    apply();
+    var u = new URL(location.href);
+    if (sel.value) u.searchParams.set("venue", sel.value);
+    else u.searchParams.delete("venue");
+    try { history.replaceState(null, "", u); } catch (e) {}
+  });
+})();
