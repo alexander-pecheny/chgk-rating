@@ -430,6 +430,9 @@ fn draw(key: &str, r: &mut Rand) -> String {
         "country_min" => int(r, 1.0, 3.0),
         "town_pow" => format!("{:.2}", if r.u() < 0.4 { 0.0 } else { r.range(0.0, 0.8) }),
         "town_min" => int(r, 1.0, 3.0),
+        "country_ref" => format!("{:.1}", r.range(1.0, 10.0)),
+        "town_ref" => format!("{:.1}", r.range(1.0, 25.0)),
+        "geo_cap" => r.pick(&["0", "1", "1"]).into(),
         "fade" => r.pick(&["yearly", "yearly", "exp", "linear", "none"]).into(),
         "loss_ip" => format!("{:.2}", r.range(0.0, 0.7)),
         "loss_sync" => format!("{:.2}", r.range(0.0, 0.95)),
@@ -452,29 +455,30 @@ fn draw(key: &str, r: &mut Rand) -> String {
 const SEARCHED: &[&str] = &[
     "top_x", "min_slots", "perf", "place_pow", "mix", "w_sync", "w_strict", "field_mode", "field_k",
     "field_gamma", "field_zero", "field_ref", "sum_ref", "sum_gamma", "country_pow", "country_min",
-    "town_pow", "town_min", "fade", "loss_ip", "loss_sync", "full_days", "zero_days", "half_life",
+    "town_pow", "town_min", "country_ref", "town_ref", "geo_cap", "fade", "loss_ip", "loss_sync", "full_days", "zero_days", "half_life",
     "sync_full", "sync_zero", "sync_half_life", "tail_days", "slow_k", "overlap_k", "overlap_by",
     "base_rule", "win_bonus",
 ];
 
-fn knobs_of(vals: &[String]) -> Knobs {
+/// A drawn point, with the knobs `fixed` holds on top of it.
+fn knobs_of(vals: &[String], fixed: &str) -> Knobs {
     let mut k = Knobs::default();
     for (key, v) in SEARCHED.iter().zip(vals) {
         let _ = k.set(key, v);
     }
-    k
+    k.apply(fixed).unwrap_or(k)
 }
 
 /// Random search, then local refinement of the best on the tune window; every
 /// point scored on both windows and written as a row of `path`.
-fn search(lab: &Lab, n: usize, rounds: usize, seed: u64, threads: usize, path: &str) -> std::io::Result<()> {
+fn search(lab: &Lab, n: usize, rounds: usize, seed: u64, threads: usize, fixed: &str, path: &str) -> std::io::Result<()> {
     use rayon::prelude::*;
     let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
     let score = |pts: &[Vec<String>]| -> Vec<(f64, f64)> {
         pool.install(|| {
             pts.par_iter()
                 .map(|v| {
-                    let k = knobs_of(v);
+                    let k = knobs_of(v, fixed);
                     let b = ac::book(lab, &k);
                     ac::ndcg_of(lab, &b, &k)
                 })
@@ -485,6 +489,10 @@ fn search(lab: &Lab, n: usize, rounds: usize, seed: u64, threads: usize, path: &
     let _ = writeln!(out, "phase\ttune\ttest\t{}", SEARCHED.join("\t"));
     let mut all: Vec<(Vec<String>, f64, f64)> = Vec::new();
     type Pt = (Vec<String>, f64, f64);
+    let shown = |v: &Vec<String>| -> Vec<String> {
+        let k = knobs_of(v, fixed);
+        SEARCHED.iter().map(|key| k.get(key)).collect()
+    };
     fn record(all: &mut Vec<Pt>, phase: &str, pts: Vec<Vec<String>>, sc: Vec<(f64, f64)>, out: &mut String) {
         for (v, (a, b)) in pts.into_iter().zip(sc) {
             let _ = writeln!(out, "{phase}\t{a:.5}\t{b:.5}\t{}", v.join("\t"));
@@ -503,6 +511,7 @@ fn search(lab: &Lab, n: usize, rounds: usize, seed: u64, threads: usize, path: &
             .map(|_| SEARCHED.iter().map(|k| draw(k, &mut r)).collect())
             .collect();
         let sc = score(&pts);
+        let pts: Vec<Vec<String>> = pts.iter().map(&shown).collect();
         record(&mut all, "random", pts, sc, &mut out);
         std::fs::write(path, &out)?;
         let best = all.iter().map(|x| x.1).fold(f64::MIN, f64::max);
@@ -525,6 +534,7 @@ fn search(lab: &Lab, n: usize, rounds: usize, seed: u64, threads: usize, path: &
             })
             .collect();
         let sc = score(&pts);
+        let pts: Vec<Vec<String>> = pts.iter().map(&shown).collect();
         record(&mut all, "local", pts, sc, &mut out);
         std::fs::write(path, &out)?;
         let b = all.iter().max_by(|a, b| a.1.total_cmp(&b.1)).unwrap();
@@ -572,7 +582,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let seed = arg("--seed").map_or(1, |v| v.parse().unwrap_or(1));
         let threads = arg("--threads").map_or(3, |v| v.parse().unwrap_or(3));
         let path = arg("--search-out").unwrap_or_else(|| format!("{dir}/search.tsv"));
-        search(&lab, n, rounds, seed, threads, &path)?;
+        let fixed = arg("--fix").unwrap_or_default();
+        search(&lab, n, rounds, seed, threads, &fixed, &path)?;
         eprintln!("wrote {path}");
         return Ok(());
     }
@@ -609,7 +620,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (v, _) = ac::table(&lab, &b, at, &k);
         let mut md = format!("# Achievement rating on {}\n\nKnobs: `{k:?}`\n\n", ac::show_day(at));
         let _ = writeln!(md, "| # | was | team | rating | counted |\n|---|---|---|---|---|");
-        for (i, (t, x, c)) in v.iter().take(top_n).enumerate() {
+        for (i, (t, x, c, _)) in v.iter().take(top_n).enumerate() {
             let _ = writeln!(
                 md,
                 "| {} | {} | {} | {x:.0} | {} |",

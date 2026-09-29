@@ -332,6 +332,12 @@ pub struct Knobs {
     pub country_min: usize,
     pub town_pow: f64,
     pub town_min: usize,
+    /// The counts that weigh 1: the factor is (countries / country_ref)^pow
+    /// times (towns / town_ref)^pow, capped at 1 when `geo_cap`, so a local
+    /// field is discounted and a wide one never multiplied.
+    pub country_ref: f64,
+    pub town_ref: f64,
+    pub geo_cap: bool,
     /// "linear" to zero at `zero_days`, "exp" halving every `half_life` days
     /// and dropped at `tail_days`, or "none": a result keeps its value forever.
     pub fade: String,
@@ -353,6 +359,9 @@ pub struct Knobs {
     /// The divisor is the slots held (a faded result holds its faded share),
     /// never below this; 0 divides by `top_x` always.
     pub min_slots: usize,
+    /// The divisor is fixed on the day after the team's last result, and the
+    /// same results keep fading under it, so an idle team can only fall.
+    pub freeze: bool,
     /// Count a result only when the lineup is the team's own by the MAII rule.
     pub base_rule: bool,
     /// Days into a season the last season's roster still lists a team; -1 lists
@@ -372,31 +381,34 @@ pub struct Knobs {
 }
 
 impl Default for Knobs {
-    /// The variant on the site's page.
+    /// The variant on the site's page: the user's constraints (seven results,
+    /// synchronous 0.5, strictly synchronous 0.9, a divisor that never lets an
+    /// idle rating grow) and the rest from `achieve --search --fix`.
     fn default() -> Knobs {
         Knobs {
             perf: "strength_place".into(),
-            place_pow: 0.5,
+            place_pow: 0.6,
             mix: 0.5,
             shift: -800.0,
-            w_sync: 0.75,
-            w_strict: 0.75,
+            w_sync: 0.5,
+            w_strict: 0.9,
             w_async: 0.0,
-            // Twenty lineups, with the anchors moved to where 5000 and 9500
-            // on the top-10 mean fall on the top-20 one (S20 = 1.55 S10 - 5700).
-            field_mode: "sum".into(),
+            field_mode: "anchors".into(),
             field_k: 20,
-            field_zero: 2000.0,
-            field_ref: 9000.0,
-            field_gamma: 3.0,
+            field_zero: 5000.0,
+            field_ref: 10000.0,
+            field_gamma: 1.0,
             field_min: 0.0,
             sum_ref: 1_000_000.0,
             sum_gamma: 0.5,
             scale: 1.0,
             country_pow: 0.0,
             country_min: 1,
-            town_pow: 0.0,
+            town_pow: 0.6,
             town_min: 1,
+            country_ref: 1.0,
+            town_ref: 24.0,
+            geo_cap: true,
             fade: "yearly".into(),
             full_days: 365,
             zero_days: 730,
@@ -405,16 +417,17 @@ impl Default for Knobs {
             half_life: 180.0,
             sync_half_life: 137.0,
             loss_ip: 0.1,
-            loss_sync: 0.5,
+            loss_sync: 0.4,
             tail_days: 1826,
             slow_ref: 9000.0,
-            slow_k: 1.0,
+            slow_k: 0.6,
             top_x: 7,
             min_slots: 7,
-            base_rule: true,
+            freeze: true,
+            base_rule: false,
             grace: 60,
             active_days: 365,
-            overlap_k: 1.0,
+            overlap_k: 0.6,
             overlap_by: "strength".into(),
             win_bonus: 0.0,
         }
@@ -425,6 +438,7 @@ impl Default for Knobs {
 pub const KNOBS: &[(&str, &str, &str)] = &[
     ("top_x", "Результатов", "Сколько лучших результатов складывается в рейтинг"),
     ("min_slots", "Мин. слотов", "Делитель не меньше этого числа (пустой слот = 0); 0 — всегда делить на число результатов"),
+    ("freeze", "Делитель на день игры", "1 — делитель фиксируется на следующий день после последнего результата, и без новых игр рейтинг только падает; 0 — пересчитывается каждый день"),
     ("perf", "Игра по", "strength_place — показанная сила / место^степень; score — по взятым вопросам; place — по месту в поле; mix — смесь двух последних"),
     ("place_pow", "Степень места", "strength_place: показанная сила делится на место в этой степени (0.5 — корень)"),
     ("mix", "Доля взятых", "В смеси: доля оценки по взятым вопросам"),
@@ -445,6 +459,9 @@ pub const KNOBS: &[(&str, &str, &str)] = &[
     ("country_min", "Страны: от команд", "Страна считается, если от неё не меньше стольких команд"),
     ("town_pow", "Города: степень", "Очный турнир: вес умножается на (число городов участников)^степень; 0 — не учитывать"),
     ("town_min", "Города: от команд", "Город считается, если от него не меньше стольких команд"),
+    ("country_ref", "Страны: вес 1 при", "Число стран, при котором множитель стран равен 1"),
+    ("town_ref", "Города: вес 1 при", "Число городов, при котором множитель городов равен 1"),
+    ("geo_cap", "География не больше 1", "1 — географический множитель не больше 1: локальный турнир дешевле, широкий не умножается"),
     ("fade", "Затухание", "yearly — теряет долю в год с первого дня; none — не затухает никогда; linear — линейно до нуля; exp — полураспад"),
     ("loss_ip", "yearly: очный теряет в год", "yearly: доля ценности очного результата, теряемая за год"),
     ("loss_sync", "yearly: синхрон теряет в год", "yearly: доля ценности синхронного результата, теряемая за год"),
@@ -488,6 +505,9 @@ impl Knobs {
             "country_min" => self.country_min.to_string(),
             "town_pow" => self.town_pow.to_string(),
             "town_min" => self.town_min.to_string(),
+            "country_ref" => self.country_ref.to_string(),
+            "town_ref" => self.town_ref.to_string(),
+            "geo_cap" => (self.geo_cap as u8).to_string(),
             "fade" => self.fade.clone(),
             "full_days" => self.full_days.to_string(),
             "zero_days" => self.zero_days.to_string(),
@@ -502,6 +522,7 @@ impl Knobs {
             "slow_k" => self.slow_k.to_string(),
             "top_x" => self.top_x.to_string(),
             "min_slots" => self.min_slots.to_string(),
+            "freeze" => (self.freeze as u8).to_string(),
             "base_rule" => (self.base_rule as u8).to_string(),
             "grace" => self.grace.to_string(),
             "active_days" => self.active_days.to_string(),
@@ -542,6 +563,9 @@ impl Knobs {
             "country_min" => self.country_min = (num()? as usize).max(1),
             "town_pow" => self.town_pow = num()?,
             "town_min" => self.town_min = (num()? as usize).max(1),
+            "country_ref" => self.country_ref = num()?.max(1.0),
+            "town_ref" => self.town_ref = num()?.max(1.0),
+            "geo_cap" => self.geo_cap = num()? != 0.0,
             "full_days" => self.full_days = num()? as i32,
             "zero_days" => self.zero_days = num()? as i32,
             "sync_full" => self.sync_full = num()? as i32,
@@ -555,6 +579,7 @@ impl Knobs {
             "slow_k" => self.slow_k = num()?,
             "top_x" => self.top_x = (num()? as usize).clamp(1, 100),
             "min_slots" => self.min_slots = (num()? as usize).min(100),
+            "freeze" => self.freeze = num()? != 0.0,
             "base_rule" => self.base_rule = num()? != 0.0,
             "grace" => self.grace = num()? as i32,
             "active_days" => self.active_days = num()? as i32,
@@ -767,8 +792,9 @@ pub fn reach(f: &Field, k: &Knobs) -> (f64, usize, usize) {
     if !f.in_person {
         return (1.0, nc, nt);
     }
-    let x = (nc.max(1) as f64).powf(k.country_pow) * (nt.max(1) as f64).powf(k.town_pow);
-    (x, nc, nt)
+    let x = (nc.max(1) as f64 / k.country_ref).powf(k.country_pow)
+        * (nt.max(1) as f64 / k.town_ref).powf(k.town_pow);
+    (if k.geo_cap { x.min(1.0) } else { x }, nc, nt)
 }
 
 pub fn book(lab: &Lab, k: &Knobs) -> Book {
@@ -900,35 +926,51 @@ fn overlap(lab: &Lab, team: i64, season: i64, now: Option<&Vec<i64>>, k: &Knobs)
 /// The rating on the morning of `day`, and the results that make it, each
 /// with its value on that day: faded, and scaled by the roster overlap.
 pub fn rating(lab: &Lab, b: &Book, team: i64, day: i32, k: &Knobs) -> (f64, Vec<(Val, f64)>) {
-    let Some(v) = b.vals.get(&team) else { return (0.0, Vec::new()) };
+    let (x, c, _) = rating_slots(lab, b, team, day, k);
+    (x, c)
+}
+
+/// The rating, its results with their values on `day`, and the divisor: the
+/// slots they held, never fewer than `min_slots`. Under `freeze` the results
+/// are chosen and the slots counted on the day after the last result, so
+/// until the team plays again every value only fades and nothing is divided
+/// by less: the rating can only fall.
+pub fn rating_slots(lab: &Lab, b: &Book, team: i64, day: i32, k: &Knobs) -> (f64, Vec<(Val, f64)>, f64) {
+    let Some(v) = b.vals.get(&team) else { return (0.0, Vec::new(), 1.0) };
+    let Some(last) = v.iter().filter(|x| x.day < day).map(|x| x.day).max() else {
+        return (0.0, Vec::new(), 1.0);
+    };
+    let t0 = if k.freeze { (last + 1).min(day) } else { day };
     let now = if k.overlap_k != 0.0 { lab.seasons.current(team, day) } else { None };
     let mut ov: HashMap<i64, f64> = HashMap::new();
-    let mut cur: Vec<(Val, f64)> = v
+    // (result, its share of a slot on t0, its value on day)
+    let mut cur: Vec<(Val, f64, f64)> = v
         .iter()
         .filter(|x| x.day < day)
         .map(|x| {
             let o = *ov.entry(x.season).or_insert_with(|| overlap(lab, team, x.season, now, k));
-            (*x, x.base * fade(day - x.day, x, k) * o)
+            (*x, fade(t0 - x.day, x, k) * o, x.base * fade(day - x.day, x, k) * o)
         })
         .filter(|x| x.1 > 0.0)
         .collect();
-    cur.sort_by(|a, b| b.1.total_cmp(&a.1));
+    cur.sort_by(|a, b| (b.0.base * b.1).total_cmp(&(a.0.base * a.1)));
     cur.truncate(k.top_x);
     // A faded result holds only its remaining share of a slot, so an old
     // result near zero never drags the average down by taking a whole one.
-    let held: f64 = cur.iter().map(|x| x.1 / x.0.base.max(1e-9)).sum();
+    let held: f64 = cur.iter().map(|x| x.1).sum();
     let slots = if k.min_slots == 0 {
         k.top_x as f64
     } else {
         held.clamp(k.min_slots.min(k.top_x) as f64, k.top_x as f64)
     };
-    (cur.iter().map(|x| x.1).sum::<f64>() / slots, cur)
+    let out: Vec<(Val, f64)> = cur.into_iter().filter(|x| x.2 > 0.0).map(|x| (x.0, x.2)).collect();
+    (out.iter().map(|x| x.1).sum::<f64>() / slots, out, slots)
 }
 
 /// Every listed team with a positive rating on `day`, best first, published
 /// through the display map `a·x^p`, which is returned beside them.
-pub fn table(lab: &Lab, b: &Book, day: i32, k: &Knobs) -> (Vec<(i64, f64, Vec<(Val, f64)>)>, (f64, f64)) {
-    let mut v: Vec<(i64, f64, Vec<(Val, f64)>)> = b
+pub fn table(lab: &Lab, b: &Book, day: i32, k: &Knobs) -> (Vec<(i64, f64, Vec<(Val, f64)>, f64)>, (f64, f64)) {
+    let mut v: Vec<(i64, f64, Vec<(Val, f64)>, f64)> = b
         .vals
         .keys()
         .filter(|&&t| lab.seasons.listed(t, day, k))
@@ -937,8 +979,8 @@ pub fn table(lab: &Lab, b: &Book, day: i32, k: &Knobs) -> (Vec<(i64, f64, Vec<(V
                 || b.vals[&t].iter().any(|x| x.day < day && day - x.day <= k.active_days)
         })
         .map(|&t| {
-            let (x, c) = rating(lab, b, t, day, k);
-            (t, x, c)
+            let (x, c, sl) = rating_slots(lab, b, t, day, k);
+            (t, x, c, sl)
         })
         .filter(|x| x.1 > 0.0)
         .collect();
@@ -952,7 +994,7 @@ pub fn table(lab: &Lab, b: &Book, day: i32, k: &Knobs) -> (Vec<(i64, f64, Vec<(V
         let pts: Vec<(f64, f64)> = v
             .iter()
             .take(100)
-            .filter_map(|(_, x, c)| {
+            .filter_map(|(_, x, c, _)| {
                 let d: Vec<f64> = c.iter().map(|(val, _)| val.by_score).filter(|x| x.is_finite() && *x > 0.0).collect();
                 (!d.is_empty() && *x > 0.0).then(|| (x.ln(), (d.iter().sum::<f64>() / d.len() as f64).ln()))
             })
@@ -1191,8 +1233,14 @@ pub fn describe(k: &Knobs, day: i32) -> String {
     } else {
         format!(
             "divided by the number of slots they fill, but never by fewer than {}; a faded result fills only its \
-             faded share of a slot",
-            k.min_slots.min(k.top_x)
+             faded share of a slot{}",
+            k.min_slots.min(k.top_x),
+            if k.freeze {
+                ". The divisor is fixed on the day after the team's last result, so until it plays again its \
+                 results keep fading under the same divisor and the rating can only fall"
+            } else {
+                ""
+            }
         )
     };
     let active = if k.active_days > 0 {
@@ -1272,7 +1320,8 @@ pub fn describe(k: &Knobs, day: i32) -> String {
 /// The table body: every team of the top with the results its rating is made
 /// of, each at its peak and as it stands on `day`.
 pub fn render_table(
-    v: &[(i64, f64, Vec<(Val, f64)>)],
+    v: &[(i64, f64, Vec<(Val, f64)>, f64)],
+    scale: (f64, f64),
     k: &Knobs,
     day: i32,
     n: usize,
@@ -1289,27 +1338,34 @@ pub fn render_table(
          <th class=\"num\" title=\"Сила игры: как играли бы шесть равных игроков\">Игра</th>\
          <th class=\"num\" title=\"Вес формата × вес поля × география\">Вес</th>\
          <th class=\"num\" title=\"Ценность результата в день игры\">Игра × Вес</th>\
-         <th class=\"num\" title=\"Доля ценности, оставшаяся после затухания\">Осталось</th>\
+         <th class=\"num\" title=\"Доля ценности, оставшаяся после затухания\">Затухание</th>\
          <th class=\"num\" title=\"Доля тогдашней базы, оставшаяся в нынешней\">Состав</th>\
-         <th class=\"num\" title=\"Ценность сегодня\">Сейчас</th></tr></thead><tbody>",
+         <th class=\"num\" title=\"С каким весом результат входит в рейтинг: затухание × состав / делитель\">Доля</th>\
+         <th class=\"num\" title=\"Игра × Вес × Доля; сумма вкладов — рейтинг\">Вклад</th></tr></thead><tbody>",
     );
     let fmtp = |x: f64| if x.fract() == 0.0 { format!("{x:.0}") } else { format!("{x:.1}") };
-    for (i, (t, x, c)) in v.iter().take(n).enumerate() {
+    for (i, (t, x, c, slots)) in v.iter().take(n).enumerate() {
         let name = names.teams.get(t).cloned().unwrap_or_else(|| format!("Команда {t}"));
         let _ = write!(
             o,
             "<tr class=\"row-split\"><td class=\"num strong\">{}</td>\
-             <td colspan=\"9\"><a href=\"/teams/{t}/\"><strong>{}</strong></a> \
-             <span class=\"muted\">было {}</span></td><td class=\"num strong\">{:.0}</td></tr>",
+             <td colspan=\"10\"><a href=\"/teams/{t}/\"><strong>{}</strong></a> \
+             <span class=\"muted\">было {} · делитель {:.2}</span></td><td class=\"num strong\">{:.0}</td></tr>",
             i + 1,
             esc(&name),
             was.get(t).map_or("—".into(), |r| r.to_string()),
+            slots,
             x
         );
+        // Contributions add up to the rating when the display map is linear.
+        let lin = if scale.1 == 1.0 { scale.0 } else { f64::NAN };
         for (val, now) in c {
             let f = fade(day - val.day, val, k);
+            // Many synchronous tournaments carry the format in their name already.
+            let own = names.tours.get(&val.venue).map_or("", |s| s.as_str()).to_lowercase();
             let fmt = match val.format {
                 'i' => "",
+                _ if own.contains("синхрон") => "",
                 'a' => " (асинхрон)",
                 _ => " (синхрон)",
             };
@@ -1356,7 +1412,8 @@ pub fn render_table(
                  <td class=\"num muted\">{}</td><td class=\"num\"{}>{}</td>\
                  <td class=\"num muted\" title=\"команд: {}\">{:.0}</td><td class=\"num\"{}>{:.0}</td>\
                  <td class=\"num muted\"{}>{:.2}</td><td class=\"num\">{:.0}</td>\
-                 <td class=\"num muted\">{:.0}%</td><td class=\"num muted\">{:.0}%</td><td class=\"num\">{:.0}</td></tr>",
+                 <td class=\"num muted\">{:.0}%</td><td class=\"num muted\">{:.0}%</td>\
+                 <td class=\"num\">{:.1}%</td><td class=\"num\">{}</td></tr>",
                 title,
                 fmt,
                 merged,
@@ -1372,15 +1429,19 @@ pub fn render_table(
                 val.base,
                 100.0 * f,
                 100.0 * now / (val.base * f).max(1e-9),
-                now
+                100.0 * now / val.base.max(1e-9) / slots,
+                if lin.is_finite() { format!("{:.0}", lin * now / slots) } else { "—".into() }
             );
         }
-        let held: f64 = c.iter().map(|(val, now)| now / val.base.max(1e-9)).sum();
-        let empty = if k.min_slots == 0 { k.top_x } else { k.min_slots.min(k.top_x) };
-        for _ in c.len()..empty.max((held.ceil() as usize).min(k.top_x)) {
-            o.push_str(
-                "<tr><td></td><td class=\"muted\">пустой слот</td><td></td><td></td><td></td><td></td><td></td>\
-                 <td></td><td></td><td></td><td class=\"num muted\">0</td></tr>",
+        // What the results do not fill: empty slots, and whatever has faded
+        // since the divisor was fixed.
+        let share: f64 = c.iter().map(|(val, now)| now / val.base.max(1e-9) / slots).sum();
+        if share < 0.9995 {
+            let _ = write!(
+                o,
+                "<tr><td></td><td class=\"muted\" colspan=\"9\">пустые слоты и затухание после последней игры</td>\
+                 <td class=\"num muted\">{:.1}%</td><td class=\"num muted\">0</td></tr>",
+                100.0 * (1.0 - share)
             );
         }
     }
@@ -1482,7 +1543,7 @@ pub fn render_lab(lab: &Lab, k: &Knobs, day: i32, n: usize, was: &HashMap<i64, u
         a = scale.0,
         p = scale.1
     );
-    o.push_str(&render_table(&v, k, day, n, was, &lab.names, &lab.fields));
+    o.push_str(&render_table(&v, scale, k, day, n, was, &lab.names, &lab.fields));
     o.push_str("</section>");
     o.push_str(
         "<script>document.querySelectorAll('#lab select').forEach(function(s){\
