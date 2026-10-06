@@ -13,7 +13,7 @@ import requests
 from google_sheet_writer import Cf, Checkbox, FCell, GoogleSheetWriter
 
 RESULTS_URL = (
-    "https://api.rating.chgk.net/tournaments/{id}/results.json"
+    "https://api.rating.chgk.info/tournaments/{id}/results.json"
     "?includeMasksAndControversials=1&includeRatingB=1"
 )
 TRUEDL_COEFF_PAIRS = [
@@ -172,7 +172,7 @@ class Writer(GoogleSheetWriter):
         wks = self.get_worksheet("truedl", remove=True)
         cur = wks.cursor
         info = requests.get(
-            f"https://api.rating.chgk.net/tournaments/{args.tournament_id.split(',')[0]}.json"
+            f"https://api.rating.chgk.info/tournaments/{args.tournament_id.split(',')[0]}.json"
         ).json()
         dateStart = parse_date(info["dateStart"])
 

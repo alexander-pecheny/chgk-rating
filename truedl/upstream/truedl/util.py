@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 _open = functools.partial(open, encoding="utf8")
 
-API = "https://api.rating.chgk.net"
+API = "https://api.rating.chgk.info"
 RESULTS_DIR = "tournament_results"
 INFO_DIR = "tournaments"
 APPEALS_DIR = "tournament_appeals"

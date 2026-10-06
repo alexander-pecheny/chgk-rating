@@ -13,7 +13,7 @@ from .util import _open, parse_date
 
 TOURNAMENTS_DIR = "tournaments"
 RESULTS_DIR = "tournament_results"
-API = "https://api.rating.chgk.net"
+API = "https://api.rating.chgk.info"
 
 
 def clean_personal_data(results):

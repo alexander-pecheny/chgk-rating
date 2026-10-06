@@ -12,7 +12,7 @@ import csv
 import json
 import urllib.request
 
-URL = "https://api.rating.chgk.net/towns?itemsPerPage=500&page={}"
+URL = "https://api.rating.chgk.info/towns?itemsPerPage=500&page={}"
 OUT = "data/towns.csv"
 
 

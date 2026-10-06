@@ -14,7 +14,7 @@ import requests
 from mpmath.tests.test_functions import te
 
 RESULTS_URL = (
-    "https://api.rating.chgk.net/tournaments/{id}/results.json"
+    "https://api.rating.chgk.info/tournaments/{id}/results.json"
     "?includeMasksAndControversials=1&includeRatingB=1"
 )
 TRUEDL_COEFF_PAIRS = [
@@ -202,7 +202,7 @@ def main():
     args = parser.parse_args()
 
     info = requests.get(
-        f"https://api.rating.chgk.net/tournaments/{args.tournament_id.split(',')[0]}.json"
+        f"https://api.rating.chgk.info/tournaments/{args.tournament_id.split(',')[0]}.json"
     ).json()
     dateStart = parse_date(info["dateStart"])
 

@@ -8,7 +8,7 @@ import requests
 
 from .util import _open
 
-API = "https://api.rating.chgk.net"
+API = "https://api.rating.chgk.info"
 SLEEP = 1
 
 
