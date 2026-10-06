@@ -8,9 +8,24 @@ default:
     @just --list
 
 # Build the model binaries and the site server.
-build:
+build: web
     cargo build --release
-    cd web && cargo build --release
+
+# Build the Go site server into web/serve.
+web:
+    cd web && go build -o serve .
+
+# Regenerate the Catalog after editing web/i18nstrings/ru/*.toml.
+strings:
+    cd web/i18nstrings && go generate .
+
+# Regenerate the typed builder after editing web/ui/vocab.json.
+ui:
+    cd web/ui && go generate .
+
+# Go tests and vet for the site server.
+test-web:
+    cd web && go vet ./... && go test ./...
 
 # Publish this checkout to rating2.pecheny.me (about five minutes).
 deploy: build
@@ -30,7 +45,7 @@ prod := "/home/pecheny/new_chgk_rating"
 ship:
     git -C {{prod}} merge --ff-only $(git rev-parse --abbrev-ref HEAD)
     cargo build --release --manifest-path {{prod}}/Cargo.toml
-    cargo build --release --manifest-path {{prod}}/web/Cargo.toml
+    cd {{prod}}/web && go build -o serve .
 
 # The last lines of the daily log, and whether the site is up.
 status:

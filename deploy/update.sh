@@ -75,24 +75,35 @@ if ! ./target/release/achieve --publish out/ratings.db >> out/achieve.log 2>&1; 
 fi
 log "achieve done: $(tail -n 1 out/achieve.log)"
 
+# The serving index: names, rosters, ranking tables and anomaly scores. It is
+# built beside the old one and renamed in, so the running site never reads half
+# of it.
+log "webindex"
+if ! ./target/release/webindex > out/webindex.log 2>&1; then
+    log "webindex failed, see out/webindex.log; the site keeps the old numbers"
+    tail -n 20 out/webindex.log
+    exit 1
+fi
+log "webindex done: $(tail -n 1 out/webindex.log)"
+
 if [ "${SKIP_RESTART:-}" = "1" ]; then
     log "restart skipped"
 else
     log "restart chgk-rating"
     sudo -n systemctl restart chgk-rating
-    # The serving index is rebuilt on start, about 90 seconds. Wait three minutes.
+    # The server only opens the databases, so it answers within seconds.
     waited=0
-    while [ "$waited" -lt 180 ]; do
+    while [ "$waited" -lt 60 ]; do
         if curl -sf -o /dev/null http://127.0.0.1:9684/; then
             break
         fi
         sleep 5
         waited=$((waited + 5))
     done
-    if [ "$waited" -lt 180 ]; then
+    if [ "$waited" -lt 60 ]; then
         log "site answered after ${waited}s"
     else
-        log "site did not answer within three minutes"
+        log "site did not answer within a minute"
     fi
 fi
 

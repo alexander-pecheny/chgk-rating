@@ -6,12 +6,9 @@ After=network.target
 User=pecheny
 Group=pecheny
 WorkingDirectory=/home/pecheny/new_chgk_rating
-ExecStart=/home/pecheny/new_chgk_rating/web/target/release/serve --addr 127.0.0.1:9684 out/ratings.db
+ExecStart=/home/pecheny/new_chgk_rating/web/serve --addr 127.0.0.1:9684
 Restart=on-failure
 RestartSec=2
-# The serving index is rebuilt on start when out/ratings.db is newer, which is a
-# minute of SQLite writes, not a hung service.
-TimeoutStartSec=600
 
 [Install]
 WantedBy=multi-user.target

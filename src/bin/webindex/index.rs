@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// Bumped whenever the index grows a table or column the server reads, so a
 /// deploy rebuilds it instead of serving a page with nothing behind it.
-pub const VERSION: &str = "11";
+pub const VERSION: &str = "12";
 
 /// How names compare when the question is "is this the same name": ignoring the
 /// padding people type and the case they type it in. SQLite's own `lower()` is
@@ -74,7 +74,7 @@ CREATE VIRTUAL TABLE team_fts USING fts5(name, town, aliases, tokenize='unicode6
 const INDEXES: &str = "
 CREATE INDEX idx_pg_player ON player_game(player_id);
 CREATE INDEX idx_pg_tour ON player_game(tournament_id);
-CREATE INDEX idx_res_tour ON result_(tournament_id);
+CREATE INDEX idx_res_tour ON result_(tournament_id, team_id);
 CREATE INDEX idx_prank_player ON player_rank(player_id);
 CREATE INDEX idx_trank_team ON team_rank(team_id);
 CREATE INDEX idx_tour_date ON tournament(date);
@@ -85,18 +85,35 @@ CREATE INDEX idx_venue_field ON venue(field_id);
 
 /// The ratings database is written once by `fit` and read for ever after, so a
 /// missing index is worth adding in place rather than duplicating the table.
+/// `fit` and `achieve` already create these; this covers a file written before
+/// they did. An older single-column index the composite replaces is dropped, so
+/// the file does not carry both.
 pub fn ensure_ratings_indexes(path: &Path) {
     let db = Connection::open(path).unwrap_or_else(|e| panic!("open {}: {e}", path.display()));
+    // The running site reads this file while the indexes are written; wait
+    // out its queries rather than fail on the first one.
+    db.busy_timeout(std::time::Duration::from_secs(120)).expect("busy timeout");
     db.execute_batch(
         "CREATE TABLE IF NOT EXISTS player_events (tournament_id INTEGER, player_id INTEGER, theta_before REAL, theta_after REAL, sigma_after REAL);
-         CREATE INDEX IF NOT EXISTS idx_player_events_player ON player_events(player_id);
+         CREATE INDEX IF NOT EXISTS idx_player_events_pt ON player_events(player_id, tournament_id);
          CREATE INDEX IF NOT EXISTS idx_qp_tour ON question_params(tournament_id);
-         CREATE INDEX IF NOT EXISTS idx_player_ratings_player ON player_ratings(player_id);
-         CREATE INDEX IF NOT EXISTS idx_team_ratings_team ON team_ratings(team_id);
+         CREATE INDEX IF NOT EXISTS idx_player_ratings_pr ON player_ratings(player_id, release_id);
+         CREATE INDEX IF NOT EXISTS idx_team_ratings_tr ON team_ratings(team_id, release_id);
          CREATE INDEX IF NOT EXISTS idx_team_events_team ON team_events(team_id);
-         CREATE INDEX IF NOT EXISTS idx_team_events_tid ON team_events(tournament_id);",
+         CREATE INDEX IF NOT EXISTS idx_team_events_tt ON team_events(tournament_id, team_id);
+         DROP INDEX IF EXISTS idx_player_events_player;
+         DROP INDEX IF EXISTS idx_player_ratings_player;
+         DROP INDEX IF EXISTS idx_team_ratings_team;
+         DROP INDEX IF EXISTS idx_team_events_tid;",
     )
     .expect("index out/ratings.db");
+    if crate::data::table_exists(&db, "achieve_values") {
+        db.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_achieve_values_tt ON achieve_values(tournament_id, team_id);
+             DROP INDEX IF EXISTS idx_achieve_values_tid;",
+        )
+        .expect("index achieve_values");
+    }
 }
 
 pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {

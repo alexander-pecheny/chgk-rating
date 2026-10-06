@@ -1,81 +1,77 @@
-/* Site layer over dopeuikit core.css. Everything structural — .data-table,
-   .table-scroll, .section, .subhead, .hint, .empty, .muted — comes from core;
-   this file adds the page frame, the table cell roles core has no opinion on,
-   and the three things that are genuinely new here: the rating chart, the
-   question-difficulty strip and the pager. */
-
-body {
-  background: var(--page);
-  font-size: var(--text-base);
-}
-
-/* :visited too — the UA's purple is not in the palette, and in a table of
-   thousands of names a link that changes colour once read reads as a different
-   kind of row. */
-a,
-a:visited {
-  color: var(--blue);
-  text-decoration: none;
-}
-
-a:hover {
-  text-decoration: underline;
-}
+/* Site layer over dopeuikit core.css, which the server serves ahead of it as
+   one /static/styles.css. The page is dope's public page: core.css draws the
+   white bar (.public-top), the grey page (.public, .public-main), the results
+   tables whose rows are paper cards (.results-table), the town line and chips
+   under a name (.results-team-city, .team-flag) and the pills (.match-tab).
+   This file adds only what a rating has and a fest does not: the history
+   chart, the question strip, the stat block, the lineups, and the switches
+   that fold rows away. */
 
 /* ── page frame ─────────────────────────────────────────── */
 
-.host-top {
-  border-bottom: 1px solid var(--grid);
+/* A link in running text, in the palette's blue rather than the browser's. */
+a {
+  color: var(--blue);
 }
 
-.site-brand {
-  font-size: var(--text-md);
-  font-weight: var(--fw-bold);
-  color: var(--text-strong);
+/* A rating table is wider than a fest's list of games. */
+.site-main {
+  max-width: 1140px;
 }
 
-.site-brand:hover {
-  text-decoration: none;
+.site-main p {
+  max-width: 74ch;
+  margin: 0;
+  line-height: var(--leading-relaxed);
 }
 
-.site-nav {
+.site-trail {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-  font-size: var(--text-sm);
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-.site-nav a {
+/* The glyph sits inside the field, so the box reads as a search box before
+   the placeholder is read. */
+.site-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.site-search .ico {
+  position: absolute;
+  left: 9px;
   color: var(--muted);
+  pointer-events: none;
 }
 
-.site-nav a:hover {
+.site-search .input {
+  width: 220px;
+  max-width: 40vw;
+  padding-left: 30px;
+}
+
+/* The sections and the pager are pill strips; a pill that is a link wears
+   the pill's ink, not a link's. */
+.site-sections,
+.pager {
+  flex-wrap: wrap;
+}
+
+a.match-tab,
+a.match-tab:visited {
   color: var(--text);
   text-decoration: none;
 }
 
-.wrap {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-  max-width: 1140px;
-  margin: 0 auto;
-  padding: var(--space-5) var(--page-pad-x) var(--space-8);
+.match-tab[aria-current="page"] {
+  cursor: default;
 }
 
-/* The container owns the rhythm; nothing inside spaces itself. Headings and
-   paragraphs at any depth, not just direct children — a lone default <p>
-   margin inside .page-head is exactly the uneven gap this rule prevents. */
-.wrap h1,
-.wrap h2,
-.wrap h3,
-.wrap p,
-.wrap dl,
-.wrap dd,
-.wrap figure,
-.wrap nav,
-.wrap label {
-  margin: 0;
+.pager-gap {
+  align-self: center;
+  color: var(--muted);
 }
 
 .page-head {
@@ -84,24 +80,9 @@ a:hover {
   gap: var(--space-1);
 }
 
-.page-head h1 {
-  margin: 0;
-  font-size: var(--text-xl-plus);
-  line-height: var(--leading-snug);
-  color: var(--text-strong);
-}
-
-.wrap p {
-  max-width: 74ch;
-  line-height: var(--leading-relaxed);
-}
-
-/* the standing explanation at the top of a listing */
 .lede {
-  max-width: 74ch;
   color: var(--muted);
   font-size: var(--text-sm);
-  line-height: var(--leading-relaxed);
 }
 
 .site-foot {
@@ -111,45 +92,86 @@ a:hover {
   justify-content: space-between;
   max-width: 1140px;
   margin: 0 auto;
-  padding: var(--space-4) var(--page-pad-x) var(--space-6);
+  padding: var(--space-4) var(--space-5) var(--space-6);
   color: var(--muted);
   font-size: var(--text-xs);
 }
 
-/* ── table cell roles ───────────────────────────────────── */
+/* ── results tables ─────────────────────────────────────── */
 
-.data-table th,
-.data-table td {
-  vertical-align: baseline;
+/* Every row is its own card: the cards stand apart by the page grey, so a
+   row folded away leaves no gap behind. */
+.rating-table {
+  border-spacing: 0 var(--space-1);
+  margin-top: calc(-1 * var(--space-1));
 }
 
-.data-table th.num,
-.data-table td.num {
-  text-align: right;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
+.rating-table thead th.rating-text,
+.rating-table td.rating-text {
+  text-align: left;
 }
 
-.data-table td.strong {
-  font-weight: var(--fw-semibold);
-  color: var(--text-strong);
+.rating-table .rating-strong {
+  font-weight: var(--fw-bold);
 }
 
-.data-table td.nowrap {
-  white-space: nowrap;
+.rating-table td.muted {
+  color: var(--muted);
 }
 
-.data-table tbody tr:hover {
-  background: var(--hover-bg);
+.rating-table .results-team {
+  min-width: 220px;
+  white-space: normal;
 }
 
-/* Provisional rows are off until the reader asks for them, so a browser with
-   no JS shows the settled table and nothing else. */
-.prov-row {
+/* A name in a table is the row's title, in the row's ink; it shows it is a
+   link only under the pointer, as a fest's game list does. */
+.rating-table a,
+.roster a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.rating-table a:hover,
+.roster a:hover {
+  text-decoration: underline;
+}
+
+.rating-table .results-team-city {
+  margin-top: 2px;
+}
+
+/* On a phone the table scrolls in its own box, so its header can stick to
+   that box's top while the name column stays put (site.js pins it). */
+@media (max-width: 760px) {
+  .rating-scroll {
+    max-height: calc(100dvh - var(--space-8));
+    overflow: auto;
+  }
+
+  .rating-table .results-team {
+    min-width: 0;
+    max-width: 48vw;
+  }
+
+  .rating-table .pinned {
+    position: sticky;
+  }
+
+  .rating-scroll.scrolled .pin-last {
+    box-shadow: 6px 0 8px -6px var(--scroll-fade-color);
+  }
+}
+
+/* Provisional rows, older results and lineups are off until the reader asks
+   for them, so a browser with no script shows the settled table only. */
+.prov-row,
+.older-row {
   display: none;
 }
 
-.section:has(.prov-toggle input:checked) .prov-row {
+.section:has(.prov-toggle input:checked) .prov-row,
+.section:has(.older-toggle input:checked) .older-row {
   display: table-row;
 }
 
@@ -157,9 +179,10 @@ a:hover {
   display: none;
 }
 
-.prov-toggle {
+.prov-toggle,
+.older-toggle,
+.roster-toggle {
   align-self: flex-start;
-  color: var(--text);
 }
 
 .prov-count {
@@ -167,50 +190,119 @@ a:hover {
   font-size: var(--text-xs);
 }
 
-/* the band that separates settled ratings from provisional ones */
+/* the band before the provisional ratings */
 .row-split td {
-  background: var(--structure);
   color: var(--muted);
   font-size: var(--text-xs);
+  text-align: center;
 }
 
-/* ── meaning marks ──────────────────────────────────────── */
-
-.prov {
-  margin-left: var(--space-2);
-  padding: 1px var(--space-1-5);
-  border-radius: var(--radius-sm);
-  background: var(--warn-bg);
-  color: var(--warn-text);
-  font-size: var(--text-2xs);
-  font-weight: var(--fw-semibold);
-  white-space: nowrap;
+/* A result that is part of the rating today: the kit's positive wash. */
+.rating-table tr.counts td {
+  background: var(--wash-positive);
 }
 
-/* a result the model saw but did not count */
-.unrated {
-  margin-left: var(--space-2);
+.dot-in {
+  color: var(--success);
+}
+
+.breakdown .how {
+  margin-top: 2px;
   color: var(--muted);
-  font-size: var(--text-2xs);
+  font-size: var(--text-xs);
+  white-space: normal;
+}
+
+.breakdown tfoot td {
+  font-weight: var(--fw-semibold);
+}
+
+/* ── lineups ────────────────────────────────────────────── */
+
+/* A lineup lives in its team's cell and stays shut until asked for: for one
+   team by the small switch under the name, for every team by the one above
+   the table. One player to a line, in small type. */
+.cell-roster {
+  display: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+}
+
+.cell-roster li {
   white-space: nowrap;
 }
 
-.delta-up,
-.place-better {
-  color: var(--green-dark);
+.section:has(.roster-toggle input:checked) .cell-roster,
+td:has(.roster-open input:checked) .cell-roster {
+  display: block;
 }
 
-.delta-down,
-.place-worse {
-  color: var(--red-dark);
+.roster-open {
+  display: inline-block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
 }
 
-/* ── the header stat block ──────────────────────────────── */
+.roster-open input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+}
+
+.roster-open span {
+  border-bottom: 1px dotted currentColor;
+}
+
+td:has(.roster-open input:checked) .roster-open span {
+  border-bottom-style: solid;
+}
+
+.roster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  list-style: none;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.roster .num,
+.cell-roster .num {
+  color: var(--muted);
+}
+
+/* The venue filter of a merged field: a label and a select on one line. */
+.venue-filter {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+}
+
+.venue-filter select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* ── the stat block ─────────────────────────────────────── */
 
 .stats {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3) var(--space-6);
+  margin: 0;
 }
 
 .stat dt {
@@ -220,22 +312,42 @@ a:hover {
 
 .stat dd {
   margin: 0;
-  color: var(--text-strong);
   font-size: var(--text-lg);
   font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
 }
 
+/* a folded explanation under a listing's head */
+.note {
+  align-self: flex-start;
+  max-width: 74ch;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.note summary {
+  color: var(--blue);
+  cursor: pointer;
+}
+
+.note[open] summary {
+  margin-bottom: var(--space-2);
+}
+
+.note p + p {
+  margin-top: var(--space-2);
+}
+
 /* ── rating history: a line inside its uncertainty band ─── */
 
-/* Scrolls like a wide table does, and borrows the kit's scroll-fade so the
-   affordance is the same one .table-scroll already gives. */
+/* A paper card like a table row, and it scrolls like a wide table does. */
 .chart {
   position: relative;
   max-width: 900px;
+  margin: 0;
   overflow-x: auto;
   border-radius: var(--radius-md);
-  background: var(--surface);
+  background: var(--paper);
 }
 
 .chart svg {
@@ -258,7 +370,7 @@ a:hover {
 }
 
 .c-grid {
-  stroke: var(--grid);
+  stroke: var(--structure);
   vector-effect: non-scaling-stroke;
 }
 
@@ -268,218 +380,14 @@ a:hover {
   font-size: 13px;
 }
 
-/* ── question difficulty strip ──────────────────────────── */
-
-.qbars {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  max-width: 900px;
-  height: 88px;
-  padding: var(--space-2);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-}
-
-.qbars i {
-  flex: 1 1 0;
-  min-width: 2px;
-  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
-  background: var(--blue);
-  opacity: 0.55;
-}
-
-.qbars i:hover {
-  opacity: 1;
-}
-
-/* ── pager ──────────────────────────────────────────────── */
-
-.pager {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
-}
-
-.pager a,
-.pager-cur {
-  min-width: 30px;
-  padding: 3px var(--space-2);
-  border-radius: var(--radius-sm);
-  text-align: center;
-}
-
-.pager a {
-  background: var(--action-ghost-bg);
-  color: var(--text);
-}
-
-.pager a:hover {
-  background: var(--action-hover-bg);
-  text-decoration: none;
-}
-
-.pager-cur {
-  background: var(--text-strong);
-  color: var(--paper);
-  font-weight: var(--fw-semibold);
-}
-
-/* ── wide tables on a phone ─────────────────────────────
-   site.js marks each table's name column — and the narrow place columns in
-   front of it — as .pin, and the last of them .pin-last. Below 760px those
-   cells stay put while the rest scrolls under them, the header row stays put
-   while the body scrolls, and a name too long for its cell fades out and shows
-   whole in a popover: on hover, or on the first tap where there is no hover. */
-.town-sub {
-  display: none;
-}
-
-.name-pop {
-  position: fixed;
-  z-index: var(--z-dropdown);
-  max-width: min(420px, calc(100vw - 32px));
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
-  background: var(--paper);
-  box-shadow: var(--shadow-popover);
-  color: var(--text);
-  font-size: var(--text-xs);
-  line-height: var(--leading-snug);
-  pointer-events: none;
-}
-
-@media (max-width: 760px) {
-  .table-scroll {
-    max-height: calc(100dvh - var(--space-8));
-  }
-
-  .data-table th,
-  .data-table td {
-    padding: 6px 8px;
-  }
-
-  .table-scroll thead th {
-    position: sticky;
-    top: 0;
-    z-index: 3;
-    background: var(--surface);
-  }
-
-  .data-table .pin {
-    position: sticky;
-    z-index: 2;
-    background: var(--surface);
-  }
-
-  .table-scroll thead th.pin {
-    z-index: 4;
-  }
-
-  .data-table tbody tr:hover .pin {
-    background: var(--hover-bg);
-  }
-
-  /* the edge the columns scroll under, once they have */
-  .table-scroll.scrolled .pin-last::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    right: calc(-1 * var(--space-4));
-    bottom: 0;
-    width: var(--space-4);
-    background: linear-gradient(to right, var(--scroll-fade-color), transparent);
-    pointer-events: none;
-  }
-
-  /* The name column never takes more than half the screen, lineup included,
-     so the columns it pins beside always have room to scroll past. */
-  .data-table td.pin-last {
-    max-width: 48vw;
-  }
-
-  .cell-roster li {
-    overflow: hidden;
-    -webkit-mask-image: linear-gradient(to right, var(--paper) calc(100% - var(--space-4)), transparent);
-    mask-image: linear-gradient(to right, var(--paper) calc(100% - var(--space-4)), transparent);
-  }
-
-  /* The town moves under the team name, so the rating fits on the screen. */
-  .data-table .town {
-    display: none;
-  }
-
-  .town-sub {
-    display: block;
-    color: var(--muted);
-    font-size: var(--text-xs);
-  }
-
-  /* 120 bars at 2px and a 2px gap are wider than a phone */
-  .qbars {
-    gap: 1px;
-  }
-
-  .qbars i {
-    min-width: 1px;
-  }
-
-  .pin-clip {
-    display: inline-block;
-    max-width: 36vw;
-    overflow: hidden;
-    white-space: nowrap;
-    vertical-align: bottom;
-  }
-
-  .clipped .pin-clip {
-    -webkit-mask-image: linear-gradient(to right, var(--paper) calc(100% - var(--inline-fade-width)), transparent);
-    mask-image: linear-gradient(to right, var(--paper) calc(100% - var(--inline-fade-width)), transparent);
-  }
-}
-
-@media (max-width: 760px) {
-  /* the bar is two rows on a phone: brand, then the nav it cannot fit beside */
-  .host-top {
-    flex-wrap: wrap;
-    gap: var(--space-1) var(--space-3);
-    height: auto;
-    padding: var(--space-2) var(--page-pad-x-tight);
-  }
-
-  .host-brand {
-    flex: 0 0 auto;
-  }
-
-  .site-nav {
-    gap: var(--space-3);
-  }
-
-  .wrap {
-    padding: var(--space-4) var(--page-pad-x-tight) var(--space-6);
-    gap: var(--space-4);
-  }
-
-  .site-foot {
-    padding: var(--space-3) var(--page-pad-x-tight) var(--space-5);
-  }
-
-  .stats {
-    gap: var(--space-3) var(--space-5);
-  }
-}
-
-/* ── the hover crosshair ────────────────────────────────── */
-
+.c-view[hidden],
 .c-cursor[hidden],
 .c-tip[hidden] {
   display: none;
 }
 
 .c-rule {
-  stroke: var(--text-strong);
+  stroke: var(--text);
   stroke-width: 1;
   stroke-dasharray: 3 3;
   opacity: 0.5;
@@ -488,13 +396,13 @@ a:hover {
 
 .c-dot {
   fill: var(--blue);
-  stroke: var(--surface);
+  stroke: var(--paper);
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
 }
 
-/* Sits beside the point it describes and flips to the other side near the right
-   edge, so it never leaves the figure. */
+/* Sits beside the point it describes and flips to the other side near the
+   right edge, so it never leaves the figure. */
 .c-tip {
   position: absolute;
   z-index: 1;
@@ -502,9 +410,8 @@ a:hover {
   flex-direction: column;
   gap: 1px;
   padding: var(--space-1-5) var(--space-2);
-  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: var(--paper);
   box-shadow: var(--shadow-popover);
   font-size: var(--text-xs);
   line-height: var(--leading-snug);
@@ -522,41 +429,11 @@ a:hover {
 }
 
 .c-tip-value {
-  color: var(--text-strong);
   font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
 }
 
-/* ── header search ──────────────────────────────────────── */
-
-.site-search input {
-  width: 210px;
-  max-width: 40vw;
-  min-height: var(--control-h);
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--field-bg);
-  color: var(--text);
-  font-size: var(--text-sm);
-  outline: 0;
-}
-
-.site-search input:focus {
-  border-color: var(--blue);
-}
-
-.pager-gap {
-  padding: 3px var(--space-1);
-  color: var(--muted);
-}
-
-/* ── the rating / place switch ──────────────────────────── */
-
-.c-view[hidden] {
-  display: none;
-}
-
+/* The rating / place switch is a pill strip of its own, in the card's corner. */
 .c-tabs {
   position: absolute;
   z-index: 1;
@@ -580,180 +457,55 @@ a:hover {
   cursor: pointer;
 }
 
-.c-tab:hover {
-  color: var(--text);
-}
-
 .c-tab.on {
-  background: var(--surface);
-  color: var(--text-strong);
-  font-weight: var(--fw-semibold);
-}
-
-/* a folded explanation under a listing's lede */
-.note {
-  align-self: flex-start;
-  max-width: 74ch;
-  color: var(--muted);
-  font-size: var(--text-sm);
-}
-
-.note summary {
-  color: var(--blue);
-  cursor: pointer;
-}
-
-.note[open] summary {
-  margin-bottom: var(--space-2);
-}
-
-.note p + p {
-  margin-top: var(--space-2);
-}
-
-/* The glyph sits inside the field, so the box reads as a search box before the
-   placeholder is read. */
-.site-search {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.site-search .ico {
-  position: absolute;
-  left: 9px;
-  vertical-align: 0;
-  color: var(--muted);
-  pointer-events: none;
-}
-
-.site-search input {
-  padding-left: 30px;
-}
-
-/* ── lineups on the tournament page ─────────────────────── */
-
-/* A lineup lives inside its team's cell and stays shut until the reader asks,
-   for one team by the small switch beside the name or for every team by the
-   switch above the table. One player to a line, in small type. */
-.cell-roster {
-  display: none;
-  margin: var(--space-1) 0 0;
-  padding: 0;
-  list-style: none;
-  font-size: var(--text-xs);
-  line-height: var(--leading-snug);
-}
-
-.cell-roster li {
-  white-space: nowrap;
-}
-
-.cell-roster .num {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-strong);
-}
-
-/* The venue filter of a merged field: a label and a select on one line, the
-   select free to shrink on a phone rather than push the page sideways. */
-.venue-filter {
-  flex-direction: row;
-  align-items: center;
-  gap: var(--space-2);
-  margin: var(--space-3) 0;
-  max-width: 100%;
-}
-
-.venue-filter select {
-  min-width: 0;
-  max-width: 100%;
-}
-
-.section:has(.roster-toggle input:checked) .cell-roster,
-td:has(.roster-open input:checked) .cell-roster {
-  display: block;
-}
-
-.roster-open {
-  margin-left: var(--space-2);
-  color: var(--muted);
-  font-size: var(--text-xs);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.roster-open input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.roster-open span {
-  border-bottom: 1px dotted currentColor;
-}
-
-td:has(.roster-open input:checked) .roster-open span {
-  border-bottom-style: solid;
-}
-
-.roster {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-5);
-  margin: 0;
-  padding: 0 0 0 var(--space-6);
-  list-style: none;
-  font-size: var(--text-sm);
-}
-
-.base-roster {
-  padding-left: 0;
-  font-size: var(--text-base);
-}
-
-.roster .num {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-strong);
-}
-
-/* ── the rating taken apart, on a team page ──────────────── */
-
-.breakdown .how {
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: var(--text-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.breakdown tfoot td {
-  border-top: 1px solid var(--grid);
-  font-weight: var(--fw-semibold);
-  color: var(--text-strong);
-}
-
-.breakdown .empty-slot td {
-  color: var(--muted);
-}
-
-.data-table tr.counts td {
-  background: color-mix(in srgb, var(--green-dark) 6%, transparent);
-}
-
-.dot-in {
-  color: var(--green-dark);
-}
-
-/* A team's results older than three years stay folded until asked for. */
-.older-row {
-  display: none;
-}
-
-.section:has(.older-toggle input:checked) .older-row {
-  display: table-row;
-}
-
-.older-toggle {
-  align-self: flex-start;
+  background: var(--paper);
   color: var(--text);
+  font-weight: var(--fw-semibold);
+}
+
+/* ── question difficulty strip ──────────────────────────── */
+
+.qbars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  max-width: 900px;
+  height: 88px;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.qbars i {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  background: var(--blue);
+  opacity: 0.55;
+}
+
+.qbars i:hover {
+  opacity: 1;
+}
+
+@media (max-width: 760px) {
+  .public-top {
+    padding: 0 var(--space-3);
+  }
+
+  .site-search .input {
+    width: 150px;
+  }
+
+  .qbars {
+    gap: 1px;
+  }
+
+  .qbars i {
+    min-width: 1px;
+  }
+
+  .stats {
+    gap: var(--space-3) var(--space-5);
+  }
 }

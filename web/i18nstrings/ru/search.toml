@@ -1,0 +1,13 @@
+# The search page at /search/?q=.
+title = "Поиск"
+page_title = 'Поиск: {{.q}}'
+query = 'Запрос: {{.q}}'
+prompt = "Введите имя игрока или название команды."
+nothing = "Ничего не найдено."
+players = 'Игроки ({{.n}})'
+teams = 'Команды ({{.n}})'
+
+[col]
+games = "Игр"
+tournaments = "Турниров"
+last = "Последняя игра"

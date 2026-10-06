@@ -1,0 +1,7 @@
+# The tournament list at /tournaments/.
+lede = 'Рейтинговые турниры с 2013 года — {{.n}} {{plural .n "турнир" "турнира" "турниров"}}, от новых к старым.'
+
+[col]
+weight = "Вес"
+teams = "Команд"
+questions = "Вопросов"

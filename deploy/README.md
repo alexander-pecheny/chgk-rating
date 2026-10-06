@@ -1,6 +1,6 @@
 # Deployment
 
-`chgk-rating.service` runs `web/target/release/serve` on port 9684 and Caddy
+`chgk-rating.service` runs `web/serve`, the Go server, on port 9684 and Caddy
 proxies rating2.pecheny.me to it. `deploy/chgk-rating.service` is the copy of
 the unit file.
 
@@ -8,7 +8,7 @@ the unit file.
 
 Cron runs `deploy/update.sh` at 06:30 UTC every day. `deploy/crontab` holds the
 line. The script brings `buff.db` over from `vps2day-ee` (it is rebuilt there
-at 01:05 UTC and the graph at 04:50 UTC), runs `fit` and `eval`, restarts the
+at 01:05 UTC and the graph at 04:50 UTC), runs `fit`, `eval`, `achieve` and `webindex`, restarts the
 service and waits for the site to answer. `fit` now ends its window today, so
 each run picks up the tournaments added since yesterday. The whole thing takes
 about three minutes.

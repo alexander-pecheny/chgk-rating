@@ -1,0 +1,264 @@
+{
+  "enums": {
+    "page-kind": {
+      "prefix": "Page",
+      "values": [
+        "site"
+      ]
+    },
+    "cell-tone": {
+      "prefix": "CellTone",
+      "values": [
+        "up",
+        "down",
+        "better",
+        "worse"
+      ]
+    },
+    "toggle-kind": {
+      "prefix": "Toggle",
+      "values": [
+        "prov",
+        "older",
+        "roster"
+      ]
+    }
+  },
+  "primitives": [
+    {
+      "name": "sitebar",
+      "placement": "header",
+      "props": [],
+      "children": [
+        "crumbs"
+      ]
+    },
+    {
+      "name": "tablinks",
+      "props": [],
+      "children": [
+        "tablink"
+      ]
+    },
+    {
+      "name": "tablink",
+      "props": [
+        {
+          "name": "href",
+          "required": true
+        },
+        {
+          "name": "on",
+          "kind": "bare"
+        }
+      ],
+      "children": "text"
+    },
+    {
+      "name": "flag",
+      "props": [],
+      "inline": true,
+      "children": "text"
+    },
+    {
+      "name": "subline",
+      "props": [],
+      "children": "text"
+    },
+    {
+      "name": "sitefoot",
+      "placement": "overlay",
+      "props": [],
+      "children": "text"
+    },
+    {
+      "name": "pagehead",
+      "props": [],
+      "children": "any"
+    },
+    {
+      "name": "lede",
+      "props": [],
+      "children": "text"
+    },
+    {
+      "name": "byline",
+      "props": [],
+      "children": "text"
+    },
+    {
+      "name": "stats",
+      "props": [],
+      "children": [
+        "stat"
+      ]
+    },
+    {
+      "name": "stat",
+      "props": [
+        {
+          "name": "label",
+          "required": true
+        }
+      ],
+      "children": "text"
+    },
+    {
+      "name": "pager",
+      "props": [
+        {
+          "name": "cur",
+          "required": true
+        },
+        {
+          "name": "total",
+          "required": true
+        },
+        {
+          "name": "first",
+          "required": true
+        },
+        {
+          "name": "prefix",
+          "required": true
+        }
+      ],
+      "children": "none"
+    },
+    {
+      "name": "chart",
+      "props": [],
+      "children": "any"
+    },
+    {
+      "name": "charttab",
+      "props": [
+        {
+          "name": "on",
+          "kind": "bare"
+        }
+      ],
+      "children": "text"
+    },
+    {
+      "name": "qbars",
+      "props": [],
+      "children": [
+        "qbar"
+      ]
+    },
+    {
+      "name": "qbar",
+      "props": [
+        {
+          "name": "h",
+          "required": true
+        }
+      ],
+      "children": "none"
+    },
+    {
+      "name": "toggle",
+      "props": [
+        {
+          "name": "kind",
+          "enum": "toggle-kind",
+          "required": true
+        }
+      ],
+      "children": "text"
+    },
+    {
+      "name": "count",
+      "props": [],
+      "inline": true,
+      "children": "text"
+    },
+    {
+      "name": "link",
+      "props": [
+        {
+          "name": "href",
+          "required": true
+        }
+      ],
+      "inline": true,
+      "children": "text"
+    },
+    {
+      "name": "fig",
+      "props": [],
+      "inline": true,
+      "children": "text"
+    },
+    {
+      "name": "sup",
+      "props": [],
+      "inline": true,
+      "children": "text"
+    },
+    {
+      "name": "em",
+      "props": [],
+      "inline": true,
+      "children": "text"
+    },
+    {
+      "name": "dotin",
+      "props": [],
+      "inline": true,
+      "children": "none"
+    },
+    {
+      "name": "how",
+      "props": [],
+      "children": "text"
+    },
+    {
+      "name": "roster",
+      "props": [],
+      "children": [
+        "member"
+      ]
+    },
+    {
+      "name": "cellroster",
+      "props": [],
+      "children": [
+        "member"
+      ]
+    },
+    {
+      "name": "member",
+      "props": [],
+      "children": "text"
+    },
+    {
+      "name": "rosteropen",
+      "props": [],
+      "children": "none"
+    },
+    {
+      "name": "venuefilter",
+      "props": [
+        {
+          "name": "label",
+          "required": true
+        }
+      ],
+      "children": [
+        "option"
+      ]
+    },
+    {
+      "name": "explainer",
+      "props": [
+        {
+          "name": "label",
+          "required": true
+        }
+      ],
+      "children": "any"
+    }
+  ]
+}

@@ -110,78 +110,35 @@
   });
 })();
 
-/* Wide tables on a phone: pin the name column (and the narrow place columns in
-   front of it), fade the edge the rest scrolls under, and give a clipped name a
-   popover. Everything is measured, so it follows the table whatever it holds;
-   above 760px the pins are inert and the CSS ignores them. */
+/* Wide tables on a phone: pin the name column (and the narrow place column in
+   front of it) while the rest scrolls under it, and mark the box once it has
+   scrolled so the edge shows a shadow. Measured, so it follows whatever the
+   table holds; above 760px the pins are inert. */
 (function () {
-  var NAME = /^(Команда|Игрок|Турнир)$/;
   var phone = window.matchMedia("(max-width: 760px)");
-  var noHover = window.matchMedia("(hover: none)");
-  var pop = null;
-  var popFor = null;
-
-  function hidePop() {
-    if (pop) pop.remove();
-    pop = null;
-    popFor = null;
-  }
-
-  function showPop(td) {
-    var a = td.querySelector("a.pin-clip");
-    if (!a) return;
-    hidePop();
-    pop = document.createElement("div");
-    pop.className = "name-pop";
-    pop.textContent = a.textContent;
-    document.body.appendChild(pop);
-    var r = a.getBoundingClientRect();
-    var w = pop.getBoundingClientRect().width;
-    pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + "px";
-    pop.style.top = r.bottom + 4 + "px";
-    popFor = td;
-  }
-
   var frames = [];
 
   function setup(frame) {
-    var table = frame.querySelector("table.data-table");
+    var table = frame.querySelector("table.results-table");
     if (!table || !table.tHead || !table.tHead.rows.length) return;
     var heads = [].slice.call(table.tHead.rows[0].cells);
     var k = -1;
     heads.forEach(function (th, i) {
-      if (k < 0 && NAME.test(th.textContent.trim())) k = i;
+      if (k < 0 && th.classList.contains("pin-name")) k = i;
     });
     if (k < 0) return;
-    // The place column rides along when the table opens with one; anything
-    // between it and the name (a forecast) scrolls under the name like the rest.
-    var cols = k > 0 && heads[0].classList.contains("num") ? [0, k] : [k];
+    // The place column rides along when the table opens with one.
+    var cols = k > 0 && heads[0].classList.contains("results-num") ? [0, k] : [k];
     var width = heads.length;
     var rows = [].slice.call(table.rows).filter(function (r) { return r.cells.length === width; });
     rows.forEach(function (r) {
-      cols.forEach(function (i) { r.cells[i].classList.add("pin"); });
+      cols.forEach(function (i) { r.cells[i].classList.add("pinned"); });
       r.cells[k].classList.add("pin-last");
-      var a = r.cells[k].querySelector("a");
-      if (a && r.parentNode !== table.tHead) a.classList.add("pin-clip");
     });
-    frames.push({ frame: frame, rows: rows, cols: cols, k: k, heads: heads });
+    frames.push({ rows: rows, cols: cols, heads: heads });
     frame.addEventListener("scroll", function () {
       frame.classList.toggle("scrolled", frame.scrollLeft > 0);
-      hidePop();
     }, { passive: true });
-    table.addEventListener("mouseover", function (ev) {
-      var td = ev.target.closest && ev.target.closest("td.clipped");
-      if (td && td !== popFor && !noHover.matches) showPop(td);
-    });
-    table.addEventListener("mouseleave", hidePop);
-    table.addEventListener("click", function (ev) {
-      var a = ev.target.closest && ev.target.closest("a.pin-clip");
-      if (!a || !noHover.matches) return;
-      var td = a.closest("td");
-      if (!td.classList.contains("clipped") || td === popFor) return;
-      ev.preventDefault();
-      showPop(td);
-    });
   }
 
   function layout() {
@@ -192,21 +149,13 @@
         f.rows.forEach(function (r) { r.cells[i].style.left = x; });
         left += f.heads[i].getBoundingClientRect().width;
       });
-      f.rows.forEach(function (r) {
-        var a = r.cells[f.k].querySelector("a.pin-clip");
-        if (a) r.cells[f.k].classList.toggle("clipped", phone.matches && a.scrollWidth > a.clientWidth + 1);
-      });
     });
   }
 
-  [].forEach.call(document.querySelectorAll(".table-scroll"), setup);
+  [].forEach.call(document.querySelectorAll(".rating-scroll"), setup);
   layout();
   window.addEventListener("resize", layout);
   if (phone.addEventListener) phone.addEventListener("change", layout);
-  document.addEventListener("click", function (ev) {
-    if (popFor && !popFor.contains(ev.target)) hidePop();
-  });
-  window.addEventListener("scroll", hidePop, { passive: true });
   // Opening a lineup changes the cell widths the pins are measured from.
   document.addEventListener("change", function (ev) {
     if (ev.target.closest && ev.target.closest(".roster-open, .roster-toggle")) layout();
@@ -219,7 +168,7 @@
 (function () {
   var sel = document.querySelector(".venue-filter select");
   if (!sel) return;
-  var table = sel.parentNode.parentNode.querySelector(".data-table");
+  var table = sel.closest(".section").querySelector(".results-table");
   if (!table) return;
   var rows = [].slice.call(table.querySelectorAll("tbody tr"));
   var cells = [].slice.call(table.querySelectorAll("td[data-own]"));

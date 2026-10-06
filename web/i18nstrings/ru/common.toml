@@ -1,0 +1,79 @@
+# Words every page shares: the header and footer, the column names that mean
+# the same thing in every table, and the marks a row can carry.
+brand = "Рейтинг ЧГК"
+title = '{{.title}} — Рейтинг ЧГК'
+page_title = '{{.title}} — страница {{.n}}'
+untitled = "без названия"
+team_fallback = 'Команда {{.n}}'
+player_fallback = 'Игрок {{.n}}'
+of_n = 'из {{.n}}'
+no_tournaments = "Рейтинговых турниров нет."
+
+[nav]
+teams = "Команды"
+players = "Игроки"
+tournaments = "Турниры"
+releases = "Релизы"
+method = "Методика"
+
+[search]
+placeholder = "Игрок или команда"
+label = "Поиск"
+
+[foot]
+note = "Экспериментальный рейтинг спортивного ЧГК. Данные — зеркало rating.chgk.info. "
+report = "Отчёт (PDF)"
+
+[pager]
+label = "Страницы"
+
+[not_found]
+title = "Не найдено"
+lede = "Такой страницы нет. Попробуйте поиск в шапке."
+
+[failed]
+title = "Ошибка"
+lede = "Страницу не удалось построить. Попробуйте ещё раз чуть позже."
+
+[format]
+in_person = "очный"
+strict_sync = "строгий синхрон"
+sync = "синхрон"
+async = "асинхрон"
+
+[prov]
+badge = "предв."
+title = "Рейтинг предварительный: неопределённость велика"
+toggle = "Показывать предварительные"
+hidden = 'скрыто на этой странице: {{.n}}'
+from_page = 'предварительные — со страницы {{.n}}'
+
+[unrated]
+tag = "вне рейтинга"
+title = "Результат не учтён в рейтинге"
+
+[col]
+place = "Место"
+team = "Команда"
+player = "Игрок"
+tournament = "Турнир"
+date = "Дата"
+type = "Тип"
+rating = "Рейтинг"
+change = "Изменение"
+sigma_title = "Неопределённость оценки"
+taken = "Взято"
+before = "Было"
+after = "Стало"
+difficulty = "Сложность"
+difficulty_title = "Сложность пакета"
+value = "Ценность"
+value_title = "Сколько результат стоил в день турнира"
+gain = "Прибавка"
+gain_title = "Насколько вырос рейтинг, когда результат вошёл в семь лучших"
+
+[chart]
+title = "История рейтинга"
+rating = "Рейтинг"
+place = "Место"
+empty = "Точек для графика пока нет."

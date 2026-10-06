@@ -12,3 +12,6 @@ fonts
 target/
 __pycache__/
 catboost_info/
+
+# the Go site server binary
+/web/serve

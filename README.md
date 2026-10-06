@@ -201,18 +201,27 @@ Recomputes the constants that `config.toml` holds. Both modes print a block to p
 
 ## Site
 
-`web/` is a separate crate: an HTTP server that reads `out/ratings.db` and
-`buff.db` directly, so every player, team and tournament has a page, not only
-the ones in the current release.
+The site is two programs. `webindex`, a binary of this crate, does the
+computing: it builds `out/web.db`, the serving index (rosters, names, the two
+ranking tables, the place history behind each chart, the anomaly scores and a
+full-text index) from `out/ratings.db` and `buff.db`. It rebuilds only when
+either input is newer or the index version changed, writes beside the old file
+and renames it into place, and takes about two minutes. `--rebuild` forces it.
+
+`web/` is the server, a Go module on dopesuite's DopeUIKit: the kit's page
+shell, tables, ☰ menu, `core.css` and fonts, the site's own primitives in
+`web/ui/` and every string in the Catalog under `web/i18nstrings/ru/`. It reads
+the two databases and computes nothing. It expects the dopesuite checkout at
+`/home/pecheny/dopesuite`.
 
 ```
-cd web && cargo build --release
-./web/target/release/serve out/ratings.db --addr 127.0.0.1:8080
+./target/release/webindex
+just web                                  # build web/serve
+web/serve --addr 127.0.0.1:8080
+web/serve --addr 127.0.0.1:8080 --dev     # CSS and JS read from web/static on every request
+just strings                              # after editing a TOML file in web/i18nstrings/ru/
+just ui                                   # after editing web/ui/vocab.json
 ```
-
-On start it builds `out/web.db`, the serving index — rosters, names, the two
-ranking tables and a full-text index — and rebuilds it whenever `out/ratings.db`
-is newer. `--rebuild` forces it; the build takes about ten seconds.
 
 A team is named by `buff.db`'s `teams` table, which the mirror fills nightly
 from the rating.chgk.info team listing; the name on the team's last result is
@@ -221,9 +230,9 @@ authority: a team that alternates between two names would alternate with it. The
 tournament under is kept per result and shown on that tournament's page, and
 every name it has used is searchable.
 
-Live at https://rating2.pecheny.me: `chgk-rating.service` runs the binary on
-port 9684 and Caddy proxies to it. After a refit, `sudo systemctl restart
-chgk-rating` rebuilds the index and picks up the new numbers. Cron does all of
+Live at https://rating2.pecheny.me: `chgk-rating.service` runs `web/serve` on
+port 9684 and Caddy proxies to it. After a refit, run `webindex`, then `sudo
+systemctl restart chgk-rating` to pick up the new numbers. Cron does all of
 that at 06:30 UTC every day; `deploy/README.md` says how.
 
 ## anomaly
@@ -234,7 +243,7 @@ synchronous circuit is played at home, as it was in 2020 and 2021, so a cheat's
 strength depends on the format and an honest player's does not.
 
 The site's `/anomaly/` page is a separate, leaner implementation of the same
-idea in `web/src/anomaly.rs`, computed at index time: one score per player,
+idea in `src/bin/webindex/anomaly.rs`, computed at index time: one score per player,
 sorted descending.
 
 ```

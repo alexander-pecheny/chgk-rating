@@ -1,0 +1,70 @@
+# The methodology at /method/: DESIGN.md sections 1–6 in the plain register of
+# the site. Written in English for now; the owner translates it here.
+lede = "How the rating is computed, in short. The full rules with formulas are in the"
+report = "report (PDF)"
+
+[team]
+title = "What a team rating is"
+sum = "A team rating is the sum of the team's seven best current results, divided by seven. An empty slot counts as zero, so a team needs seven good results to reach its full level. Every team page shows the seven, what each was worth and what is left of it, so the number can be checked by hand."
+value = "A result is valued once, on the day of the tournament, and never revalued afterwards. Its value is the strength the team showed, divided by its place to the power 0.6, times the weight of the tournament. A win keeps the whole strength, second place 66% of it, fifth 38%, tenth 25%."
+strength = "The strength the team showed is that of a lineup of six equal players who would expect to take as many questions on that package as the team took. Question difficulty comes from the question model below, so the same number of answers is worth more on a harder package, and a lead over the field counts in full."
+
+[weight]
+title = "The weight of a tournament"
+product = "The weight is the product of three factors."
+format = "Format: in-person 1, strictly synchronous 0.9, synchronous 0.5. Asynchronous tournaments do not count."
+field = "Field: the average strength of the tournament's twenty strongest lineups, placed between 5000, which weighs 0, and 10000, which weighs 1. A tournament with fewer than twenty lineups counts the missing ones as zero, so a small field weighs less."
+reach = "Reach, in person only: the number of towns the teams come from, divided by 24, to the power 0.6, and never more than 1. A field drawn from 24 towns or more keeps its whole weight; a league played within one city keeps about a seventh."
+merged = "Several cities playing one package within two days of each other are one tournament, with one set of places. A question dropped at one venue is dropped at all of them, so every team plays for the same questions."
+
+[time]
+title = "Time and lineup"
+fade = "A result loses 10% of its value each year if it was played in person and 40% if it was synchronous. A strong result fades a little more slowly. A team that stops playing keeps its seven results, and its rating only falls; it can rise only by a new result that enters the seven."
+roster = "A result counts for the team whose number it was played under, whoever sat at the table. If the team's base roster has since changed, the result keeps only part of its value: the share of that season's roster, weighted by the players' ratings over the six strongest, that is still on the roster today, to the power 0.6. A team that loses its strongest player loses more than one that loses its weakest."
+listed = "A team is in the table while it has a base roster for the season (in the first sixty days of a season, last season's roster is enough) and at least one counted result in the past 365 days. A result flagged as unrated counts for nobody."
+search = "The constants above were chosen by searching thousands of combinations for the one that best predicts the order of teams in real tournaments, with a few fixed in advance for clarity: seven results, the format weights, and a rating that never grows while a team is idle. On in-person tournaments of the last two seasons it orders fields of teams playing in their base rosters about as well as the previous rule did."
+
+[player]
+title = "Individual rating"
+model_lead = "Player strength is estimated from a question model. Each question has a difficulty, each player has a strength and an uncertainty. On each question a player has an"
+intensity = "intensity"
+model_alone = ", the rate at which they find the answer: 1 when their strength equals the difficulty, rising by a factor of e for every unit above it and falling by the same for every unit below. A player alone answers with probability 1 − e"
+sup_intensity = "−intensity"
+model_table = ". Intensities of a table add up, and the team answers with probability 1 − e"
+sup_sum = "−sum"
+model_tail = ". Uncertainty plays no part in this chance; it only sets how far the estimate moves afterwards. Question difficulty is read from the share of lineups that answered it: it is set so that the model predicts exactly the observed share. This is what makes packages from different years and levels comparable."
+format = "A player is not equally strong in every format. Besides the strength, each player carries a second, smaller number: how much stronger they are at a table that meets face to face than at a synchronous package played elsewhere. It is estimated from in-person results only and is added to the strength whenever the tournament is in person — in the question model, in lineup strength and in the forecast. For most players it is zero, because most have never played in person; the tenth and ninetieth percentiles of those who have are about −0.05 and +0.09 on the individual scale, some three hundred and five hundred points of team rating apart at the extremes. Once estimated it does not fade with time, unlike the strength itself: how a player takes to a face-to-face table is a property of the player, not of their form."
+published = "Individual numbers are published as they are, with their uncertainty, with no ladder rules and no rounding to grades. The published number is the strength at an in-person table: the in-person bonus above is part of it, which is what the other systems' player numbers also mean, so the tables can be compared. The model itself keeps the two apart, and it is the strength without the bonus that the scale of the next section is anchored to. A player with no history enters at the average strength of a newcomer with a wide uncertainty."
+
+[scale]
+title = "Scale"
+anchor = "At every release the scale is anchored to the population: the mean strength of players with at least eight rated tournaments in the past year is set to zero. This shift is subtracted from every player. Team values rest on the same anchor, because the strength a team showed is read on the same scale as the players. The accumulated shift is shown on the"
+releases = "releases"
+tail = " page."
+
+[uncertainty]
+title = "Uncertainty"
+body = "Players carry a ± next to the rating: the root-mean-square uncertainty of the estimate. A rating with a large one is provisional. The width is driven by the player's own volatility. A steady, predictable history squeezes it to the floor no matter how much time passes, and a run of results unlike the past opens it again. The calendar alone does not blur a rating."
+
+[forecast]
+title = "Forecast"
+lineup = "The forecast for a tournament is separate from the rating and takes no part in the update. A team's forecast strength is the strength of the lineup it fielded, computed from individual ratings, and the forecast places are the order of the field by that strength. About tomorrow, the lineup knows more than the accumulated team rating: on in-person tournaments of the last two seasons this forecast beats both the team rating and the forecast of the old system."
+editors = "At an in-person tournament the forecast carries one small correction that is not about the lineup: how that lineup's players have fared before under the editors of this package. A weak player misses a question whoever wrote it, so only the strongest fifth of players carry such a record at all, and a player and an editor need two shared tournaments before the record counts. Everything else in the system ignores it — no rating, no player number and no question difficulty moves because of it, and a synchronous forecast never reads it. It is worth a few points of forecast quality and it is the only place in the model where who wrote the questions changes what we expect."
+quality = "The tournament page shows the forecast next to the result. Forecast quality is measured two ways and compared with the other systems: by Spearman rank correlation over the whole field, and by a top-weighted measure that counts a swap at the first places for far more than one deep in the table, averaged over tournaments with the strong fields counting most. On in-person tournaments of the last two seasons the forecast is ahead of rating.chgk.fun, chgk.quest, chgk.gg and the old system on both."
+
+[difficulty]
+title = "Package difficulty"
+body = "Package difficulty is a single estimate, shared by all tournaments, of how hard the questions were: the higher the number, the fewer questions teams of one and the same strength would answer. It comes from the same question model as the player ratings, so packages of different years, formats and fields compare directly."
+
+[count]
+title = "Which tournaments count"
+formats = "Rated tournaments from 1 January 2013 count. For individual ratings the format enters as a weight: in-person tournaments 1, strict synchronous 2/3, synchronous 1/2; team ratings use the weights above. Asynchronous tournaments are never rated. Marathons are excluded."
+players = "The player table includes players who played at least one rated tournament in the last 365 days."
+
+[publication]
+title = "Publication"
+body = "Processing is online and chronological: tournaments in date order, releases on Thursdays. The site is refreshed every morning. A result’s value is fixed on the day it is played; the team history on the site is recomputed under the current rules, so it can differ from what an earlier version of the site showed."
+
+[reading]
+title = "Further reading"
+lead = "Formulas, constant calibration and acceptance tests are in the"
