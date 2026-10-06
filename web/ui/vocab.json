@@ -30,7 +30,8 @@
       "placement": "header",
       "props": [],
       "children": [
-        "crumbs"
+        "crumbs",
+        "tablinks"
       ]
     },
     {
@@ -66,8 +67,12 @@
       "children": "text"
     },
     {
+      "name": "sitebody",
+      "props": [],
+      "children": "any"
+    },
+    {
       "name": "sitefoot",
-      "placement": "overlay",
       "props": [],
       "children": "text"
     },

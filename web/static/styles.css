@@ -1,6 +1,7 @@
 /* Site layer over dopeuikit core.css, which the server serves ahead of it as
-   one /static/styles.css. The page is dope's public page: core.css draws the
-   white bar (.public-top), the grey page (.public, .public-main), the results
+   one /static/styles.css. The page is dope's game page: core.css draws the
+   bar (.game-host-top) with its trail and segment tabs, the grey frame that
+   scrolls under it (.match-main, .sheet-frame.fight-frame), the results
    tables whose rows are paper cards (.results-table), the town line and chips
    under a name (.results-team-city, .team-flag) and the pills (.match-tab).
    This file adds only what a rating has and a fest does not: the history
@@ -14,21 +15,37 @@ a {
   color: var(--blue);
 }
 
-/* A rating table is wider than a fest's list of games. */
-.site-main {
-  max-width: 1140px;
+/* The frame is dope's game frame. The site's content sits in it as one
+   column down its left edge, as wide as its widest table: sections stretch to
+   it, so a heading or a hint has the whole width to stick in while the frame
+   scrolls a wide table sideways. Text never sets that width; it keeps to the
+   screen. */
+.site-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: max-content;
+  min-width: 100%;
+  padding: var(--space-2) var(--space-2) 0;
 }
 
-.site-main p {
-  max-width: 74ch;
+.site-body .section {
+  max-width: none;
+}
+
+/* Everything that is not a table stays at the frame's left edge while the
+   frame scrolls, the way dope's зачёт chips do. */
+.site-body > :not(.section),
+.site-body .section > :not(.results-wrapper):not(.chart):not(.qbars) {
+  position: sticky;
+  left: var(--space-2);
+  max-width: calc(100vw - 2 * var(--space-3-5) - 2 * var(--space-2));
+}
+
+.site-body p {
+  max-width: min(74ch, calc(100vw - 2 * var(--space-3-5) - 2 * var(--space-2)));
   margin: 0;
   line-height: var(--leading-relaxed);
-}
-
-.site-trail {
-  display: flex;
-  flex: 1 1 auto;
-  min-width: 0;
 }
 
 /* The glyph sits inside the field, so the box reads as a search box before
@@ -52,9 +69,8 @@ a {
   padding-left: 30px;
 }
 
-/* The sections and the pager are pill strips; a pill that is a link wears
-   the pill's ink, not a link's. */
-.site-sections,
+/* The pager is a strip of pills, like dope's зачёт chips; a pill that is a
+   link wears the pill's ink, not a link's. */
 .pager {
   flex-wrap: wrap;
 }
@@ -89,10 +105,7 @@ a.match-tab:visited {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
-  justify-content: space-between;
-  max-width: 1140px;
-  margin: 0 auto;
-  padding: var(--space-4) var(--space-5) var(--space-6);
+  padding: var(--space-4) 0 var(--space-6);
   color: var(--muted);
   font-size: var(--text-xs);
 }
@@ -100,8 +113,10 @@ a.match-tab:visited {
 /* ── results tables ─────────────────────────────────────── */
 
 /* Every row is its own card: the cards stand apart by the page grey, so a
-   row folded away leaves no gap behind. */
+   row folded away leaves no gap behind. A table is as wide as its columns, as
+   dope's are, so the eye never travels far along a row. */
 .rating-table {
+  width: max-content;
   border-spacing: 0 var(--space-1);
   margin-top: calc(-1 * var(--space-1));
 }
@@ -120,7 +135,8 @@ a.match-tab:visited {
 }
 
 .rating-table .results-team {
-  min-width: 220px;
+  min-width: 200px;
+  max-width: 360px;
   white-space: normal;
 }
 
@@ -141,25 +157,20 @@ a.match-tab:visited {
   margin-top: 2px;
 }
 
-/* On a phone the table scrolls in its own box, so its header can stick to
-   that box's top while the name column stays put (site.js pins it). */
-@media (max-width: 760px) {
-  .rating-scroll {
-    max-height: calc(100dvh - var(--space-8));
-    overflow: auto;
-  }
+/* The name column (and the place before it) stays put while the frame
+   scrolls sideways; site.js pins it, and shades its edge once scrolled. */
+.rating-table .pinned {
+  position: sticky;
+}
 
+.sheet-frame.scrolled .pin-last {
+  box-shadow: 6px 0 8px -6px var(--scroll-fade-color);
+}
+
+@media (max-width: 760px) {
   .rating-table .results-team {
     min-width: 0;
     max-width: 48vw;
-  }
-
-  .rating-table .pinned {
-    position: sticky;
-  }
-
-  .rating-scroll.scrolled .pin-last {
-    box-shadow: 6px 0 8px -6px var(--scroll-fade-color);
   }
 }
 
@@ -489,10 +500,6 @@ td:has(.roster-open input:checked) .roster-open span {
 }
 
 @media (max-width: 760px) {
-  .public-top {
-    padding: 0 var(--space-3);
-  }
-
   .site-search .input {
     width: 150px;
   }

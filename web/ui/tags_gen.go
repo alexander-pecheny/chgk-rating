@@ -260,6 +260,10 @@ func Subline(items ...Item) *Element {
 	return base.New("subline", items...)
 }
 
+func Sitebody(items ...Item) *Element {
+	return base.New("sitebody", items...)
+}
+
 func Sitefoot(items ...Item) *Element {
 	return base.New("sitefoot", items...)
 }

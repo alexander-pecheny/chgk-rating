@@ -75,7 +75,7 @@ func TestPages(t *testing.T) {
 		if w.Code != c.status {
 			t.Errorf("%s: status %d, want %d", c.path, w.Code, c.status)
 		}
-		if body := w.Body.String(); !strings.Contains(body, `class="public-top"`) {
+		if body := w.Body.String(); !strings.Contains(body, `game-host-top`) {
 			t.Errorf("%s: no site header in the page", c.path)
 		}
 	}

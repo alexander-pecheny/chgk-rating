@@ -110,16 +110,13 @@
   });
 })();
 
-/* Wide tables on a phone: pin the name column (and the narrow place column in
-   front of it) while the rest scrolls under it, and mark the box once it has
-   scrolled so the edge shows a shadow. Measured, so it follows whatever the
-   table holds; above 760px the pins are inert. */
+/* Wide tables: pin the name column (and the narrow place column in front of
+   it) while the frame scrolls sideways, and mark the frame once it has so the
+   edge shows a shadow. Measured, so it follows whatever the table holds. */
 (function () {
-  var phone = window.matchMedia("(max-width: 760px)");
   var frames = [];
 
-  function setup(frame) {
-    var table = frame.querySelector("table.results-table");
+  function setup(table) {
     if (!table || !table.tHead || !table.tHead.rows.length) return;
     var heads = [].slice.call(table.tHead.rows[0].cells);
     var k = -1;
@@ -136,26 +133,28 @@
       r.cells[k].classList.add("pin-last");
     });
     frames.push({ rows: rows, cols: cols, heads: heads });
-    frame.addEventListener("scroll", function () {
-      frame.classList.toggle("scrolled", frame.scrollLeft > 0);
-    }, { passive: true });
   }
 
   function layout() {
     frames.forEach(function (f) {
       var left = 0;
       f.cols.forEach(function (i) {
-        var x = phone.matches ? left + "px" : "";
+        var x = left + "px";
         f.rows.forEach(function (r) { r.cells[i].style.left = x; });
         left += f.heads[i].getBoundingClientRect().width;
       });
     });
   }
 
-  [].forEach.call(document.querySelectorAll(".rating-scroll"), setup);
+  [].forEach.call(document.querySelectorAll("table.rating-table"), setup);
   layout();
   window.addEventListener("resize", layout);
-  if (phone.addEventListener) phone.addEventListener("change", layout);
+  var frame = document.querySelector(".sheet-frame");
+  if (frame) {
+    frame.addEventListener("scroll", function () {
+      frame.classList.toggle("scrolled", frame.scrollLeft > 0);
+    }, { passive: true });
+  }
   // Opening a lineup changes the cell widths the pins are measured from.
   document.addEventListener("change", function (ev) {
     if (ev.target.closest && ev.target.closest(".roster-open, .roster-toggle")) layout();

@@ -42,12 +42,11 @@ func mustApp() *base.App {
 		Inline: inliners,
 		Mounts: map[string]base.MountSpec{},
 		Chrome: base.CoreChrome().With(base.Chrome{
-			// dope's public page: the grey page under a white bar, scrolling
-			// as a whole. The site's tables are wider than a fest's list, so
-			// its column is too.
+			// dope's game page: the bar over a frame as wide as the screen,
+			// which scrolls on the grey with the table head stuck to its top.
 			DefaultKind: "site",
 			PageKinds: map[string]base.PageKind{
-				"site": {Body: []string{"public"}, Main: []string{"public-main", "site-main"}},
+				"site": {Body: []string{"host"}, Main: []string{"match-main"}, Frame: []string{"sheet-frame", "fight-frame"}},
 			},
 		}),
 	})

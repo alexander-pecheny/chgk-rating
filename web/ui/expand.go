@@ -16,9 +16,14 @@ import (
 var expanders = map[string]base.ExpandFunc{
 	"sitebar": expandSitebar,
 	"tablinks": func(c *base.ExpandCtx, p *base.Element) []base.Node {
-		return one(base.El("nav", base.RootAttrs([]string{"match-tabs", "site-sections"}, p), c.Nodes(p.Block)...))
+		return one(base.El("nav", base.RootAttrs([]string{"match-tabs"}, p), c.Nodes(p.Block)...))
 	},
 	"tablink": expandTablink,
+	// sitebody is the page's content inside the frame: as wide as its widest
+	// table, so what sticks to the frame's left edge has room to stick in.
+	"sitebody": func(c *base.ExpandCtx, p *base.Element) []base.Node {
+		return one(base.El("div", base.RootAttrs([]string{"site-body"}, p), c.Nodes(p.Block)...))
+	},
 	"subline": expandSubline,
 	"flag":    func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(inlineFlag(c, p).(*base.Element)) },
 	"sitefoot": func(c *base.ExpandCtx, p *base.Element) []base.Node {
@@ -82,18 +87,12 @@ var inliners = map[string]base.InlineFunc{
 
 func one(e *base.Element) []base.Node { return []base.Node{e} }
 
-// expandSitebar is the bar on every page, dope's public one: the breadcrumb
-// trail from the site's home to the page, and the search box. The kit's
-// menu.js mounts the ☰ menu (theme, contrast, body face) into .host-actions
-// beside the search.
+// expandSitebar is the bar on every page, dope's game bar: the breadcrumb
+// trail and, beside it, the site's sections as joined segment tabs; the search
+// box on the right. The kit's menu.js mounts the ☰ menu (theme, contrast, body
+// face) into .host-actions after the search.
 func expandSitebar(c *base.ExpandCtx, p *base.Element) []base.Node {
 	s := sitestrings.Default
-	var trail []base.Node
-	for _, n := range p.Block {
-		if e, ok := n.(*base.Element); ok && e.Tag == "crumbs" {
-			trail = append(trail, base.ExpandCrumbs(c, e)...)
-		}
-	}
 	glyph, _ := icons.Body("search")
 	search := base.El("form", []base.Attr{base.ClassAttr("site-search"), base.At("action", "/search/"), base.At("method", "get"), base.At("role", "search")},
 		base.Raw(`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">`+glyph+`</svg>`),
@@ -105,8 +104,8 @@ func expandSitebar(c *base.ExpandCtx, p *base.Element) []base.Node {
 			base.At("autocomplete", "off"),
 		}),
 	)
-	return one(base.El("header", base.RootAttrs([]string{"public-top"}, p),
-		base.El("div", []base.Attr{base.ClassAttr("site-trail")}, trail...),
+	return one(base.El("header", base.RootAttrs([]string{"host-top", "game-host-top"}, p),
+		base.El("div", []base.Attr{base.ClassAttr("game-header-main")}, c.Nodes(p.Block)...),
 		base.El("div", []base.Attr{base.ClassAttr("host-actions")}, search),
 	))
 }
@@ -318,7 +317,7 @@ func expandTable(c *base.ExpandCtx, p *base.Element) []base.Node {
 		classes = append(classes, "breakdown")
 	}
 	table := base.El("table", base.RootAttrs(classes, p), kids...)
-	return one(base.El("div", []base.Attr{base.ClassAttr("results-wrapper", "rating-scroll")}, table))
+	return one(base.El("div", []base.Attr{base.ClassAttr("results-wrapper")}, table))
 }
 
 func headerRow(row *base.Element) bool {

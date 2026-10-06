@@ -75,14 +75,13 @@ func layout(title, section, leaf string, body ...ui.Item) *ui.Doc {
 	}
 	items := []ui.Item{
 		ui.Title(title), ui.PageSite, ui.Classicscripts("site.js"),
-		ui.Sitebar(ui.Crumbs(trail...)),
-		ui.Tablinks(pills...),
+		ui.Sitebar(ui.Crumbs(trail...), ui.Tablinks(pills...)),
 	}
-	items = append(items, body...)
-	items = append(items, ui.Sitefoot(ui.Inline(
+	content := append(body, ui.Sitefoot(ui.Inline(
 		ui.Text(S.Common.Foot.Note()),
 		ui.Link(ui.Href("/report.pdf"), ui.Text(S.Common.Foot.Report())),
 	)))
+	items = append(items, ui.Sitebody(content...))
 	return &ui.Doc{Nodes: []ui.Node{ui.Page(items...)}}
 }
 
