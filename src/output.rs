@@ -221,13 +221,17 @@ impl Writer {
 
     pub fn finish(self) -> rusqlite::Result<()> {
         self.conn.execute_batch("COMMIT")?;
+        // Keyed the way the site looks rows up: one entity's rows by release or
+        // tournament, one tournament's row for a team. Each also serves a lookup
+        // by its first column alone. Single-column versions of the same made a
+        // player page scan every event of the player once per game it lists.
         self.conn.execute_batch(
             "CREATE INDEX idx_team_events_team ON team_events(team_id);
-             CREATE INDEX idx_team_events_tid ON team_events(tournament_id);
+             CREATE INDEX idx_team_events_tt ON team_events(tournament_id, team_id);
              CREATE INDEX idx_team_ratings_rel ON team_ratings(release_id);
-             CREATE INDEX idx_team_ratings_team ON team_ratings(team_id);
-             CREATE INDEX idx_player_ratings_player ON player_ratings(player_id);
-             CREATE INDEX idx_player_events_player ON player_events(player_id);",
+             CREATE INDEX idx_team_ratings_tr ON team_ratings(team_id, release_id);
+             CREATE INDEX idx_player_ratings_pr ON player_ratings(player_id, release_id);
+             CREATE INDEX idx_player_events_pt ON player_events(player_id, tournament_id);",
         )?;
         Ok(())
     }

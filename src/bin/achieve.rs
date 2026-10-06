@@ -723,7 +723,7 @@ fn publish(lab: &Lab, k: &Knobs, db: &str, cfg: &Config, threads: usize) -> rusq
     }
     tx.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_achieve_values_team ON achieve_values(team_id);
-         CREATE INDEX IF NOT EXISTS idx_achieve_values_tid ON achieve_values(tournament_id);
+         CREATE INDEX IF NOT EXISTS idx_achieve_values_tt ON achieve_values(tournament_id, team_id);
          CREATE INDEX IF NOT EXISTS idx_achieve_parts_team ON achieve_parts(team_id);",
     )?;
     tx.commit()?;
