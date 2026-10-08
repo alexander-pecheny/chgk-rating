@@ -892,6 +892,8 @@ pub fn fit_all(field: &Field, sel: Option<u8>, cfg: &Config) -> Vec<QParams> {
 }
 
 /// Summed negative log-likelihood and observation count over the selected half.
+/// The questions are scored in parallel and added in order, so the sum is the
+/// same on every run.
 pub fn score(field: &Field, params: &[QParams], sel: Option<u8>, cfg: &Config) -> (f64, u64) {
     (0..field.n_q)
         .into_par_iter()
@@ -910,7 +912,9 @@ pub fn score(field: &Field, params: &[QParams], sel: Option<u8>, cfg: &Config) -
             }
             (s, n)
         })
-        .reduce(|| (0.0, 0), |a, b| (a.0 + b.0, a.1 + b.1))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .fold((0.0, 0), |a, b| (a.0 + b.0, a.1 + b.1))
 }
 
 /// Gradient and observed Fisher information of the tournament log-likelihood in each theta_i,
