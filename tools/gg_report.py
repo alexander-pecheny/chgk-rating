@@ -6,7 +6,10 @@
 
 Oracle values are fetched live from the gg API (buff.db's mirror of them lags on
 recent releases) and cached under data/external/chgk_gg/oracle/. Writes the numeric
-half of out/ext/gg/report.md; the prose half is written by hand.
+half of out/ext/gg/report.md, to out/ext/gg/numbers.md, and prints it; the prose
+half is written by hand.
+
+    uv run tools/gg_report.py [out/ext/gg.db]
 """
 
 import json
