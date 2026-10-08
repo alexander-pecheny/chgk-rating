@@ -24,9 +24,22 @@ import concurrent.futures as cf
 import os
 import re
 import subprocess
-import sys
+
+import lab
 
 DIR = "out/q_ndcg"
+# `eval --ndcg` prints four numbers a window, `--paired` four more.
+SCORES, PAIRED_SCORES = 8, 16
+NUMBER = re.compile(r"[-+]?\d\.\d{4}")
+ERROR_LINES = 3
+HEAD = ("name\ttune\ttune@3\tutune\tutune@3\ttest\ttest@3\tutest\tutest@3"
+        "\tdtune\tsetune\tdtune@3\tsetune@3\tdtest\tsetest\tdtest@3\tsetest@3\twhat\n")
+OPTIONS = [
+    ("batches", dict(nargs="*", help="batch files, one `name section.key=value ...` per line")),
+    ("--dir", dict(default=DIR, help="the working directory: base config, scratch databases, results")),
+    ("--jobs", dict(type=int, default=2)),
+    ("--keep", dict(default="", help="comma list of experiment names whose databases are kept")),
+]
 
 
 def paths():
@@ -35,33 +48,8 @@ def paths():
 
 def write_config(name, overrides):
     """Base config with `section.key = value` replaced, or appended to the section."""
-    lines = open(paths()[0], encoding="utf-8").read().splitlines()
-    want = {}
-    for o in overrides:
-        k, v = o.split("=", 1)
-        sec, key = k.rsplit(".", 1)
-        want[(sec, key)] = v
-    out, section, done = [], "", set()
-    for line in lines:
-        m = re.match(r"\s*\[([^\]]+)\]", line)
-        if m:
-            # Anything still unplaced for the section just closed goes in at its end.
-            for (sec, key), v in want.items():
-                if sec == section and (sec, key) not in done:
-                    out.append(f"{key} = {v}")
-                    done.add((sec, key))
-            section = m.group(1)
-        m = re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
-        if m and (section, m.group(1)) in want:
-            line = f"{m.group(1)} = {want[(section, m.group(1))]}"
-            done.add((section, m.group(1)))
-        out.append(line)
-    for (sec, key), v in want.items():
-        if (sec, key) not in done:
-            if sec != section:
-                out.append(f"[{sec}]")
-                section = sec
-            out.append(f"{key} = {v}")
+    with open(paths()[0], encoding="utf-8") as f:
+        out, _ = lab.override_toml(f.read().splitlines(), overrides)
     path = f"{DIR}/cfg/{name}.toml"
     os.makedirs(f"{DIR}/cfg", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -69,74 +57,62 @@ def write_config(name, overrides):
     return path
 
 
-def run_one(name, overrides, keep):
-    cfg = write_config(name, overrides)
-    db = f"{DIR}/{name}.db"
-    fit = subprocess.run(
-        ["./target/release/fit", "--config", cfg, "--out", db],
-        capture_output=True, text=True,
-    )
-    if fit.returncode != 0:
-        return name, None, fit.stderr.strip().splitlines()[-3:]
+def scores(stdout):
+    """The first four numbers of every line: "ndcg <window> a @3 b unweighted c @3 d",
+    then "paired <window> minus base: d se s @3 d3 se3"."""
+    nums = []
+    for line in stdout.splitlines():
+        nums += [float(x) for x in NUMBER.findall(line)][:4]
+    return nums
+
+
+def evaluate(name, db):
     cmd = ["./target/release/eval", "--db", db, "--ndcg"]
     if name != "baseline" and os.path.exists(f"{DIR}/base.db"):
         cmd += ["--paired", f"{DIR}/base.db"]
-    ev = subprocess.run(cmd, capture_output=True, text=True)
-    nums = []
-    for line in ev.stdout.splitlines():
-        f = [float(x) for x in re.findall(r"[-+]?\d\.\d{4}", line)]
-        # "ndcg <window> a @3 b unweighted c @3 d", then
-        # "paired <window> minus base: d se s @3 d3 se3".
-        nums += f[:4]
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def run_one(name, overrides, keep):
+    cfg = write_config(name, overrides)
+    db = f"{DIR}/{name}.db"
+    fit = subprocess.run(["./target/release/fit", "--config", cfg, "--out", db], capture_output=True, text=True)
+    if fit.returncode != 0:
+        return name, None, fit.stderr.strip().splitlines()[-ERROR_LINES:]
+    ev = evaluate(name, db)
+    nums = scores(ev.stdout)
     if name not in keep:
         os.remove(db)
-    if len(nums) not in (8, 16):
+    if len(nums) not in (SCORES, PAIRED_SCORES):
         return name, None, ev.stdout.strip() + ev.stderr.strip()
-    return name, nums + [0.0] * (16 - len(nums)), " ".join(overrides)
+    return name, nums + [0.0] * (PAIRED_SCORES - len(nums)), " ".join(overrides)
+
+
+def experiments(batches):
+    todo = []
+    for b in batches:
+        with open(b, encoding="utf-8") as f:
+            todo += [(w[0], w[1:]) for w in (line.split("#")[0].split() for line in f) if w]
+    return todo
 
 
 def main():
     global DIR
-    args = [a for a in sys.argv[1:]]
-    jobs, keep, batches = 2, set(), []
-    i = 0
-    while i < len(args):
-        if args[i] == "--dir":
-            DIR = args[i + 1].rstrip("/")
-            i += 2
-        elif args[i] == "--jobs":
-            jobs = int(args[i + 1])
-            i += 2
-        elif args[i] == "--keep":
-            keep = set(args[i + 1].split(","))
-            i += 2
-        else:
-            batches.append(args[i])
-            i += 1
-    todo = []
-    for b in batches:
-        for line in open(b, encoding="utf-8"):
-            line = line.split("#")[0].split()
-            if line:
-                todo.append((line[0], line[1:]))
+    a = lab.cli(__doc__, OPTIONS, intermixed=True)
+    DIR, keep = a.dir.rstrip("/"), set(a.keep.split(",")) if a.keep else set()
+    todo = experiments(a.batches)
     _, results = paths()
     os.makedirs(DIR, exist_ok=True)
     new = not os.path.exists(results)
-    with open(results, "a", encoding="utf-8") as f:
+    with open(results, "a", encoding="utf-8") as f, cf.ThreadPoolExecutor(max_workers=a.jobs) as ex:
         if new:
-            f.write(
-                "name\ttune\ttune@3\tutune\tutune@3\ttest\ttest@3\tutest\tutest@3"
-                "\tdtune\tsetune\tdtune@3\tsetune@3\tdtest\tsetest\tdtest@3\tsetest@3\twhat\n"
-            )
-        with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
-            for name, nums, what in ex.map(lambda t: run_one(*t, keep), todo):
-                if nums is None:
-                    print(f"{name}: FAILED {what}")
-                    continue
-                row = "\t".join(f"{x:.4f}" for x in nums)
-                f.write(f"{name}\t{row}\t{what}\n")
+            f.write(HEAD)
+        for name, nums, what in ex.map(lambda t: run_one(*t, keep), todo):
+            line = f"{name}: FAILED {what}" if nums is None else f"{name}\t" + "\t".join(f"{x:.4f}" for x in nums) + f"\t{what}"
+            if nums is not None:
+                f.write(line + "\n")
                 f.flush()
-                print(f"{name}\t{row}\t{what}")
+            print(line)
 
 
 if __name__ == "__main__":
