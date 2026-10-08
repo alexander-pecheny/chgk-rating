@@ -188,6 +188,14 @@ def header(names, aligns):
     print(aligns)
 
 
+def side_by_side(labels, cols, n):
+    """`n` ranked `(name, value)` rows of each column, one table, `-` past the end."""
+    header("| # | " + " | ".join(labels) + " |", "|---:|" + "---|" * len(labels))
+    for i in range(n):
+        cells = [f"{c[i][0]} {c[i][1]:.0f}" if i < len(c) else "-" for c in cols]
+        print(f"| {i + 1} | " + " | ".join(cells) + " |")
+
+
 # --------------------------------------------------------------- the configs
 
 HEADER = re.compile(r"\s*\[([^\]]+)\]")
