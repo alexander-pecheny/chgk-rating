@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"math"
 
@@ -10,375 +11,294 @@ import (
 // The listings: the two ranking tables, the tournaments, the releases and the
 // anomaly scores. Each is a page of pageSize rows with a pager over and under.
 
-func (s *site) teamTable(page int) (string, []ui.Item, error) {
-	pages := pagesOf(s.nTeams)
-	page = min(max(page, 1), pages)
-	var firm int
-	_ = s.db.QueryRow("select count(*) from x.team_rank where provisional = 0").Scan(&firm)
-	lo := (page - 1) * pageSize
-	rows, err := s.db.Query(`select k.rank, k.team_id, t.name, t.town, k.display, k.sigma, k.evidence, k.change,
-		k.provisional from x.team_rank k left join x.team t on t.id = k.team_id
-		where k.rank > ? and k.rank <= ? order by k.rank`, lo, lo+pageSize)
-	if err != nil {
-		return "", nil, err
-	}
-	defer rows.Close()
-	type row struct {
-		rank, id            int64
-		name, town          *string
-		display, sigma, evi *float64
-		change              *float64
-		prov                bool
-	}
-	var rs []row
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.rank, &r.id, &r.name, &r.town, &r.display, &r.sigma, &r.evi, &r.change, &r.prov); err != nil {
-			return "", nil, err
-		}
-		rs = append(rs, r)
-	}
-	if err := rows.Err(); err != nil {
-		return "", nil, err
-	}
+// paging is one page of a listing: which, of how many, the rank it starts
+// after, and the addresses of its pages.
+type paging struct {
+	page, pages, lo int
+	first, prefix   string
+}
 
-	section := []ui.Item{}
+func paginate(n, page int, first, prefix string) paging {
+	pages := max(1, (n+pageSize-1)/pageSize)
+	page = min(max(page, 1), pages)
+	return paging{page, pages, (page - 1) * pageSize, first, prefix}
+}
+
+func (p paging) hi() int { return p.lo + pageSize }
+
+func (p paging) nav() ui.Node {
+	return ui.Pager(ui.Cur(itoa(int64(p.page))), ui.Total(itoa(int64(p.pages))), ui.First(p.first), ui.Prefix(p.prefix))
+}
+
+// title is the listing's name, with the page number past the first.
+func (p paging) title(name string) string {
+	if p.page > 1 {
+		return S.Common.PageTitle(name, itoa(int64(p.page)))
+	}
+	return name
+}
+
+// framed is the listing's table between two pagers.
+func (p paging) framed(t ui.Node) []ui.Item { return []ui.Item{p.nav(), t, p.nav()} }
+
+// rankLine is a row of a ranking table: its rank, whether the rating is
+// provisional, and the cells after the rank.
+type rankLine struct {
+	rank  int64
+	prov  bool
+	cells []ui.Item
+}
+
+// rankRows are the table's rows, with the band before the first provisional
+// one unless the page starts past it.
+func rankRows(lines []rankLine, split bool, splitText string, cols int) []ui.Item {
+	var out []ui.Item
+	for _, l := range lines {
+		if l.prov && !split {
+			split = true
+			band := textCell(splitText, ui.Colspan(itoa(int64(cols))))
+			out = append(out, ui.Trow(ui.SplitRow(), ui.ProvRow(), band))
+		}
+		out = append(out, rankRow(l))
+	}
+	return out
+}
+
+// rankRow is a provisional rating without a rank, or a ranked one.
+func rankRow(l rankLine) ui.Node {
+	rank := itoa(l.rank)
+	if l.prov {
+		rank = dash
+	}
+	tr := append([]ui.Item{numCell(rank)}, l.cells...)
+	if l.prov {
+		tr = append(tr, ui.ProvRow())
+	}
+	return ui.Trow(tr...)
+}
+
+func hiddenOf(lines []rankLine) int {
+	n := 0
+	for _, l := range lines {
+		if l.prov {
+			n++
+		}
+	}
+	return n
+}
+
+// rankTable is a ranking table under its header, split before the first
+// provisional rating.
+func rankTable(header []ui.Item, lines []rankLine, split bool, splitText string) ui.Node {
+	return table(header, rankRows(lines, split, splitText, len(header))...)
+}
+
+func (s *site) teamTable(page int) (string, []ui.Item, error) {
+	p := paginate(s.nTeams, page, "/", "/page/")
+	firm, err := s.q.firmTeams()
+	rows, err2 := s.q.teamRanks(p.lo, p.hi())
+	if err = errors.Join(err, err2); err != nil {
+		return "", nil, err
+	}
+	lines := make([]rankLine, len(rows))
+	for i, r := range rows {
+		lines[i] = s.teamLine(r)
+	}
+	var sec []ui.Item
 	// The switch only matters when some team is provisional.
 	if firm < s.nTeams {
-		hidden := 0
-		for _, r := range rs {
-			if r.prov {
-				hidden++
-			}
-		}
-		section = append(section, provToggle(hidden, firm/pageSize+1, page))
+		sec = append(sec, provToggle(hiddenOf(lines), firm/pageSize+1, p.page))
 	}
-	section = append(section, pager(page, pages, "/", "/page/"))
-	spread := hcell("±", ui.Num(), ui.Title(S.Common.Col.SigmaTitle()))
-	if s.d.s2 {
-		spread = hcell(S.Teams.Col.Results(), ui.Num(), ui.Title(S.Teams.Col.ResultsTitle()))
-	}
-	table := []ui.Item{ui.Scroll(), ui.Trow(
-		hcell(S.Common.Col.Place(), ui.Num()),
-		hcell(S.Common.Col.Team(), ui.PinCol()),
-		hcell(S.Common.Col.Rating(), ui.Num()),
-		spread,
-		hcell(S.Common.Col.Change(), ui.Num()),
-	)}
-	split := lo >= firm
-	for _, r := range rs {
-		if r.prov && !split {
-			split = true
-			table = append(table, ui.Trow(ui.SplitRow(), ui.ProvRow(), textCell(S.Teams.ProvSplit(), ui.Colspan("5"))))
-		}
-		name := str(r.name)
-		if name == "" {
-			name = S.Common.TeamFallback(itoa(r.id))
-		}
-		rank := itoa(r.rank)
-		var badge ui.Item
-		if r.prov {
-			rank, badge = "—", provBadge()
-		}
-		spreadCell := numCell(disp(num(r.sigma)), ui.Faint())
-		if s.d.s2 {
-			spreadCell = numCell(fmt.Sprintf("%.0f", num(r.evi)), ui.Faint())
-		}
-		tr := []ui.Item{
-			numCell(rank),
-			nameCell(fmt.Sprintf("/teams/%d/", r.id), name, badge, town(str(r.town))),
-			numCell(disp(num(r.display)), ui.Bold()),
-			spreadCell,
-			changeCell(r.change),
-		}
-		if r.prov {
-			tr = append(tr, ui.ProvRow())
-		}
-		table = append(table, ui.Trow(tr...))
-	}
-	section = append(section, ui.Table(table...), pager(page, pages, "/", "/page/"))
+	sec = append(sec, p.framed(rankTable(s.teamCols(), lines, p.lo >= firm, S.Teams.ProvSplit()))...)
+	lede := head(ui.Text(S.Teams.Lede(s.releaseDate, s.nTeams)+" "), link("/method/", S.Teams.How()), ui.Text("."))
+	return p.title(S.Common.Nav.Teams()), []ui.Item{lede, ui.Section(sec...)}, nil
+}
 
-	title := S.Common.Nav.Teams()
-	if page > 1 {
-		title = S.Common.PageTitle(title, itoa(int64(page)))
+// teamCols are the team table's header; the published engine has no ± for a
+// team and shows the results its rating rests on instead.
+func (s *site) teamCols() []ui.Item {
+	spread := numCol("±", S.Common.Col.SigmaTitle())
+	if s.q.s2 {
+		spread = numCol(S.Teams.Col.Results(), S.Teams.Col.ResultsTitle())
 	}
-	return title, []ui.Item{
-		head(S.Common.Nav.Teams(),
-			ui.Text(S.Teams.Lede(s.releaseDate, s.nTeams)+" "),
-			link("/method/", S.Teams.How()),
-			ui.Text("."),
-		),
-		ui.Section(section...),
-	}, nil
+	return []ui.Item{numCol(S.Common.Col.Place()), nameCol(S.Common.Col.Team()), numCol(S.Common.Col.Rating()),
+		spread, numCol(S.Common.Col.Change())}
+}
+
+func (s *site) teamLine(r teamRank) rankLine {
+	spread := numCell(disp(num(r.sigma)), ui.Faint())
+	if s.q.s2 {
+		spread = numCell(fmt.Sprintf("%.0f", num(r.evi)), ui.Faint())
+	}
+	name := nameCell(teamHref(r.id), teamName(r.name, r.id), provMark(r.prov), town(str(r.town)))
+	return rankLine{r.rank, r.prov, []ui.Item{name, numCell(disp(num(r.display)), ui.Bold()), spread, changeCell(r.change)}}
 }
 
 func (s *site) playerTable(page int) (string, []ui.Item, error) {
-	pages := pagesOf(s.nPlayers)
-	page = min(max(page, 1), pages)
-	var firm int
-	_ = s.db.QueryRow("select count(*) from x.player_rank where provisional = 0").Scan(&firm)
-	lo := (page - 1) * pageSize
-	rows, err := s.db.Query(`select k.rank, k.player_id, p.name, k.display, k.sigma, k.games, k.change,
-		k.provisional from x.player_rank k left join x.player p on p.id = k.player_id
-		where k.rank > ? and k.rank <= ? order by k.rank`, lo, lo+pageSize)
-	if err != nil {
+	p := paginate(s.nPlayers, page, "/players/", "/players/page/")
+	firm, err := s.q.firmPlayers()
+	rows, err2 := s.q.playerRanks(p.lo, p.hi())
+	if err = errors.Join(err, err2); err != nil {
 		return "", nil, err
 	}
-	defer rows.Close()
-	type row struct {
-		rank, id       int64
-		name           *string
-		display, sigma *float64
-		games          *int64
-		change         *float64
-		prov           bool
-	}
-	var rs []row
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.rank, &r.id, &r.name, &r.display, &r.sigma, &r.games, &r.change, &r.prov); err != nil {
-			return "", nil, err
-		}
-		rs = append(rs, r)
-	}
-	if err := rows.Err(); err != nil {
-		return "", nil, err
-	}
-
-	hidden := 0
-	for _, r := range rs {
-		if r.prov {
-			hidden++
-		}
+	lines := make([]rankLine, len(rows))
+	for i, r := range rows {
+		lines[i] = playerLine(r)
 	}
 	firstProv := 0
 	if firm < s.nPlayers {
 		firstProv = firm/pageSize + 1
 	}
-	section := []ui.Item{provToggle(hidden, firstProv, page), pager(page, pages, "/players/", "/players/page/")}
-	table := []ui.Item{ui.Scroll(), ui.Trow(
-		hcell(S.Common.Col.Place(), ui.Num()),
-		hcell(S.Common.Col.Player(), ui.PinCol()),
-		hcell(S.Common.Col.Rating(), ui.Num()),
-		hcell("±", ui.Num(), ui.Title(S.Common.Col.SigmaTitle())),
-		hcell(S.Players.Col.GamesYear(), ui.Num()),
-		hcell(S.Common.Col.Change(), ui.Num()),
-	)}
-	split := lo >= firm
-	for _, r := range rs {
-		if r.prov && !split {
-			split = true
-			table = append(table, ui.Trow(ui.SplitRow(), ui.ProvRow(), textCell(S.Players.ProvSplit(), ui.Colspan("6"))))
-		}
-		name := str(r.name)
-		if name == "" {
-			name = S.Common.PlayerFallback(itoa(r.id))
-		}
-		rank := itoa(r.rank)
-		var badge ui.Item
-		if r.prov {
-			rank, badge = "—", provBadge()
-		}
-		tr := []ui.Item{
-			numCell(rank),
-			nameCell(fmt.Sprintf("/players/%d/", r.id), name, badge),
-			numCell(disp(num(r.display)), ui.Bold()),
-			numCell(disp(num(r.sigma)), ui.Faint()),
-			numCell(itoa(count(r.games))),
-			changeCell(r.change),
-		}
-		if r.prov {
-			tr = append(tr, ui.ProvRow())
-		}
-		table = append(table, ui.Trow(tr...))
-	}
-	section = append(section, ui.Table(table...), pager(page, pages, "/players/", "/players/page/"))
-
-	title := S.Common.Nav.Players()
-	if page > 1 {
-		title = S.Common.PageTitle(title, itoa(int64(page)))
-	}
-	return title, []ui.Item{
-		head(S.Common.Nav.Players(), ui.Text(S.Players.Lede(s.releaseDate, s.nPlayers, itoa(int64(firm))))),
-		ui.Section(section...),
-	}, nil
+	sec := append([]ui.Item{provToggle(hiddenOf(lines), firstProv, p.page)},
+		p.framed(rankTable(playerCols(), lines, p.lo >= firm, S.Players.ProvSplit()))...)
+	lede := head(ui.Text(S.Players.Lede(s.releaseDate, s.nPlayers, itoa(int64(firm)))))
+	return p.title(S.Common.Nav.Players()), []ui.Item{lede, ui.Section(sec...)}, nil
 }
 
+func playerCols() []ui.Item {
+	return []ui.Item{numCol(S.Common.Col.Place()), nameCol(S.Common.Col.Player()), numCol(S.Common.Col.Rating()),
+		numCol("±", S.Common.Col.SigmaTitle()), numCol(S.Players.Col.GamesYear()), numCol(S.Common.Col.Change())}
+}
+
+func playerLine(r playerRank) rankLine {
+	return rankLine{r.rank, r.prov, []ui.Item{
+		nameCell(playerHref(r.id), playerName(r.name, r.id), provMark(r.prov)),
+		numCell(disp(num(r.display)), ui.Bold()),
+		numCell(disp(num(r.sigma)), ui.Faint()),
+		numCell(itoa(count(r.games))),
+		changeCell(r.change),
+	}}
+}
+
+// The digits the tournament table prints its metrics to.
+const (
+	weightDigits = 2
+	llDigits     = 3
+)
+
 func (s *site) tournamentTable(page int) (string, []ui.Item, error) {
-	var n int
-	_ = s.db.QueryRow("select count(*) from x.tournament").Scan(&n)
-	pages := pagesOf(n)
-	page = min(max(page, 1), pages)
-	rows, err := s.db.Query(`select id, name, date, type, weight, n_teams, n_q, truedl, ll_cf from x.tournament
-		order by date desc, id desc limit ? offset ?`, pageSize, (page-1)*pageSize)
-	if err != nil {
+	n, err := s.q.tournamentCount()
+	p := paginate(n, page, "/tournaments/", "/tournaments/page/")
+	rows, err2 := s.q.tournaments(pageSize, p.lo)
+	if err = errors.Join(err, err2); err != nil {
 		return "", nil, err
 	}
-	defer rows.Close()
-	table := []ui.Item{ui.Scroll(), ui.Trow(
-		hcell(S.Common.Col.Date()),
-		hcell(S.Common.Col.Tournament(), ui.PinCol()),
-		hcell(S.Common.Col.Type()),
-		hcell(S.Tournaments.Col.Weight(), ui.Num()),
-		hcell(S.Tournaments.Col.Teams(), ui.Num()),
-		hcell(S.Tournaments.Col.Questions(), ui.Num()),
-		hcell(S.Common.Col.Difficulty(), ui.Num(), ui.Title(S.Common.Col.DifficultyTitle())),
-		hcell("Log-loss", ui.Num()),
-	)}
-	for rows.Next() {
-		var id int64
-		var name, date, typ *string
-		var weight, truedl, llcf *float64
-		var nTeams, nQ *int64
-		if err := rows.Scan(&id, &name, &date, &typ, &weight, &nTeams, &nQ, &truedl, &llcf); err != nil {
-			return "", nil, err
-		}
-		table = append(table, ui.Trow(
-			textCell(str(date), ui.NoWrap()),
-			nameCell(fmt.Sprintf("/tournaments/%d/", id), orUntitled(str(name))),
-			textCell(tourType(str(typ))),
-			numCell(fmt.Sprintf("%.2f", num(weight))),
-			numCell(itoa(count(nTeams))),
-			numCell(itoa(count(nQ))),
-			numCell(blank(truedl, 1)),
-			numCell(opt(llcf, 3)),
-		))
+	trs := make([]ui.Item, len(rows))
+	for i, r := range rows {
+		trs[i] = tournamentRow(r)
 	}
-	if err := rows.Err(); err != nil {
-		return "", nil, err
+	t := table(tournamentCols(), trs...)
+	return p.title(S.Common.Nav.Tournaments()), []ui.Item{head(ui.Text(S.Tournaments.Lede(n))), ui.Section(p.framed(t)...)}, nil
+}
+
+func tournamentCols() []ui.Item {
+	return []ui.Item{
+		hcell(S.Common.Col.Date()), nameCol(S.Common.Col.Tournament()), hcell(S.Common.Col.Type()),
+		numCol(S.Tournaments.Col.Weight()), numCol(S.Tournaments.Col.Teams()), numCol(S.Tournaments.Col.Questions()),
+		numCol(S.Common.Col.Difficulty(), S.Common.Col.DifficultyTitle()), numCol("Log-loss"),
 	}
-	title := S.Common.Nav.Tournaments()
-	if page > 1 {
-		title = S.Common.PageTitle(title, itoa(int64(page)))
-	}
-	return title, []ui.Item{
-		head(S.Common.Nav.Tournaments(), ui.Text(S.Tournaments.Lede(n))),
-		ui.Section(
-			pager(page, pages, "/tournaments/", "/tournaments/page/"),
-			ui.Table(table...),
-			pager(page, pages, "/tournaments/", "/tournaments/page/"),
-		),
-	}, nil
+}
+
+func tournamentRow(r tourLine) ui.Node {
+	return ui.Trow(
+		textCell(str(r.date), ui.NoWrap()),
+		nameCell(tourHref(r.id), orUntitled(str(r.name))),
+		textCell(tourType(str(r.typ))),
+		numCell(fmt.Sprintf("%.*f", weightDigits, num(r.weight))),
+		numCell(itoa(count(r.nTeams))),
+		numCell(itoa(count(r.nQ))),
+		numCell(blank(r.truedl, 1)),
+		numCell(opt(r.llcf, llDigits)),
+	)
 }
 
 func (s *site) releasesPage() (string, []ui.Item, error) {
-	rows, err := s.db.Query("select id, date, n_players, n_teams, shift, shift_cum from x.release_ order by date desc, id desc")
+	rows, err := s.q.releaseLines()
 	if err != nil {
 		return "", nil, err
 	}
-	defer rows.Close()
-	table := []ui.Item{ui.Scroll(), ui.Trow(
-		hcell("№", ui.Num()),
-		hcell(S.Common.Col.Date()),
-		hcell(S.Releases.Col.Players(), ui.Num()),
-		hcell(S.Releases.Col.Teams(), ui.Num()),
-		hcell(S.Releases.Col.Shift(), ui.Num()),
-		hcell(S.Releases.Col.ShiftCum(), ui.Num()),
-	)}
-	for rows.Next() {
-		var id, nPlayers, nTeams int64
-		var date string
-		var shift, cum float64
-		if err := rows.Scan(&id, &date, &nPlayers, &nTeams, &shift, &cum); err != nil {
-			return "", nil, err
-		}
-		table = append(table, ui.Trow(
-			numCell(itoa(id), ui.Faint()),
-			textCell(date, ui.NoWrap()),
-			numCell(itoa(nPlayers)),
-			numCell(itoa(nTeams)),
-			numCell(fmt.Sprintf("%+.4f", shift), ui.Faint()),
-			numCell(fmt.Sprintf("%+.4f", cum), ui.Faint()),
-		))
+	trs := make([]ui.Item, len(rows))
+	for i, r := range rows {
+		trs[i] = releaseRow(r)
 	}
-	if err := rows.Err(); err != nil {
-		return "", nil, err
-	}
-	return S.Common.Nav.Releases(), []ui.Item{
-		head(S.Common.Nav.Releases(), ui.Text(S.Releases.Lede(itoa(int64(len(s.rels)))))),
-		ui.Section(ui.Table(table...)),
-	}, nil
+	cols := []ui.Item{numCol("№"), hcell(S.Common.Col.Date()), numCol(S.Releases.Col.Players()),
+		numCol(S.Releases.Col.Teams()), numCol(S.Releases.Col.Shift()), numCol(S.Releases.Col.ShiftCum())}
+	lede := head(ui.Text(S.Releases.Lede(itoa(int64(len(s.rels))))))
+	return S.Common.Nav.Releases(), []ui.Item{lede, ui.Section(table(cols, trs...))}, nil
+}
+
+func releaseRow(r releaseLine) ui.Node {
+	return ui.Trow(
+		numCell(itoa(r.id), ui.Faint()),
+		textCell(r.date, ui.NoWrap()),
+		numCell(itoa(r.nPlayers)),
+		numCell(itoa(r.nTeams)),
+		numCell(fmt.Sprintf("%+.4f", r.shift), ui.Faint()),
+		numCell(fmt.Sprintf("%+.4f", r.cum), ui.Faint()),
+	)
 }
 
 func (s *site) anomalyTable(page int) (string, []ui.Item, error) {
-	pages := pagesOf(s.nAnomaly)
-	page = min(max(page, 1), pages)
-	lo := (page - 1) * pageSize
-	rows, err := s.db.Query(`select a.rank, a.player_id, p.name, k.rank, k.display, a.k, a.m_gap, a.m_on,
-		a.m_ip, a.f_gap, a.f_on, a.f_ip from x.anomaly a join x.player p on p.id = a.player_id
-		left join x.player_rank k on k.player_id = a.player_id
-		where a.rank > ? and a.rank <= ? order by a.rank`, lo, lo+pageSize)
+	p := paginate(s.nAnomaly, page, "/anomaly/", "/anomaly/page/")
+	rows, err := s.q.anomalies(p.lo, p.hi())
 	if err != nil {
 		return "", nil, err
 	}
-	defer rows.Close()
-	table := []ui.Item{ui.Scroll(), ui.Trow(
-		hcell("№", ui.Num()),
-		hcell(S.Common.Col.Player(), ui.PinCol()),
-		hcell(S.Common.Col.Rating(), ui.Num()),
-		hcell(S.Common.Col.Place(), ui.Num()),
-		hcell(S.Anomaly.Col.Sync(), ui.Num()),
-		hcell(S.Anomaly.Col.InPerson(), ui.Num()),
-		hcell(S.Anomaly.Col.Forecast(), ui.Num()),
-		hcell(S.Anomaly.Col.Hard(), ui.Num()),
-		hcell(S.Anomaly.Col.Score(), ui.Num()),
-	)}
-	for rows.Next() {
-		var rank, id int64
-		var name *string
-		var prank *int64
-		var display, k, mGap, mOn, mIP, fGap, fOn, fIP *float64
-		if err := rows.Scan(&rank, &id, &name, &prank, &display, &k, &mGap, &mOn, &mIP, &fGap, &fOn, &fIP); err != nil {
-			return "", nil, err
-		}
-		nm := str(name)
-		if nm == "" {
-			nm = S.Common.PlayerFallback(itoa(id))
-		}
-		placeText := "—"
-		if prank != nil {
-			placeText = itoa(*prank)
-		}
-		table = append(table, ui.Trow(
-			numCell(itoa(rank), ui.Faint()),
-			nameCell(fmt.Sprintf("/players/%d/", id), nm),
-			numCell(dispOpt(display)),
-			numCell(placeText, ui.Faint()),
-			numCell(fmt.Sprintf("%.0f", num(fOn))),
-			numCell(fmt.Sprintf("%.0f", num(fIP))),
-			numCell(fmt.Sprintf("×%.2f", math.Exp(num(fGap))), toneOf(num(fGap))),
-			numCell(signed1(100*num(mGap)), toneOf(num(mGap))),
-			numCell(fmt.Sprintf("%.2f", num(k)), ui.Bold()),
-		))
+	trs := make([]ui.Item, len(rows))
+	for i, r := range rows {
+		trs[i] = anomalyRow(r)
 	}
-	if err := rows.Err(); err != nil {
-		return "", nil, err
-	}
-	title := S.Anomaly.Title()
-	if page > 1 {
-		title = S.Common.PageTitle(title, itoa(int64(page)))
-	}
-	return title, []ui.Item{
-		head(S.Anomaly.Title()),
-		ui.Section(
-			ui.Explainer(ui.Label(S.Anomaly.Explain.Summary()),
-				ui.Paragraph(ui.Text(S.Anomaly.Explain.Gap())),
-				ui.Paragraph(ui.Inline(ui.Strong(ui.Text(S.Anomaly.Explain.ForecastName())), ui.Text(" "+S.Anomaly.Explain.Forecast()))),
-				ui.Paragraph(ui.Inline(ui.Strong(ui.Text(S.Anomaly.Explain.HardName())), ui.Text(" "+S.Anomaly.Explain.Hard()))),
-				ui.Paragraph(ui.Text(S.Anomaly.Explain.Shrink())),
-				ui.Paragraph(ui.Text(S.Anomaly.Explain.Count(spaced(s.nAnomaly), s.nAnomaly))),
-			),
-			pager(page, pages, "/anomaly/", "/anomaly/page/"),
-			ui.Table(table...),
-			pager(page, pages, "/anomaly/", "/anomaly/page/"),
-		),
-	}, nil
+	sec := append([]ui.Item{s.anomalyExplainer()}, p.framed(table(anomalyCols(), trs...))...)
+	return p.title(S.Anomaly.Title()), []ui.Item{head(), ui.Section(sec...)}, nil
 }
 
-// space is the gap before an inline mark, or nothing when there is no mark.
-func space(mark ui.Item) ui.Item {
-	if mark == nil {
-		return nil
+func (s *site) anomalyExplainer() ui.Node {
+	named := func(name, text string) ui.Node {
+		return ui.Paragraph(ui.Inline(ui.Strong(ui.Text(name)), ui.Text(" "+text)))
 	}
-	return ui.Text(" ")
+	e := S.Anomaly.Explain
+	return ui.Explainer(ui.Label(e.Summary()),
+		ui.Paragraph(ui.Text(e.Gap())),
+		named(e.ForecastName(), e.Forecast()),
+		named(e.HardName(), e.Hard()),
+		ui.Paragraph(ui.Text(e.Shrink())),
+		ui.Paragraph(ui.Text(e.Count(spaced(s.nAnomaly), s.nAnomaly))),
+	)
+}
+
+func anomalyCols() []ui.Item {
+	return []ui.Item{numCol("№"), nameCol(S.Common.Col.Player()), numCol(S.Common.Col.Rating()),
+		numCol(S.Common.Col.Place()), numCol(S.Anomaly.Col.Sync()), numCol(S.Anomaly.Col.InPerson()),
+		numCol(S.Anomaly.Col.Forecast()), numCol(S.Anomaly.Col.Hard()), numCol(S.Anomaly.Col.Score())}
+}
+
+func anomalyRow(r anomalyLine) ui.Node {
+	return ui.Trow(
+		numCell(itoa(r.rank), ui.Faint()),
+		nameCell(playerHref(r.id), playerName(r.name, r.id)),
+		numCell(dispOpt(r.display)),
+		numCell(intOpt(r.prank), ui.Faint()),
+		numCell(fmt.Sprintf("%.0f", num(r.fOn))),
+		numCell(fmt.Sprintf("%.0f", num(r.fIP))),
+		numCell(fmt.Sprintf("×%.2f", math.Exp(num(r.fGap))), toneOf(num(r.fGap))),
+		numCell(signed1(percent*num(r.mGap)), toneOf(num(r.mGap))),
+		numCell(fmt.Sprintf("%.2f", num(r.k)), ui.Bold()),
+	)
+}
+
+// provToggle is the provisional switch. It is off by default, so a reader with
+// no script sees only settled ratings; site.js remembers the choice.
+func provToggle(hidden int, firstPage int, page int) ui.Node {
+	var note string
+	switch {
+	case hidden > 0:
+		note = S.Common.Prov.Hidden(itoa(int64(hidden)))
+	case firstPage > page:
+		note = S.Common.Prov.FromPage(itoa(int64(firstPage)))
+	}
+	items := []ui.Item{ui.Text(S.Common.Prov.Toggle())}
+	if note != "" {
+		items = append(items, ui.Text(" "), ui.Count(ui.Text(note)))
+	}
+	return ui.Toggle(ui.ToggleProv, ui.Inline(items...))
 }

@@ -7,6 +7,18 @@ import (
 	"strings"
 )
 
+// dash stands in for a number there is none of.
+const dash = "—"
+
+// percent turns a share into percentage points.
+const percent = 100
+
+// decimal is the base counts are written in.
+const decimal = 10
+
+// float64Bits is the precision strconv is asked to format at.
+const float64Bits = 64
+
 // disp prints a published number: on the 2019 display scale and whole. A value
 // that rounds to zero from below would print "-0", which reads as a number.
 func disp(v float64) string {
@@ -14,7 +26,7 @@ func disp(v float64) string {
 	if r == 0 {
 		r = 0
 	}
-	return strconv.FormatFloat(r, 'f', 0, 64)
+	return strconv.FormatFloat(r, 'f', 0, float64Bits)
 }
 
 // signed is a whole delta with its sign, a typographic minus below zero.
@@ -40,14 +52,14 @@ func signed1(v float64) string {
 // place is a place in a field: whole, or to one decimal when it is shared.
 func place(v *float64) string {
 	if v == nil {
-		return "—"
+		return dash
 	}
 	return placeOf(*v)
 }
 
 func placeOf(p float64) string {
 	if math.Abs(p-math.Round(p)) < 1e-6 {
-		return strconv.FormatInt(int64(math.Round(p)), 10)
+		return strconv.FormatInt(int64(math.Round(p)), decimal)
 	}
 	return fmt.Sprintf("%.1f", p)
 }
@@ -58,37 +70,46 @@ func blank(v *float64, digits int) string {
 	if v == nil {
 		return ""
 	}
-	return strconv.FormatFloat(*v, 'f', digits, 64)
+	return strconv.FormatFloat(*v, 'f', digits, float64Bits)
 }
 
 func opt(v *float64, digits int) string {
 	if v == nil {
-		return "—"
+		return dash
 	}
-	return strconv.FormatFloat(*v, 'f', digits, 64)
+	return strconv.FormatFloat(*v, 'f', digits, float64Bits)
 }
 
 func dispOpt(v *float64) string {
 	if v == nil {
-		return "—"
+		return dash
 	}
 	return disp(*v)
 }
 
 func signedOpt(v *float64) string {
 	if v == nil {
-		return "—"
+		return dash
 	}
 	return signed(*v)
 }
 
+// intOpt is a count, or a dash when there is none.
+func intOpt(v *int64) string {
+	if v == nil {
+		return dash
+	}
+	return itoa(*v)
+}
+
 // spaced groups a count inside running text in threes.
 func spaced(n int) string {
+	const group = 3
 	d := strconv.Itoa(n)
 	var b strings.Builder
 	for i, c := range d {
-		if i > 0 && (len(d)-i)%3 == 0 {
-			b.WriteRune(' ')
+		if i > 0 && (len(d)-i)%group == 0 {
+			b.WriteRune('\u2009') // a thin space
 		}
 		b.WriteRune(c)
 	}
@@ -101,14 +122,26 @@ func w2(x float64) string {
 }
 
 // pct is a share as a whole percentage.
-func pct(x float64) string { return fmt.Sprintf("%.0f", 100*x) }
+func pct(x float64) string {
+	return fmt.Sprintf("%.0f", percent*x)
+}
 
 // fold is how names compare when the question is "is this the same name":
 // ignoring the padding people type and the case they type it in.
 func fold(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
-func pagesOf(n int) int {
-	return max(1, (n+pageSize-1)/pageSize)
+func itoa(n int64) string { return strconv.FormatInt(n, decimal) }
+
+func abs(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
-func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+func prefix(s string, n int) string {
+	if len(s) < n {
+		return s
+	}
+	return s[:n]
+}

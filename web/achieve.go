@@ -1,0 +1,252 @@
+package main
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"ratingweb/ui"
+)
+
+// The achievement rating on a team's page: the results it is the sum of, and
+// every result with what it was worth.
+
+// rulePct is a share from the rules, formatted for a sentence: 0.1 is "10%".
+func rulePct(rules map[string]string, key string) string {
+	v, err := strconv.ParseFloat(rules[key], float64Bits)
+	if err != nil {
+		return "?"
+	}
+	return pct(v) + "%"
+}
+
+// ruleOr is a rule as published, or def when the rules do not say.
+func ruleOr(rules map[string]string, key, def string) string {
+	if v, ok := rules[key]; ok {
+		return v
+	}
+	return def
+}
+
+// breakdown is how a team's rating is summed: over how many slots, with the
+// place raised to what power.
+type breakdown struct {
+	achieved
+	slots, pow string
+}
+
+// achieveBreakdown is the rating taken apart: the results it is the sum of,
+// each with what it was worth on the day, how much of that is left, and what
+// it adds.
+func (s *site) achieveBreakdown(id int64, a achieved, rules map[string]string) (ui.Node, error) {
+	parts, err := s.q.parts(id)
+	if err != nil {
+		return nil, err
+	}
+	b := breakdown{a, ruleOr(rules, "top_x", fmt.Sprintf("%.0f", a.divisor)), ruleOr(rules, "place_pow", "0.6")}
+	rows := make([]ui.Item, 0, len(parts))
+	sum := 0.0
+	for _, p := range parts {
+		sum += p.contrib
+		rows = append(rows, b.partRow(p))
+	}
+	rows = append(append(rows, b.emptySlots(len(parts))...), b.footRow(sum))
+	t := ui.Table(append([]ui.Item{ui.Scroll(), ui.Breakdown(), ui.Trow(breakdownCols()...)}, rows...)...)
+	return section(S.Team.Breakdown.Title(), b.hint(rules), t), nil
+}
+
+func (b breakdown) hint(rules map[string]string) ui.Node {
+	tail := S.Team.Breakdown.HowTail(rulePct(rules, "loss_ip"), rulePct(rules, "loss_sync"))
+	return ui.Hint(ui.Inline(
+		ui.Text(S.Team.Breakdown.HowLead(b.slots)), ui.Sup(ui.Text(b.pow)),
+		ui.Text(tail+" "), link("/method/", S.Team.Breakdown.HowLink()), ui.Text("."),
+	))
+}
+
+func breakdownCols() []ui.Item {
+	return []ui.Item{
+		nameCol(S.Common.Col.Tournament()),
+		numCol(S.Common.Col.Place()),
+		numCol(S.Common.Col.Value(), S.Common.Col.ValueTitle()),
+		numCol(S.Team.Breakdown.Left(), S.Team.Breakdown.LeftTitle()),
+		numCol(S.Team.Breakdown.Now(), S.Team.Breakdown.NowTitle()),
+	}
+}
+
+func (b breakdown) partRow(p part) ui.Node {
+	// One run of text: the line under a name is a flex row, and two text
+	// pieces side by side in it would lose the space between them.
+	under := p.date
+	if p.nv > 1 {
+		under += " · " + S.Team.Breakdown.Merged(int(p.nv), placeOf(p.placeOwn))
+	}
+	name := ui.Cell(ui.PinCol(), line(link(tourHref(p.tid), orUntitled(p.name))), subline(ui.Text(under)), ui.How(ui.Inline(b.how(p)...)))
+	return ui.Trow(
+		name,
+		placeOfN(placeOf(p.placeAll), p.n),
+		numCell(disp(p.peak)),
+		numCell(pct(p.fade*p.ov)+"%", ui.Faint(), ui.Title(leftTitle(p))),
+		numCell(disp(p.contrib*b.divisor), ui.Bold()),
+	)
+}
+
+// leftTitle says what time took off a result, and what the overlap with
+// another result of the same week did.
+func leftTitle(p part) string {
+	if p.ov < 0.995 {
+		return S.Team.Breakdown.FadeOverlap(pct(p.fade), pct(p.ov))
+	}
+	return S.Team.Breakdown.Fade(pct(p.fade))
+}
+
+// how is how the value on the day was made, in one line under the name.
+func (b breakdown) how(p part) []ui.Item {
+	how := []ui.Item{ui.Text(S.Team.Breakdown.Game(disp(p.strength)))}
+	if p.placeAll != 1 {
+		how = append(how, ui.Text(" "+S.Team.Breakdown.ByPlace()), ui.Sup(ui.Text(b.pow)))
+	}
+	if w := p.wfmt * p.wfield * p.wreach; abs(w-1) >= 0.005 {
+		how = append(how, ui.Text(" "+S.Team.Breakdown.Weight(w2(w), strings.Join(weights(p), ", "))))
+	}
+	if len(how) > 1 {
+		how = append(how, ui.Text(" = "+disp(p.peak)))
+	}
+	return how
+}
+
+// weights are the factors that took a result's weight below one.
+func weights(p part) []string {
+	var why []string
+	if p.wfmt < 0.999 {
+		f := S.Common.Format.Sync()
+		if p.format == "S" {
+			f = S.Common.Format.StrictSync()
+		}
+		why = append(why, f+" ×"+w2(p.wfmt))
+	}
+	if p.wfield < 0.995 {
+		why = append(why, S.Team.Breakdown.Field(w2(p.wfield)))
+	}
+	if p.wreach < 0.995 {
+		why = append(why, S.Team.Breakdown.Reach(w2(p.wreach)))
+	}
+	return why
+}
+
+// emptySlots are the slots no result fills yet, each worth nothing.
+func (b breakdown) emptySlots(parts int) []ui.Item {
+	slots, err := strconv.Atoi(b.slots)
+	if err != nil {
+		slots = parts
+	}
+	var out []ui.Item
+	for i := parts; i < slots; i++ {
+		out = append(out, ui.Trow(
+			textCell(S.Team.Breakdown.EmptySlot(), ui.Faint()), emptyCell(), emptyCell(), emptyCell(),
+			numCell("0", ui.Faint()),
+		))
+	}
+	return out
+}
+
+func (b breakdown) footRow(sum float64) ui.Node {
+	text := S.Team.Breakdown.Sum(disp(sum*b.divisor), fmt.Sprintf("%.0f", b.divisor))
+	return ui.Trow(ui.FootRow(), textCell(text, ui.Colspan("4")), numCell(disp(b.rating), ui.Bold()))
+}
+
+// teamResults is every result the team has played, with what it was worth and
+// whether it counts today.
+func (s *site) teamResults(id int64) (ui.Node, error) {
+	evs, err := s.q.results(id)
+	if err != nil {
+		return nil, err
+	}
+	title := S.Team.Results.Title(itoa(int64(len(evs))))
+	if len(evs) == 0 {
+		return section(title, ui.Empty(ui.Text(S.Common.NoTournaments()))), nil
+	}
+	cutoff := s.cutoff()
+	rows := make([]ui.Item, len(evs))
+	for i, e := range evs {
+		rows[i] = resultRow(e, cutoff)
+	}
+	kids := append([]ui.Item{ui.Hint(ui.Text(S.Team.Results.Hint()))}, olderToggle(evs, cutoff)...)
+	return section(title, append(kids, table(resultCols(), rows...))...), nil
+}
+
+// cutoff is the date three years before the release: older results are
+// folded away behind the switch.
+func (s *site) cutoff() string {
+	const (
+		yearLen = len("2006")
+		years   = 3
+	)
+	y, err := strconv.Atoi(prefix(s.releaseDate, yearLen))
+	if err != nil || len(s.releaseDate) < yearLen {
+		return ""
+	}
+	return strconv.Itoa(y-years) + s.releaseDate[yearLen:]
+}
+
+// olderToggle is the switch for the results before the cutoff, when there are any.
+func olderToggle(evs []result, cutoff string) []ui.Item {
+	older := 0
+	for _, e := range evs {
+		if str(e.date) < cutoff {
+			older++
+		}
+	}
+	if older == 0 {
+		return nil
+	}
+	count := ui.Count(ui.Text(S.Team.Results.OlderCount(itoa(int64(older)), cutoff)))
+	return []ui.Item{ui.Toggle(ui.ToggleOlder, ui.Inline(ui.Text(S.Team.Results.OlderToggle()+" "), count))}
+}
+
+func resultCols() []ui.Item {
+	return append(tourCols(),
+		numCol(S.Common.Col.Place()),
+		numCol(S.Common.Col.Value(), S.Common.Col.ValueTitle()),
+		numCol(S.Team.Results.Counts(), S.Team.Results.CountsColTitle()),
+		numCol(S.Common.Col.Gain(), S.Common.Col.GainTitle()),
+	)
+}
+
+func resultRow(e result, cutoff string) ui.Node {
+	row := append(tourCells(str(e.date), e.tid, str(e.name), str(e.typ), counted(e.rated)),
+		resultPlace(e), resultValue(e), countsCell(e.counts), gainCell(e.gain))
+	switch {
+	case e.counts:
+		row = append(row, ui.CountsRow())
+	case str(e.date) < cutoff:
+		row = append(row, ui.OlderRow())
+	}
+	return ui.Trow(row...)
+}
+
+func resultPlace(e result) ui.Node {
+	if e.nTeams == nil {
+		return ui.Cell(ui.Num(), ui.NoWrap(), ui.Text(place(e.actual)))
+	}
+	return placeOfN(place(e.actual), *e.nTeams)
+}
+
+// resultValue is what the result was worth, with how on hover.
+func resultValue(e result) ui.Node {
+	value := []ui.Item{ui.Num(), ui.Text(dispOpt(e.peak))}
+	if e.strength == nil || e.w == nil || e.placeVal == nil {
+		return ui.Cell(value...)
+	}
+	t := S.Team.Results.ValueHow(disp(*e.strength), w2(*e.w))
+	if *e.placeVal != 1 {
+		t = S.Team.Results.ValueHowPlace(disp(*e.strength), placeOf(*e.placeVal), w2(*e.w))
+	}
+	return ui.Cell(append(value, ui.Title(t))...)
+}
+
+func countsCell(counts bool) ui.Node {
+	if counts {
+		return ui.Cell(ui.Num(), ui.Inline(ui.Dotin()))
+	}
+	return emptyCell(ui.Num())
+}

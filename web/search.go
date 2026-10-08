@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 	"strings"
 	"unicode"
 
@@ -21,89 +21,46 @@ func ftsQuery(q string) string {
 }
 
 func (s *site) searchPage(q string) (string, []ui.Item, error) {
-	out := []ui.Item{head(S.Search.Title(), ui.Text(S.Search.Query(q)))}
+	out := []ui.Item{head(ui.Text(S.Search.Query(q)))}
 	query := ftsQuery(q)
 	if query == "" {
 		return S.Search.PageTitle(q), append(out, ui.Empty(ui.Text(S.Search.Prompt()))), nil
 	}
-
-	var players []ui.Item
-	if rows, err := s.db.Query(`select f.rowid, p.name, k.rank, k.display, p.games, p.last_date
-		from x.player_fts f join x.player p on p.id = f.rowid
-		left join x.player_rank k on k.player_id = f.rowid
-		where player_fts match ? order by k.rank is null, k.rank, p.games desc limit 40`, query); err == nil {
-		for rows.Next() {
-			var id int64
-			var name, last *string
-			var rank, games *int64
-			var display *float64
-			if rows.Scan(&id, &name, &rank, &display, &games, &last) != nil {
-				continue
-			}
-			players = append(players, ui.Trow(
-				numCell(rankText(rank), ui.Faint()),
-				nameCell(fmt.Sprintf("/players/%d/", id), str(name)),
-				numCell(dispOpt(display), ui.Bold()),
-				numCell(itoa(count(games))),
-				textCell(str(last), ui.NoWrap(), ui.Faint()),
-			))
-		}
-		rows.Close()
+	players, err := s.q.findPlayers(query)
+	teams, err2 := s.q.findTeams(query)
+	if err = errors.Join(err, err2); err != nil {
+		return "", nil, err
 	}
-
-	var teams []ui.Item
-	if rows, err := s.db.Query(`select f.rowid, t.name, t.town, k.rank, k.display, t.games, t.last_date
-		from x.team_fts f join x.team t on t.id = f.rowid
-		left join x.team_rank k on k.team_id = f.rowid
-		where team_fts match ? order by k.rank is null, k.rank, t.games desc limit 40`, query); err == nil {
-		for rows.Next() {
-			var id int64
-			var name, tw, last *string
-			var rank, games *int64
-			var display *float64
-			if rows.Scan(&id, &name, &tw, &rank, &display, &games, &last) != nil {
-				continue
-			}
-			teams = append(teams, ui.Trow(
-				numCell(rankText(rank), ui.Faint()),
-				nameCell(fmt.Sprintf("/teams/%d/", id), str(name), town(str(tw))),
-				numCell(dispOpt(display), ui.Bold()),
-				numCell(itoa(count(games))),
-				textCell(str(last), ui.NoWrap(), ui.Faint()),
-			))
-		}
-		rows.Close()
-	}
-
 	if len(players) == 0 && len(teams) == 0 {
 		return S.Search.PageTitle(q), append(out, ui.Empty(ui.Text(S.Search.Nothing()))), nil
 	}
 	if len(players) > 0 {
-		table := append([]ui.Item{ui.Scroll(), ui.Trow(
-			hcell(S.Common.Col.Place(), ui.Num()),
-			hcell(S.Common.Col.Player(), ui.PinCol()),
-			hcell(S.Common.Col.Rating(), ui.Num()),
-			hcell(S.Search.Col.Games(), ui.Num()),
-			hcell(S.Search.Col.Last()),
-		)}, players...)
-		out = append(out, ui.Section(ui.Subhead(ui.Text(S.Search.Players(itoa(int64(len(players)))))), ui.Table(table...)))
+		out = append(out, hits(S.Search.Players, S.Common.Col.Player(), S.Search.Col.Games(), players, playerHit))
 	}
 	if len(teams) > 0 {
-		table := append([]ui.Item{ui.Scroll(), ui.Trow(
-			hcell(S.Common.Col.Place(), ui.Num()),
-			hcell(S.Common.Col.Team(), ui.PinCol()),
-			hcell(S.Common.Col.Rating(), ui.Num()),
-			hcell(S.Search.Col.Tournaments(), ui.Num()),
-			hcell(S.Search.Col.Last()),
-		)}, teams...)
-		out = append(out, ui.Section(ui.Subhead(ui.Text(S.Search.Teams(itoa(int64(len(teams)))))), ui.Table(table...)))
+		out = append(out, hits(S.Search.Teams, S.Common.Col.Team(), S.Search.Col.Tournaments(), teams, teamHit))
 	}
 	return S.Search.PageTitle(q), out, nil
 }
 
-func rankText(r *int64) string {
-	if r == nil {
-		return "—"
+// hits are the search results of one kind, as a titled table.
+func hits(title func(string) string, who, games string, found []found, cell func(found) ui.Node) ui.Node {
+	rows := make([]ui.Item, len(found))
+	for i, f := range found {
+		rows[i] = ui.Trow(
+			numCell(intOpt(f.rank), ui.Faint()),
+			cell(f),
+			numCell(dispOpt(f.display), ui.Bold()),
+			numCell(itoa(count(f.games))),
+			textCell(str(f.last), ui.NoWrap(), ui.Faint()),
+		)
 	}
-	return itoa(*r)
+	cols := []ui.Item{numCol(S.Common.Col.Place()), nameCol(who), numCol(S.Common.Col.Rating()), numCol(games), hcell(S.Search.Col.Last())}
+	return section(title(itoa(int64(len(found)))), table(cols, rows...))
+}
+
+func playerHit(f found) ui.Node { return nameCell(playerHref(f.id), playerName(f.name, f.id)) }
+
+func teamHit(f found) ui.Node {
+	return nameCell(teamHref(f.id), teamName(f.name, f.id), town(str(f.town)))
 }

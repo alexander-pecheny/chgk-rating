@@ -46,14 +46,11 @@ func TestPages(t *testing.T) {
 	if _, err := os.Stat(web); err != nil {
 		t.Skip("no serving index; run webindex first")
 	}
-	db, err := openRatings(ratings, web)
+	s, err := open(ratings, web)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := loadSite(db)
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := s.q.db
 	h := &handler{site: s, assets: kit.Assets(embedded)}
 	var team, player, tour int64
 	_ = db.QueryRow("select team_id from x.team_rank where rank = 1").Scan(&team)

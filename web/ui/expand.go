@@ -92,9 +92,17 @@ func one(e *base.Element) []base.Node { return []base.Node{e} }
 // box on the right. The kit's menu.js mounts the ☰ menu (theme, contrast, body
 // face) into .host-actions after the search.
 func expandSitebar(c *base.ExpandCtx, p *base.Element) []base.Node {
+	return one(base.El("header", base.RootAttrs([]string{"host-top", "game-host-top"}, p),
+		base.El("div", []base.Attr{base.ClassAttr("game-header-main")}, c.Nodes(p.Block)...),
+		base.El("div", []base.Attr{base.ClassAttr("host-actions")}, searchBox()),
+	))
+}
+
+// searchBox is the bar's search form, its glyph inline.
+func searchBox() *base.Element {
 	s := sitestrings.Default
 	glyph, _ := icons.Body("search")
-	search := base.El("form", []base.Attr{base.ClassAttr("site-search"), base.At("action", "/search/"), base.At("method", "get"), base.At("role", "search")},
+	return base.El("form", []base.Attr{base.ClassAttr("site-search"), base.At("action", "/search/"), base.At("method", "get"), base.At("role", "search")},
 		base.Raw(`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">`+glyph+`</svg>`),
 		base.El("input", []base.Attr{
 			base.ClassAttr("input"),
@@ -104,10 +112,6 @@ func expandSitebar(c *base.ExpandCtx, p *base.Element) []base.Node {
 			base.At("autocomplete", "off"),
 		}),
 	)
-	return one(base.El("header", base.RootAttrs([]string{"host-top", "game-host-top"}, p),
-		base.El("div", []base.Attr{base.ClassAttr("game-header-main")}, c.Nodes(p.Block)...),
-		base.El("div", []base.Attr{base.ClassAttr("host-actions")}, search),
-	))
 }
 
 func expandStat(c *base.ExpandCtx, p *base.Element) []base.Node {
@@ -123,56 +127,68 @@ func expandStat(c *base.ExpandCtx, p *base.Element) []base.Node {
 // neighbourhood of the current page and an ellipsis for each stretch between.
 // Page 1 lives at `first`, page n at `prefix` + n + "/".
 func expandPager(c *base.ExpandCtx, p *base.Element) []base.Node {
-	cur := atoi(p, "cur")
-	total := atoi(p, "total")
-	first, _ := base.Get(p, "first")
-	prefix, _ := base.Get(p, "prefix")
+	cur, total := atoi(p, "cur"), atoi(p, "total")
 	if total < 2 {
 		return nil
 	}
 	var kids []base.Node
 	last := 0
-	for i := 1; i <= total; i++ {
-		near := i <= 2 || i+2 > total || abs(i-cur) <= 2
-		if !near {
-			continue
-		}
+	for _, i := range shownPages(cur, total) {
 		if i > last+1 {
 			kids = append(kids, base.Inl("span", []base.Attr{base.ClassAttr("pager-gap")}, &base.TextNode{Value: "…"}))
 		}
-		n := strconv.Itoa(i)
-		href := prefix + n + "/"
-		if i == 1 {
-			href = first
-		}
-		switch {
-		case i == cur:
-			kids = append(kids, base.Inl("span", []base.Attr{base.ClassAttr("match-tab", "active"), base.At("aria-current", "page")}, &base.TextNode{Value: n}))
-		default:
-			kids = append(kids, base.Inl("a", []base.Attr{base.ClassAttr("match-tab"), base.At("href", href)}, &base.TextNode{Value: n}))
-		}
+		kids = append(kids, pagerTab(p, i, cur))
 		last = i
 	}
-	return one(base.El("nav", base.RootAttrs([]string{"match-tabs", "pager"}, p, base.At("aria-label", sitestrings.Default.Common.Pager.Label())), kids...))
+	label := base.At("aria-label", sitestrings.Default.Common.Pager.Label())
+	return one(base.El("nav", base.RootAttrs([]string{"match-tabs", "pager"}, p, label), kids...))
+}
+
+// pagerReach is how many pages the pager shows at each end and either side
+// of the current one.
+const pagerReach = 2
+
+// shownPages are the page numbers the pager lists.
+func shownPages(cur, total int) []int {
+	var out []int
+	for i := 1; i <= total; i++ {
+		if i <= pagerReach || i+pagerReach > total || abs(i-cur) <= pagerReach {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// pagerTab is page i: the current page as the active pill, any other as a link.
+func pagerTab(p *base.Element, i, cur int) base.Node {
+	n := strconv.Itoa(i)
+	if i == cur {
+		return base.Inl("span", []base.Attr{base.ClassAttr("match-tab", "active"), base.At("aria-current", "page")}, &base.TextNode{Value: n})
+	}
+	first, _ := base.Get(p, "first")
+	prefix, _ := base.Get(p, "prefix")
+	href := prefix + n + "/"
+	if i == 1 {
+		href = first
+	}
+	return base.Inl("a", []base.Attr{base.ClassAttr("match-tab"), base.At("href", href)}, &base.TextNode{Value: n})
 }
 
 // expandChart frames a history chart. Its charttab children become the switch
 // between the series, the rest (the SVG the server drew) goes in as it is, and
 // the tooltip site.js fills follows.
 func expandChart(c *base.ExpandCtx, p *base.Element) []base.Node {
-	var tabs, body []base.Node
+	var tabs, kids []base.Node
 	for _, n := range p.Block {
 		if e, ok := n.(*base.Element); ok && e.Tag == "charttab" {
 			tabs = append(tabs, c.Expand(e)...)
-			continue
+		} else {
+			kids = append(kids, c.Nodes([]base.Node{n})...)
 		}
-		body = append(body, c.Nodes([]base.Node{n})...)
 	}
-	var kids []base.Node
 	if len(tabs) > 0 {
-		kids = append(kids, base.El("div", []base.Attr{base.ClassAttr("c-tabs"), base.At("role", "group")}, tabs...))
+		kids = append([]base.Node{base.El("div", []base.Attr{base.ClassAttr("c-tabs"), base.At("role", "group")}, tabs...)}, kids...)
 	}
-	kids = append(kids, body...)
 	kids = append(kids, base.El("div", []base.Attr{base.ClassAttr("c-tip"), base.BareAt("hidden")}))
 	return one(base.El("figure", base.RootAttrs([]string{"chart", "scroll-fade-xy"}, p), kids...))
 }
@@ -286,31 +302,18 @@ func expandExplainer(c *base.ExpandCtx, p *base.Element) []base.Node {
 // header cells to <thead>, the rest to <tbody>. The scroll wrapper only
 // scrolls on a phone; on a wide screen the header sticks to the page.
 func expandTable(c *base.ExpandCtx, p *base.Element) []base.Node {
-	var head, body, foot []base.Node
+	var parts [partCount][]base.Node
 	for _, ch := range p.Block {
-		row, ok := ch.(*base.Element)
-		if !ok || row.Tag != "trow" {
-			continue
-		}
-		tr := c.Expand(row)
-		switch {
-		case base.Flag(row, "foot"):
-			foot = append(foot, tr...)
-		case headerRow(row):
-			head = append(head, tr...)
-		default:
-			body = append(body, tr...)
+		if row, ok := ch.(*base.Element); ok && row.Tag == "trow" {
+			k := tablePart(row)
+			parts[k] = append(parts[k], c.Expand(row)...)
 		}
 	}
 	var kids []base.Node
-	if len(head) > 0 {
-		kids = append(kids, base.El("thead", nil, head...))
-	}
-	if len(body) > 0 {
-		kids = append(kids, base.El("tbody", nil, body...))
-	}
-	if len(foot) > 0 {
-		kids = append(kids, base.El("tfoot", nil, foot...))
+	for k, tag := range [partCount]string{"thead", "tbody", "tfoot"} {
+		if len(parts[k]) > 0 {
+			kids = append(kids, base.El(tag, nil, parts[k]...))
+		}
 	}
 	classes := []string{"results-table", "rating-table"}
 	if base.Flag(p, "breakdown") {
@@ -318,6 +321,26 @@ func expandTable(c *base.ExpandCtx, p *base.Element) []base.Node {
 	}
 	table := base.El("table", base.RootAttrs(classes, p), kids...)
 	return one(base.El("div", []base.Attr{base.ClassAttr("results-wrapper")}, table))
+}
+
+// The parts of a table, in the order they are written.
+const (
+	partHead = iota
+	partBody
+	partFoot
+	partCount
+)
+
+// tablePart is where a row goes: a footer row to the foot, a row of header
+// cells to the head, the rest to the body.
+func tablePart(row *base.Element) int {
+	switch {
+	case base.Flag(row, "foot"):
+		return partFoot
+	case headerRow(row):
+		return partHead
+	}
+	return partBody
 }
 
 func headerRow(row *base.Element) bool {
@@ -352,17 +375,7 @@ var tones = map[string]string{"up": "amount-positive", "down": "amount-negative"
 // centred, the name column is the team column dope pins, and a column of
 // words keeps to the left like the name does.
 func cell(c *base.ExpandCtx, tag string, p *base.Element) *base.Element {
-	var classes []string
-	switch {
-	case base.Flag(p, "pin") && tag == "th":
-		classes = append(classes, "results-team-head", "pin-name")
-	case base.Flag(p, "pin"):
-		classes = append(classes, "results-team")
-	case base.Flag(p, "num"):
-		classes = append(classes, "results-num")
-	default:
-		classes = append(classes, "rating-text")
-	}
+	classes := []string{cellRole(tag, p)}
 	for _, f := range [][2]string{{"faint", "muted"}, {"strong", "rating-strong"}, {"nowrap", "nowrap"}} {
 		if base.Flag(p, f[0]) {
 			classes = append(classes, f[1])
@@ -376,6 +389,19 @@ func cell(c *base.ExpandCtx, tag string, p *base.Element) *base.Element {
 		extra = append(extra, base.At("colspan", v))
 	}
 	return base.Leaf(c, tag, classes, extra, p)
+}
+
+// cellRole is the column's class: the pinned name, a number, or words.
+func cellRole(tag string, p *base.Element) string {
+	switch {
+	case base.Flag(p, "pin") && tag == "th":
+		return "results-team-head pin-name"
+	case base.Flag(p, "pin"):
+		return "results-team"
+	case base.Flag(p, "num"):
+		return "results-num"
+	}
+	return "rating-text"
 }
 
 func atoi(p *base.Element, name string) int {

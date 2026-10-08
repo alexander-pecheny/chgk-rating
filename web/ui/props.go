@@ -6,11 +6,10 @@ import base "pecheny.me/dopeuikit/kit"
 // helpers only for the props vocab.json declares, so these are written by hand.
 
 // Cell roles, on hcell and cell.
-func Num() base.Attr     { return bare("num") }
-func Bold() base.Attr    { return bare("strong") }
-func Faint() base.Attr   { return bare("faint") }
-func NoWrap() base.Attr  { return bare("nowrap") }
-func TownCol() base.Attr { return bare("town") }
+func Num() base.Attr    { return bare("num") }
+func Bold() base.Attr   { return bare("strong") }
+func Faint() base.Attr  { return bare("faint") }
+func NoWrap() base.Attr { return bare("nowrap") }
 
 // PinCol marks the name column a phone keeps in place while the rest scrolls.
 func PinCol() base.Attr { return bare("pin") }
