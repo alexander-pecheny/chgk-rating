@@ -14,7 +14,7 @@ Every Thursday is a release: the player gauge is re-centred on the established p
 
 ## Data
 
-`buff.db` in the repo root is a mirror of rating.chgk.info (tournaments, results with masks and lineups, players, the old system's releases). It is read-only and never written to. Calibration inputs from other systems live in `data/external/`: the old system's 2019 team and player releases, and player tables exported from chgk.quest and rating.chgk.fun. `data/towns.csv` is the old system's town table, fetched once by `tools/fetch_towns.py`: the mirror gives a tournament its town as an id and a team its town as a name, and only this file brings the two onto one index.
+`buff.db` in the repo root is a mirror of rating.chgk.info (tournaments, results with masks and lineups, players, the old system's releases). It is read-only and never written to. Calibration inputs from other systems live in `data/external/`: the old system's 2019 team and player releases, and player tables exported from chgk.quest and rating.chgk.fun. `data/towns.csv` is the old system's town table, fetched once by `tools/fetch/towns.py`: the mirror gives a tournament its town as an id and a team its town as a name, and only this file brings the two onto one index.
 
 ## Build
 
@@ -274,6 +274,6 @@ fitted question difficulty bit-exactly, and the current player table correlates
 ## Report
 
 ```
-uv run tools/fetch_fonts.py                           # once, into fonts/
+uv run tools/fetch/fonts.py                           # once, into fonts/
 typst compile --font-path fonts report/report.typ
 ```

@@ -76,6 +76,6 @@ diagnose db="out/ratings.db":
 sweep batch dir="out/q_ndcg":
     uv run tools/q_ndcg_sweep.py --dir {{dir}} --jobs 3 {{batch}}
 
-# Rebuild the rules report; needs the fonts of tools/fetch_fonts.py.
+# Rebuild the rules report; needs the fonts of tools/fetch/fonts.py.
 rules:
     typst compile --font-path fonts report/report.typ report/report.pdf

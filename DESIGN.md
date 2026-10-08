@@ -589,7 +589,7 @@ carries the town a tournament was played in and `tournament_results` the town a
 team was registered in on the day; a player has no town in the mirror, so a
 player's town is the one they have played out of most often in the results before
 today, advanced after each field like everything else on this side. The id-to-name
-map the two sides need is `data/towns.csv`, fetched once by `tools/fetch_towns.py`.
+map the two sides need is `data/towns.csv`, fetched once by `tools/fetch/towns.py`.
 
 The residual separates the two at four standard errors and in the direction
 nobody expects: a team **at home** finishes 0.0054 +/- 0.0017 of a field worse
@@ -966,7 +966,7 @@ It also carries its own switches, tried on 2026-09-05 against the sluggishness o
 
 ## 9. Report
 
-Once the acceptance tests pass, a PDF describing the system in the register of Приложение А of the current regulations, in Russian, with formulas, is produced with Typst from `report/report.typ`. Fonts: Literata Fix for text and Literata Math for formulas, kept in `fonts/`, fetched by `tools/fetch_fonts.py`. Build with `typst compile --font-path fonts report/report.typ`.
+Once the acceptance tests pass, a PDF describing the system in the register of Приложение А of the current regulations, in Russian, with formulas, is produced with Typst from `report/report.typ`. Fonts: Literata Fix for text and Literata Math for formulas, kept in `fonts/`, fetched by `tools/fetch/fonts.py`. Build with `typst compile --font-path fonts report/report.typ`.
 
 ## 10. Site
 
