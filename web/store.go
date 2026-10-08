@@ -101,17 +101,19 @@ func (st *store) metaInt(key string) (int, error) {
 
 // openRatings opens out/ratings.db read-only with the serving index attached as
 // `x`, so a page joins names onto ratings in a single query. Every connection
-// in the pool gets the attachment from the hook, not just the first one.
+// in the pool gets the attachment from the hook, not just the first one; a
+// connection to any other file gets none.
 func openRatings(ratings, web string) (*sql.DB, error) {
 	attachOnce.Do(func() { sqlite.RegisterConnectionHook(attach) })
-	attachPath = web
 	pragmas := []string{
 		"mode=ro",
 		"_pragma=query_only(1)",
 		"_pragma=cache_size(-65536)",
 		"_pragma=mmap_size(1073741824)",
 	}
-	db, err := sql.Open("sqlite", "file:"+ratings+"?"+strings.Join(pragmas, "&"))
+	dsn := "file:" + ratings + "?" + strings.Join(pragmas, "&")
+	attachments.Store(dsn, web)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -123,17 +125,19 @@ func openRatings(ratings, web string) (*sql.DB, error) {
 }
 
 func attach(conn sqlite.ExecQuerierContext, dsn string) error {
-	if attachPath == "" {
+	web, ok := attachments.Load(dsn)
+	if !ok {
 		return nil
 	}
-	arg := []driver.NamedValue{{Ordinal: 1, Value: "file:" + attachPath + "?mode=ro"}}
+	arg := []driver.NamedValue{{Ordinal: 1, Value: "file:" + web.(string) + "?mode=ro"}}
 	_, err := conn.ExecContext(context.Background(), "ATTACH DATABASE ? AS x", arg)
 	return err
 }
 
 var (
 	attachOnce sync.Once
-	attachPath string
+	// attachments is the index each ratings DSN opened here attaches.
+	attachments sync.Map
 )
 
 // fielded is a row type that names the places its columns scan into, in the
