@@ -11,6 +11,7 @@ pub mod geography;
 pub mod ndcg;
 pub mod output;
 pub mod question_model;
+pub mod rivals;
 pub mod team_model;
 pub mod team_ndcg;
 pub mod team_s2;

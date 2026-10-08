@@ -8,7 +8,7 @@ w_strict_sync = 1.0
 w_sync = 1.0
 w_async = 1.0
 # chgk.quest trains on every format, so nothing is dropped here; its own
-# per-parameter format weights live in src/bin/ext_quest.rs.
+# per-parameter format weights live in src/rivals/quest.rs.
 include_unrated = true
 # Per-player and per-team rows are written at the last release only; the
 # scores read team_events and player_events, not the history. 1 keeps every

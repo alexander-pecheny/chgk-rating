@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["httpx"]
 # ///
-"""Fidelity check for src/bin/ext_gg.rs against rating.chgk.gg itself.
+"""Fidelity check for src/rivals/gg.rs against rating.chgk.gg itself.
 
 Oracle values are fetched live from the gg API (buff.db's mirror of them lags on
 recent releases) and cached under data/external/chgk_gg/oracle/. Writes the numeric
