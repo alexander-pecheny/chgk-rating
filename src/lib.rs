@@ -1,4 +1,4 @@
-pub mod achieve_core;
+pub mod achieve;
 pub mod chemistry;
 pub mod config;
 pub mod data;
