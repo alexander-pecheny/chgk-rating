@@ -123,7 +123,9 @@ func route(segs []string) page {
 	case len(segs) == 1:
 		return singles[segs[0]]
 	case len(segs) == 2 && segs[0] == "page":
-		return func(s *site, _ *http.Request, segs []string) (string, []ui.Item, error) { return s.teamTable(pageNo(segs[1])) }
+		return func(s *site, _ *http.Request, segs []string) (string, []ui.Item, error) {
+			return s.teamTable(pageNo(segs[1]))
+		}
 	case len(segs) == 2:
 		return entity(segs[0])
 	case len(segs) == 3 && segs[1] == "page" && listings[segs[0]] != nil:

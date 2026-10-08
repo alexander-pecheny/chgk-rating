@@ -30,10 +30,10 @@ func (st *store) releases() ([]release, error) {
 }
 
 type teamRank struct {
-	rank, id                       int64
-	name, town                     *string
-	display, sigma, evi, change    *float64
-	prov                           bool
+	rank, id                    int64
+	name, town                  *string
+	display, sigma, evi, change *float64
+	prov                        bool
 }
 
 func (r *teamRank) fields() []any {
@@ -77,10 +77,10 @@ func (st *store) firmPlayers() (int, error) {
 }
 
 type tourLine struct {
-	id                    int64
-	name, date, typ       *string
-	weight, truedl, llcf  *float64
-	nTeams, nQ            *int64
+	id                   int64
+	name, date, typ      *string
+	weight, truedl, llcf *float64
+	nTeams, nQ           *int64
 }
 
 func (r *tourLine) fields() []any {
@@ -112,9 +112,9 @@ func (st *store) releaseLines() ([]releaseLine, error) {
 }
 
 type anomalyLine struct {
-	rank, id                                 int64
-	name                                     *string
-	prank                                    *int64
+	rank, id                                   int64
+	name                                       *string
+	prank                                      *int64
 	display, k, mGap, mOn, mIP, fGap, fOn, fIP *float64
 }
 
@@ -242,12 +242,12 @@ func (st *store) places(kind int, id int64) ([]uint32, error) {
 // game is one tournament a player played, with the player's number before
 // and after it.
 type game struct {
-	tid, team                     int64
-	tname, date, typ, mname       *string
-	position                      *float64
-	score, nQ, rated              *int64
-	theta, after, phi             *float64
-	before, afterShown            *float64
+	tid, team               int64
+	tname, date, typ, mname *string
+	position                *float64
+	score, nQ, rated        *int64
+	theta, after, phi       *float64
+	before, afterShown      *float64
 }
 
 func (r *game) fields() []any {
@@ -326,8 +326,8 @@ func (st *store) achieveRules() (map[string]string, error) {
 
 // part is one result a team's achievement rating is the sum of.
 type part struct {
-	tid, n, nv                                                       int64
-	name, date, format                                               string
+	tid, n, nv                                                                  int64
+	name, date, format                                                          string
 	placeAll, placeOwn, strength, wfmt, wfield, wreach, peak, fade, ov, contrib float64
 }
 
@@ -379,9 +379,9 @@ func (st *store) results(id int64) ([]result, error) {
 // The tournament page.
 
 type tourHead struct {
-	name, date, typ                       *string
+	name, date, typ                      *string
 	weight, llIn, llCf, spF, spO, truedl *float64
-	nTeams, nQ, nObs                      *int64
+	nTeams, nQ, nObs                     *int64
 }
 
 func (r *tourHead) fields() []any {
@@ -454,9 +454,9 @@ type fieldRow struct {
 }
 
 type fieldScan struct {
-	r                fieldRow
-	name, playedAs   *string
-	rated            *int64
+	r              fieldRow
+	name, playedAs *string
+	rated          *int64
 }
 
 func (f *fieldScan) fields() []any {
@@ -528,7 +528,7 @@ func (st *store) lineups(ids []int64) (map[[2]int64][]member, error) {
 	rows, err := all[memberScan](st.db, `select g.team_id, g.player_id, p.name, v.theta_before, v.theta_after, v.phi_before,
 		v.sigma_before, g.tournament_id from x.player_game g left join x.player p on p.id = g.player_id
 		left join player_events v on v.player_id = g.player_id and v.tournament_id = g.tournament_id
-		where g.tournament_id in (` + idList(ids) + `)`)
+		where g.tournament_id in (`+idList(ids)+`)`)
 	out := map[[2]int64][]member{}
 	for _, r := range rows {
 		k := [2]int64{r.tid, r.team}

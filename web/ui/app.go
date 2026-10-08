@@ -58,14 +58,13 @@ func mustApp() *base.App {
 
 // cellProps are the roles a ranking table gives its cells: a right-aligned
 // number, the figure that matters in a row, a muted aside, a column that never
-// wraps, the town column that folds under the name on a phone, the name column
-// a phone pins while the rest scrolls, and the tone of a delta or a place.
+// wraps, the name column a phone pins while the rest scrolls, and the tone of
+// a delta or a place.
 var cellProps = []base.PropSpec{
 	{Name: "num", Kind: "bare"},
 	{Name: "strong", Kind: "bare"},
 	{Name: "faint", Kind: "bare"},
 	{Name: "nowrap", Kind: "bare"},
-	{Name: "town", Kind: "bare"},
 	{Name: "pin", Kind: "bare"},
 	{Name: "tone", Enum: "cell-tone"},
 	{Name: "colspan"},
@@ -73,6 +72,3 @@ var cellProps = []base.PropSpec{
 
 // Render validates and prints a builder-made tree.
 func Render(doc *base.Doc) ([]byte, error) { return app.Render(doc) }
-
-// Compile parses, validates and expands a .dopeui page (the method page).
-func Compile(name string, src []byte) ([]byte, error) { return app.Compile(name, src) }
