@@ -29,7 +29,8 @@ import lab
 
 DIR = "out/q_ndcg"
 # `eval --ndcg` prints four numbers a window, `--paired` four more.
-SCORES, PAIRED_SCORES = 8, 16
+SCORES = 8
+PAIRED_SCORES = 16
 NUMBER = re.compile(r"[-+]?\d\.\d{4}")
 ERROR_LINES = 3
 HEAD = ("name\ttune\ttune@3\tutune\tutune@3\ttest\ttest@3\tutest\tutest@3"

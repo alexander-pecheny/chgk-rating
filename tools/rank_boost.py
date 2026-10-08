@@ -368,14 +368,22 @@ def stage_ceiling(lgb, df, weights, report):
     for tag, ext, base in CEILINGS:
         out[tag] = ceiling_of(lgb, df, weights, ext, base)
         print(f"# {tag}: {out[tag]['n_features']} features, {out[tag]['iters']} trees", file=sys.stderr)
-    for col, name in ((f"ext_{name}_forecast", name) for name in ("fun", "quest")):
-        if col in df.columns:
-            a, b = tune.dropna(subset=[col]), test.dropna(subset=[col])
-            out[name] = {"tune": per_tournament(a, a[col]), "test": per_tournament(b, b[col])}
+    out.update(external_ceilings(df))
     for tag, r in out.items():
         for wnd in ("tune", "test"):
             print(line(f"{tag} {wnd}", r[wnd], weights), file=sys.stderr)
     report["ceiling"] = out
+    return out
+
+
+def external_ceilings(df):
+    """The other systems' forecasts, scored over the fields they cover."""
+    tune, test, out = window(df, TUNE), window(df, TEST), {}
+    for name in ("fun", "quest"):
+        col = f"ext_{name}_forecast"
+        if col in df.columns:
+            a, b = tune.dropna(subset=[col]), test.dropna(subset=[col])
+            out[name] = {"tune": per_tournament(a, a[col]), "test": per_tournament(b, b[col])}
     return out
 
 
@@ -402,6 +410,13 @@ def permutation_importance(models, vas, cols, tune, weights, base):
     return perm
 
 
+def mean_shap(model, tune, cols):
+    """Mean |SHAP| per column over a sample of the tune window."""
+    sample = tune.sample(n=min(SHAP_SAMPLE, len(tune)), random_state=SEED)
+    c = model.predict(sample[cols].to_numpy(dtype=np.float32), pred_contrib=True)
+    return np.abs(c[:, : len(cols)]).mean(axis=0)
+
+
 def stage_importance(lgb, df, weights, report):
     """Gain, permutation (within a field, out of fold) and SHAP."""
     tune = window(df, TUNE)
@@ -409,9 +424,7 @@ def stage_importance(lgb, df, weights, report):
     oof, models, vas, _ = cv(lgb, df, cols, weights)
     base = wmean(per_tournament(tune, oof), weights)
     gain = sum(m.feature_importance("gain") for m in models)
-    sample = tune.sample(n=min(SHAP_SAMPLE, len(tune)), random_state=SEED)
-    c = models[0].predict(sample[cols].to_numpy(dtype=np.float32), pred_contrib=True)
-    shap = np.abs(c[:, : len(cols)]).mean(axis=0)
+    shap = mean_shap(models[0], tune, cols)
     perm = permutation_importance(models, vas, cols, tune, weights, base)
     report["importance"] = {"base": base, "gain": dict(zip(cols, [float(x) for x in gain])),
                             "shap": dict(zip(cols, [float(x) for x in shap])), "perm": perm}
@@ -539,6 +552,11 @@ def stage_catboost(df, weights, report):
         report["catboost"] = {"error": str(e)}
         print(f"# catboost unavailable: {e}", file=sys.stderr)
         return None
+    return catboost_fold0(df, weights, report, CatBoost, Pool)
+
+
+def catboost_fold0(df, weights, report, CatBoost, Pool):
+    """YetiRank trained without fold 0 of the tune window, scored on it and on test."""
     tune, fold = tune_folds(df)
     test, cols = window(df, TEST), features_of(df, with_ext=False)
     va = tune[fold == 0]
@@ -645,23 +663,23 @@ def report_linear(lin, c, weights):
         print(f"  linear minus {NAMES[b_k]}, {wnd}: {d:+.4f} se {se:.4f} ({n})")
 
 
+SECTIONS = [
+    ("ceiling", lambda r, c, w: report_ceiling(c, w)),
+    ("importance", lambda r, c, w: report_importance(r, r["importance"])),
+    ("ablation", lambda r, c, w: report_ablation(r["ablation"])),
+    ("forward", lambda r, c, w: report_forward(r["forward"])),
+    ("linear", lambda r, c, w: report_linear(r["linear"], c, w)),
+    ("catboost", lambda r, c, w: print(f"\nCatBoost YetiRank: {r['catboost']}")),
+]
+
+
 def stage_report(path, weights):
     """Every table of the report, from a finished `rank.json`."""
     with open(path, encoding="utf-8") as f:
         r = json.load(f)
-    c = r.get("ceiling", {})
-    if c:
-        report_ceiling(c, weights)
-    if r.get("importance"):
-        report_importance(r, r["importance"])
-    if r.get("ablation"):
-        report_ablation(r["ablation"])
-    if r.get("forward"):
-        report_forward(r["forward"])
-    if r.get("linear"):
-        report_linear(r["linear"], c, weights)
-    if r.get("catboost"):
-        print(f"\nCatBoost YetiRank: {r['catboost']}")
+    for key, show in SECTIONS:
+        if r.get(key):
+            show(r, r.get("ceiling", {}), weights)
 
 
 def plain(o):
@@ -675,25 +693,29 @@ def plain(o):
     return o
 
 
+MODELS = (("ceiling", stage_ceiling), ("importance", stage_importance), ("ablation", stage_ablation))
+
+
 def run_stages(lgb, df, weights, stages):
     report = {}
-    if "ceiling" in stages:
-        stage_ceiling(lgb, df, weights, report)
-    if "importance" in stages:
-        stage_importance(lgb, df, weights, report)
-    if "ablation" in stages:
-        stage_ablation(lgb, df, weights, report)
-    # The ranker may lean on an external column; the distillation may not, so
-    # the forward curve and the linear model are over what could ship.
+    for name, stage in MODELS:
+        if name in stages:
+            stage(lgb, df, weights, report)
+    distil(lgb, df, weights, stages, report)
+    if "catboost" in stages:
+        stage_catboost(df, weights, report)
+    return report
+
+
+def distil(lgb, df, weights, stages, report):
+    """The ranker may lean on an external column; the distillation may not, so
+    the forward curve and the linear model are over what could ship."""
     order = report.get("perm_order")
     own = [c for c in order or [] if not c.startswith("ext_")]
     if order and "forward" in stages:
         stage_forward(lgb, df, weights, report, own)
     if order and "linear" in stages:
         stage_linear(df, weights, report, own[:LINEAR_FEATURES])
-    if "catboost" in stages:
-        stage_catboost(df, weights, report)
-    return report
 
 
 def main():
@@ -708,10 +730,13 @@ def main():
     print(f"# {len(df)} results in {df.tournament_id.nunique()} fields; {len(features_of(df, False))} features, "
           f"{len(features_of(df, True))} with the external ones", file=sys.stderr)
     os.makedirs(OUT, exist_ok=True)
-    report = run_stages(lgb, df, weights, STAGES if a.stage == "all" else a.stage.split(","))
-    with open(a.out, "w", encoding="utf-8") as f:
+    write(a.out, run_stages(lgb, df, weights, STAGES if a.stage == "all" else a.stage.split(",")))
+
+
+def write(path, report):
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(plain(report), f)
-    print(f"# wrote {a.out}", file=sys.stderr)
+    print(f"# wrote {path}", file=sys.stderr)
 
 
 if __name__ == "__main__":

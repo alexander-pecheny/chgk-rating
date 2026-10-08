@@ -27,14 +27,18 @@ from q_mech import SCALE, TUNE, base_rows, by_field
 from q_mech4 import add_field, add_sd, lever2, lever3, renorm
 
 TOP = lab.TOP
+# The coefficients each bonus is swept over. `sd` is on the theta scale; the
+# others are indicators or counts.
 HOME_GRID = (-400, -200, -100, -50, 50, 100, 200)
-# `sd` is on the theta scale; the others are indicators or counts.
+LOAD7_GRID = (-200, -100, -50, 50, 100)
+LOAD30_GRID = (-100, -50, -25, 25, 50)
+SD_GRID = (-2, -1, -0.5, 0.5, 1, 2)
 FEATURES = [
     ("the team's own town is the tournament's", "home_team", HOME_GRID),
     ("share of the lineup local to the town", "home_share", HOME_GRID),
-    ("in-person tournaments per player, last 7 days", "load7", (-200, -100, -50, 50, 100)),
-    ("the same, last 30 days", "load30", (-100, -50, -25, 25, 50)),
-    ("sd of the lineup's own strength", "sd", (-2, -1, -0.5, 0.5, 1, 2)),
+    ("in-person tournaments per player, last 7 days", "load7", LOAD7_GRID),
+    ("the same, last 30 days", "load30", LOAD30_GRID),
+    ("sd of the lineup's own strength", "sd", SD_GRID),
 ]
 LAMBDAS = (0.0, 0.1, 0.25, 0.5, 1.0, 2.0)
 DRAWS = 2000

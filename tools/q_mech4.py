@@ -37,7 +37,8 @@ HOME_FROM = "2013-01-01"
 LOAD_FROM = "2012-01-01"
 LOAD_DAYS = (7, 30)
 # Rough day counts for the span of a multi-day event.
-YEAR_DAYS, MONTH_DAYS = 365, 31
+YEAR_DAYS = 365
+MONTH_DAYS = 31
 DAYS_PER_YEAR = 365.25
 HALF_LIVES = (2.0, 4.0)
 SEASON = list(range(8, 13)) + list(range(1, 8))

@@ -27,6 +27,12 @@ BUFF = lab.BUFF
 TUNE = lab.TUNE
 # Forecast-percentile bins of the residual, in twentieths.
 BINS = 20
+# A rank as a percentile: the middle of its slot.
+MID = 0.5
+THIRDS = 3
+# Lever 7 cuts the lineups at two and four fifths.
+TWO = 2
+FOUR = 4
 # The tempered roster estimate of the engine, and the theta-to-display scale.
 TAU = 0.7
 SCALE = 2454.8828
@@ -96,7 +102,7 @@ def field_rows(tid, v, wt, members, st):
     n = len(rs)
     return [
         {"tid": tid, "team": team, "date": v["date"], "w": wt, "n": n, "fc_rank": k + 1,
-         "pct": (k + 0.5) / n, "place": place, "raw": (k + 1 - place) / n,
+         "pct": (k + MID) / n, "place": place, "raw": (k + 1 - place) / n,
          "members": members.get(team, []), "st": st.get(tid, {})}
         for k, (team, place, fc) in enumerate(rs)
     ]
@@ -204,7 +210,7 @@ def lever1(rows):
 
 
 def terciles(v):
-    k = len(v) // 3
+    k = len(v) // THIRDS
     return [v[:k], v[k : 2 * k], v[2 * k :]]
 
 
@@ -403,7 +409,7 @@ def lever7(db, rows):
                key=lambda r: r["mean_theta"])
     m = len(v) // FIFTHS
     cohorts = [("every lineup with any history under the editors", rows)]
-    cohorts += zip(LEVER7_PARTS, [v[: 2 * m], v[2 * m : 4 * m], v[4 * m :]])
+    cohorts += zip(LEVER7_PARTS, [v[: TWO * m], v[TWO * m : FOUR * m], v[FOUR * m :]])
     cohorts.append(("the strongest twentieth", sorted(v, key=lambda r: -r["mean_theta"])[: len(v) // TWENTIETH]))
     for label, part in cohorts:
         c, n = wcorr(part, "ed_past", "res", "w")

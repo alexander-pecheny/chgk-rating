@@ -16,6 +16,7 @@ The metric itself lives in `tools/lab.py`, which the other tools share.
 """
 
 import json
+import math
 import sqlite3
 
 import lab
@@ -47,8 +48,8 @@ def spearman(order, places, _k=None, values=None):
         return None
     mf, ma = sum(fr) / n, sum(ar) / n
     cov = sum((a - mf) * (b - ma) for a, b in zip(fr, ar))
-    vf = sum((a - mf) ** 2 for a in fr) ** 0.5
-    va = sum((b - ma) ** 2 for b in ar) ** 0.5
+    vf = math.sqrt(sum((a - mf) ** 2 for a in fr))
+    va = math.sqrt(sum((b - ma) ** 2 for b in ar))
     return cov / (vf * va) if vf and va else None
 
 

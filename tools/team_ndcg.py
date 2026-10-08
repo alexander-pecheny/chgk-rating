@@ -19,6 +19,7 @@ weight to one, so the two columns agree.
 
 import csv
 import json
+import math
 import os
 import random
 import sqlite3
@@ -29,8 +30,10 @@ ROSTERS = "data/external/chgk_gg/base_rosters.csv"
 CACHE = "out/team_ndcg/qualify.json"
 DATE = slice(0, 10)
 # MAII Prilozhenie A.4.7 and the plan's stricter fallback.
-MIN_BASE, MAX_LEGIONNAIRES = 3, 3
-STRICT_MIN_BASE, STRICT_SLACK = 4, 2
+MIN_BASE = 3
+MAX_LEGIONNAIRES = 3
+STRICT_MIN_BASE = 4
+STRICT_SLACK = 2
 TOP = lab.TOP
 RESULTS = "select id, team_id, team_members from tournament_results where team_members is not null"
 OLD_FIELDS = """
@@ -238,7 +241,7 @@ def weighted_diff(a, b, s, w):
 
 def sd(x):
     m = sum(x) / len(x)
-    return (sum((v - m) ** 2 for v in x) / (len(x) - 1)) ** 0.5
+    return math.sqrt(sum((v - m) ** 2 for v in x) / (len(x) - 1))
 
 
 # --------------------------------------------------------------------- main

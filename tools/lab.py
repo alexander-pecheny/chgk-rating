@@ -155,7 +155,7 @@ def paired(a, b, keys, w=None, n=BOOT):
     point = wdiff(a, b, keys, weigher(w))
     draws = [wdiff(a, b, [keys[rng.randrange(len(keys))] for _ in keys], weigher(w)) for _ in range(n)]
     m = sum(draws) / len(draws)
-    return point, (sum((d - m) ** 2 for d in draws) / len(draws)) ** 0.5
+    return point, math.sqrt(sum((d - m) ** 2 for d in draws) / len(draws))
 
 
 def wdiff(a, b, sample, wt):

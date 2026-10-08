@@ -33,6 +33,7 @@ import math
 import sqlite3
 import sys
 from collections import defaultdict
+from operator import itemgetter
 
 NOT_FEATURES = ("tournament_id", "team_id", "date", "y_", "w_", "m_")
 EPS = 1e-9
@@ -43,6 +44,7 @@ CENSUS_BAR = 0.9
 # The re-derived memories: the last five surprises, and the last year.
 LAST = 5
 YEAR = 365
+DECIMAL = 10
 ROWS = "select * from features order by date, tournament_id, rowid"
 
 
@@ -90,26 +92,32 @@ def mean_corr(fields, i, place):
     return sum(cs) / len(cs) if cs else 0.0
 
 
-def census(cols, rows, out):
-    feats = features(cols)
-    out.append(f"Columns: {len(cols)} in all, {len(feats)} of them features.")
-    ix = {c: i for i, c in enumerate(cols)}
-    # Anything that orders a field as well as the finishing order itself would
-    # be a copy of the target under another name.
+CLEAN_CENSUS = (
+    "No feature correlates with the finishing place above 0.90 within a "
+    "field; the best of them is the model's own forecast, which is not a "
+    "feature."
+)
+
+
+def first_fields(rows, ix):
+    """The rows of the first `CENSUS_FIELDS` tournaments, field by field."""
     by_t = defaultdict(list)
     for r in rows:
         by_t[r[ix["tournament_id"]]].append(r)
-    fields = list(by_t.values())[:CENSUS_FIELDS]
+    return list(by_t.values())[:CENSUS_FIELDS]
+
+
+def census(cols, rows, out):
+    """Anything that orders a field as well as the finishing order itself would
+    be a copy of the target under another name."""
+    feats = features(cols)
+    out.append(f"Columns: {len(cols)} in all, {len(feats)} of them features.")
+    ix = {c: i for i, c in enumerate(cols)}
+    fields = first_fields(rows, ix)
     bad = [(c, v) for c in feats for v in [mean_corr(fields, ix[c], ix["y_place"])] if v > CENSUS_BAR]
     if bad:
         out.append("**A feature orders a field as well as its own result does:**")
-        out += [f"  - `{c}` mean |corr| with the place {v:.3f}" for c, v in bad]
-    else:
-        out.append(
-            "No feature correlates with the finishing place above 0.90 within a "
-            "field; the best of them is the model's own forecast, which is not a "
-            "feature."
-        )
+    out += [f"  - `{c}` mean |corr| with the place {v:.3f}" for c, v in bad] or [CLEAN_CENSUS]
     return not bad
 
 
@@ -118,7 +126,7 @@ def editor_ids(e):
     ids, cur, have = [], 0, False
     for ch in str(e or "") + " ":
         if ch.isdigit():
-            cur, have = cur * 10 + int(ch), True
+            cur, have = cur * DECIMAL + int(ch), True
         elif have:
             ids.append(cur)
             cur, have = 0, False
@@ -197,12 +205,10 @@ def editors(dbpath):
     return ed
 
 
-def rederive(path, dbpath, out):
-    """The outcome memories, recomputed from strictly earlier rows of the table."""
-    cols, rows = rows_of(path)
-    ix = {c: i for i, c in enumerate(cols)}
-    mem, tally = Memories(ix, editors(dbpath)), Tally()
-    cur_t, batch = None, []
+def tally_rows(rows, ix, mem):
+    """Check every row against the memories, absorbing a field only once the
+    next one starts, so a row never sees its own field."""
+    tally, cur_t, batch = Tally(), None, []
     for r in rows:
         if r[ix["tournament_id"]] != cur_t:
             for b in batch:
@@ -210,6 +216,14 @@ def rederive(path, dbpath, out):
             batch, cur_t = [], r[ix["tournament_id"]]
         tally.check(r, ix, mem.want(r))
         batch.append(r)
+    return tally
+
+
+def rederive(path, dbpath, out):
+    """The outcome memories, recomputed from strictly earlier rows of the table."""
+    cols, rows = rows_of(path)
+    ix = {c: i for i, c in enumerate(cols)}
+    tally = tally_rows(rows, ix, Memories(ix, editors(dbpath)))
     out += ["", "| outcome column | rows checked | disagreements | largest |", "|---|---:|---:|---:|"]
     out += [f"| `{c}` | {tally.checked[c]} | {tally.wrong[c]} | {tally.worst[c]:.2e} |" for c in sorted(tally.checked)]
     return all(tally.wrong[c] == 0 for c in tally.checked)
@@ -229,7 +243,9 @@ def moved_columns(A, B, ix, feats, where):
     return moved, counts
 
 
-def scramble_report(out, date, tid, day, n_later, moved, counts, n_feats):
+def scramble_report(out, date, field, moved, counts, n_feats):
+    """`field` is `(day, tournament, fields after it)`."""
+    day, tid, n_later = field
     before = sum(moved["before"].values())
     out.append("")
     out.append(
@@ -238,41 +254,44 @@ def scramble_report(out, date, tid, day, n_later, moved, counts, n_feats):
         f"{n_later} fields that follow it."
     )
     out.append(f"Rows of the fields before it that moved: {before}.")
-    if moved["on"]:
-        out.append("**Columns that moved in the scrambled field itself:**")
-        out += [f"  - `{c}` in {n} of {counts['on']} rows" for c, n in sorted(moved["on"].items(), key=lambda kv: -kv[1])]
-    else:
-        out.append(
-            f"**No feature of the {counts['on']} results moved** when that field's own "
-            f"places and masks were permuted: not one of the {n_feats} columns."
-        )
+    out += moved_on(moved["on"], counts["on"], n_feats)
     out.append(f"Columns that moved in the fields after it, as they must: {len(moved['after'])} of {n_feats}.")
     return not moved["on"] and before == 0 and len(moved["after"]) > 0
 
 
+def moved_on(moved, n_on, n_feats):
+    if not moved:
+        return [f"**No feature of the {n_on} results moved** when that field's own "
+                f"places and masks were permuted: not one of the {n_feats} columns."]
+    return ["**Columns that moved in the scrambled field itself:**"] + [
+        f"  - `{c}` in {n} of {n_on} rows" for c, n in sorted(moved.items(), key=lambda kv: -kv[1])]
+
+
+def scrambled_field(ra, ix, date):
+    """`fit` reads the tournaments in (date, id) order, so the field it scrambled
+    is the first of those on or after the date: `(day, tournament, fields after)`."""
+    later = sorted({(r[ix["date"]], r[ix["tournament_id"]]) for r in ra if r[ix["date"]] >= date})
+    return (*later[0], len(later) - 1) if later else None
+
+
 def scramble(a_path, b_path, date, out):
-    ca, ra = rows_of(a_path)
-    cb, rb = rows_of(b_path)
+    (ca, ra), (cb, rb) = rows_of(a_path), rows_of(b_path)
     if ca != cb:
         out.append("The two tables have different columns; the check cannot run.")
         return False
     ix = {c: i for i, c in enumerate(ca)}
-    # `fit` reads the tournaments in (date, id) order, so the field it scrambled
-    # is the first of those on or after the date.
-    later = sorted({(r[ix["date"]], r[ix["tournament_id"]]) for r in ra if r[ix["date"]] >= date})
-    if not later:
+    field = scrambled_field(ra, ix, date)
+    if field is None:
         out.append(f"No in-person field on or after {date}.")
         return False
-    day, tid = later[0]
+    key = itemgetter(ix["tournament_id"], ix["team_id"])
+    moved, counts = moved_columns({key(r): r for r in ra}, {key(r): r for r in rb}, ix, features(ca), placement(*field[:2]))
+    return scramble_report(out, date, field, moved, counts, len(features(ca)))
 
-    def where(d, t):
-        return "on" if t == tid else ("before" if (d, t) < (day, tid) else "after")
 
-    def key(r):
-        return r[ix["tournament_id"]], r[ix["team_id"]]
-
-    moved, counts = moved_columns({key(r): r for r in ra}, {key(r): r for r in rb}, ix, features(ca), where)
-    return scramble_report(out, date, tid, day, len(later) - 1, moved, counts, len(features(ca)))
+def placement(day, tid):
+    """Where a field stands against the scrambled one: before, on or after it."""
+    return lambda d, t: "on" if t == tid else ("before" if (d, t) < (day, tid) else "after")
 
 
 OPTIONS = [
@@ -291,11 +310,15 @@ def verdict(ok1, ok2, ok3, scrambled):
     )
 
 
-def main():
+def parse():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     for name, kw in OPTIONS:
         ap.add_argument(name, **kw)
-    args = ap.parse_args()
+    return ap.parse_args()
+
+
+def main():
+    args = parse()
     out = ["# The leakage check", ""]
     ok1 = census(*rows_of(args.a), out)
     out += ["", "## Re-derived from strictly earlier rows"]

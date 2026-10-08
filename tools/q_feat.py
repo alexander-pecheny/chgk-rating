@@ -24,6 +24,8 @@ BINS = 20
 # A lineup's median days since its last in-person game, when it has none.
 NO_DAYS = 999.0
 THIN = 5
+# A rank as a percentile: the middle of its slot.
+MID = 0.5
 DECILE = 10
 KEYS = ["seats", "theta_max", "theta_mean", "theta_sd", "phi_mean", "sigma_mean", "sigma_max",
         "ip_median", "ip_min", "sync_only", "thin_ip", "days_ip"]
@@ -51,7 +53,7 @@ def features(ms, s):
     v = [s[p] for p in ms if p in s]
     if not v:
         return None
-    th, ph, sg, gi = ([x[i] for x in v] for i in range(4))
+    th, ph, sg, gi, _ = (list(col) for col in zip(*v))
     di = [x[4] for x in v if x[4] >= 0]
     return {
         "seats": float(len(ms)), "theta_max": max(th), "theta_mean": statistics.mean(th),
@@ -76,7 +78,7 @@ def field_rows(tid, v, wt, st, mem, topk):
     for t in order:
         f = None if topk and rank_a[t] > topk else features(mem.get(tid, {}).get(t, []), st.get(tid, {}))
         if f is not None:
-            f.update(resid=(rank_f[t] - rank_a[t]) / n, fpct=(rank_f[t] - 0.5) / n, w=wt, n=float(n))
+            f.update(resid=(rank_f[t] - rank_a[t]) / n, fpct=(rank_f[t] - MID) / n, w=wt, n=float(n))
             out.append(f)
     return out
 
