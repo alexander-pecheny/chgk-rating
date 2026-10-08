@@ -28,13 +28,24 @@ Three tests, from the blunt to the decisive.
 """
 
 import argparse
+import datetime as dt
 import math
 import sqlite3
 import sys
-from collections import defaultdict, deque
+from collections import defaultdict
+from operator import itemgetter
 
 NOT_FEATURES = ("tournament_id", "team_id", "date", "y_", "w_", "m_")
 EPS = 1e-9
+# The census reads this many fields, and names a feature whose mean |corr| with
+# the place is above the bar.
+CENSUS_FIELDS = 400
+CENSUS_BAR = 0.9
+# The re-derived memories: the last five surprises, and the last year.
+LAST = 5
+YEAR = 365
+DECIMAL = 10
+ROWS = "select * from features order by date, tournament_id, rowid"
 
 
 def cols_of(con):
@@ -47,10 +58,7 @@ def features(cols):
 
 def rows_of(path):
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-    cols = cols_of(con)
-    rows = con.execute(
-        "select * from features order by date, tournament_id, rowid"
-    ).fetchall()
+    cols, rows = cols_of(con), con.execute(ROWS).fetchall()
     con.close()
     return cols, rows
 
@@ -66,254 +74,260 @@ def same(a, b):
 # --------------------------------------------------------------------------- #
 
 
-def census(cols, rows, out):
-    feats = features(cols)
-    out.append(f"Columns: {len(cols)} in all, {len(feats)} of them features.")
-    ix = {c: i for i, c in enumerate(cols)}
-    # Anything that orders a field as well as the finishing order itself would
-    # be a copy of the target under another name.
+def abs_corr(v):
+    """|Pearson| of `(x, y)` pairs, or None when either side is constant."""
+    n = len(v)
+    mx, my = sum(x for x, _ in v) / n, sum(y for _, y in v) / n
+    sx = math.sqrt(sum((x - mx) ** 2 for x, _ in v))
+    sy = math.sqrt(sum((y - my) ** 2 for _, y in v))
+    if sx <= 0 or sy <= 0:
+        return None
+    return abs(sum((x - mx) * (y - my) for x, y in v) / (sx * sy))
+
+
+def mean_corr(fields, i, place):
+    """Mean |corr| of column `i` with the place within each field of five or more."""
+    cs = [abs_corr(v) for v in ([(t[i], t[place]) for t in ts if t[i] is not None] for ts in fields) if len(v) >= 5]
+    cs = [c for c in cs if c is not None]
+    return sum(cs) / len(cs) if cs else 0.0
+
+
+CLEAN_CENSUS = (
+    "No feature correlates with the finishing place above 0.90 within a "
+    "field; the best of them is the model's own forecast, which is not a "
+    "feature."
+)
+
+
+def first_fields(rows, ix):
+    """The rows of the first `CENSUS_FIELDS` tournaments, field by field."""
     by_t = defaultdict(list)
     for r in rows:
         by_t[r[ix["tournament_id"]]].append(r)
-    bad = []
-    for c in feats:
-        num = den = 0.0
-        for ts in list(by_t.values())[:400]:
-            v = [(t[ix[c]], t[ix["y_place"]]) for t in ts if t[ix[c]] is not None]
-            if len(v) < 5:
-                continue
-            n = len(v)
-            mx = sum(x for x, _ in v) / n
-            my = sum(y for _, y in v) / n
-            sx = math.sqrt(sum((x - mx) ** 2 for x, _ in v))
-            sy = math.sqrt(sum((y - my) ** 2 for _, y in v))
-            if sx <= 0 or sy <= 0:
-                continue
-            num += abs(sum((x - mx) * (y - my) for x, y in v) / (sx * sy))
-            den += 1
-        if den and num / den > 0.9:
-            bad.append((c, num / den))
+    return list(by_t.values())[:CENSUS_FIELDS]
+
+
+def census(cols, rows, out):
+    """Anything that orders a field as well as the finishing order itself would
+    be a copy of the target under another name."""
+    feats = features(cols)
+    out.append(f"Columns: {len(cols)} in all, {len(feats)} of them features.")
+    ix = {c: i for i, c in enumerate(cols)}
+    fields = first_fields(rows, ix)
+    bad = [(c, v) for c in feats for v in [mean_corr(fields, ix[c], ix["y_place"])] if v > CENSUS_BAR]
     if bad:
         out.append("**A feature orders a field as well as its own result does:**")
-        for c, v in bad:
-            out.append(f"  - `{c}` mean |corr| with the place {v:.3f}")
-    else:
-        out.append(
-            "No feature correlates with the finishing place above 0.90 within a "
-            "field; the best of them is the model's own forecast, which is not a "
-            "feature."
-        )
+    out += [f"  - `{c}` mean |corr| with the place {v:.3f}" for c, v in bad] or [CLEAN_CENSUS]
     return not bad
+
+
+def editor_ids(e):
+    """The integers in the mirror's `editors` text, whatever its shape."""
+    ids, cur, have = [], 0, False
+    for ch in str(e or "") + " ":
+        if ch.isdigit():
+            cur, have = cur * DECIMAL + int(ch), True
+        elif have:
+            ids.append(cur)
+            cur, have = 0, False
+    return ids
+
+
+def day_number(s):
+    """A real day number, so a 365-day window means what it says."""
+    return dt.date.fromisoformat(s).toordinal()
+
+
+class Memories:
+    """The outcome memories of `fit`, rebuilt from strictly earlier rows."""
+
+    def __init__(self, ix, ed):
+        self.ix, self.ed = ix, ed
+        self.surp, self.place = defaultdict(list), defaultdict(list)
+        self.te = defaultdict(lambda: [0.0, 0.0])
+
+    def absorb(self, r):
+        """Add one result, once its whole field has been checked."""
+        ix = self.ix
+        n, fp, place = r[ix["m_n_events"]], r[ix["m_forecast_place"]], r[ix["y_place"]]
+        # A team with neither a lineup nor a state is not in the field the
+        # engine scored, so it has no event and no residual either.
+        if fp is None or n is None or r[ix["y_rated"]] != 1 or place <= 0:
+            return
+        team, d, resid = r[ix["team_id"]], day_number(r[ix["date"]]), (fp - place) / n
+        self.surp[team].append((d, resid))
+        self.place[team].append((d, place / n))
+        for e in self.ed.get(r[ix["tournament_id"]], []):
+            a = self.te[(team, e)]
+            a[0], a[1] = a[0] + resid, a[1] + 1.0
+
+    def want(self, r):
+        """What every outcome column of `r` should say."""
+        ix = self.ix
+        team, tid, d = r[ix["team_id"]], r[ix["tournament_id"]], day_number(r[ix["date"]])
+        s = [x for _, x in self.surp[team][-LAST:]]
+        s365 = [x for dd, x in self.surp[team] if dd >= d - YEAR]
+        p365 = [x for dd, x in self.place[team] if dd >= d - YEAR]
+        acc = [self.te[(team, e)] for e in self.ed.get(tid, []) if self.te[(team, e)][1] > 0]
+        return {
+            "tm_surp5_mean": mean(s), "tm_surp365_mean": mean(s365), "tm_surp365_n": float(len(s365)),
+            "tm_best_place365": min(p365) if p365 else None, "tm_worst_place365": max(p365) if p365 else None,
+            "ed_team_n": float(len(acc)), "ed_team_resid": mean([a[0] / a[1] for a in acc]),
+            "ed_team_tournaments": float(sum(self.te[(team, e)][1] for e in self.ed.get(tid, []))),
+        }
+
+
+def mean(v):
+    return sum(v) / len(v) if v else None
+
+
+class Tally:
+    """Rows checked, disagreements and the largest gap per column."""
+
+    def __init__(self):
+        self.checked, self.wrong, self.worst = defaultdict(int), defaultdict(int), defaultdict(float)
+
+    def check(self, r, ix, want):
+        for c, v in want.items():
+            got = r[ix[c]]
+            self.checked[c] += 1
+            # A count of zero is written as a zero and a mean of nothing as NULL.
+            if (v is None) != (got is None) or (v is not None and not same(v, got)):
+                self.wrong[c] += 1
+                if v is not None and got is not None:
+                    self.worst[c] = max(self.worst[c], abs(v - got))
+
+
+def editors(dbpath):
+    b = sqlite3.connect(f"file:{dbpath}?mode=ro", uri=True)
+    ed = {tid: editor_ids(e) for tid, e in b.execute("select id, editors from tournaments")}
+    b.close()
+    return ed
+
+
+def tally_rows(rows, ix, mem):
+    """Check every row against the memories, absorbing a field only once the
+    next one starts, so a row never sees its own field."""
+    tally, cur_t, batch = Tally(), None, []
+    for r in rows:
+        if r[ix["tournament_id"]] != cur_t:
+            for b in batch:
+                mem.absorb(b)
+            batch, cur_t = [], r[ix["tournament_id"]]
+        tally.check(r, ix, mem.want(r))
+        batch.append(r)
+    return tally
 
 
 def rederive(path, dbpath, out):
     """The outcome memories, recomputed from strictly earlier rows of the table."""
-    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-    cols = cols_of(con)
+    cols, rows = rows_of(path)
     ix = {c: i for i, c in enumerate(cols)}
-    rows = con.execute(
-        "select * from features order by date, tournament_id, rowid"
-    ).fetchall()
-    con.close()
-    ed = {}
-    b = sqlite3.connect(f"file:{dbpath}?mode=ro", uri=True)
-    for tid, e in b.execute("select id, editors from tournaments"):
-        ids = []
-        cur, have = 0, False
-        for ch in str(e or ""):
-            if ch.isdigit():
-                cur, have = cur * 10 + int(ch), True
-            elif have:
-                ids.append(cur)
-                cur, have = 0, False
-        if have:
-            ids.append(cur)
-        ed[tid] = ids
-    b.close()
+    tally = tally_rows(rows, ix, Memories(ix, editors(dbpath)))
+    out += ["", "| outcome column | rows checked | disagreements | largest |", "|---|---:|---:|---:|"]
+    out += [f"| `{c}` | {tally.checked[c]} | {tally.wrong[c]} | {tally.worst[c]:.2e} |" for c in sorted(tally.checked)]
+    return all(tally.wrong[c] == 0 for c in tally.checked)
 
-    surp = defaultdict(deque)
-    place = defaultdict(deque)
-    te = defaultdict(lambda: [0.0, 0.0])
-    checked = defaultdict(int)
-    wrong = defaultdict(int)
-    worst = defaultdict(float)
-    day_of = {}
 
-    def day(s):
-        y, m, d = (int(x) for x in s.split("-"))
-        return (y * 12 + m) * 31 + d  # a monotone stand-in, days only compared
+def moved_columns(A, B, ix, feats, where):
+    """Per place relative to the scrambled field, how often each column moved."""
+    moved = {"before": defaultdict(int), "on": defaultdict(int), "after": defaultdict(int)}
+    counts = defaultdict(int)
+    for k, a in A.items():
+        b = B.get(k)
+        if b is not None:
+            w = where(a[ix["date"]], a[ix["tournament_id"]])
+            counts[w] += 1
+            for c in (c for c in feats if not same(a[ix[c]], b[ix[c]])):
+                moved[w][c] += 1
+    return moved, counts
 
-    # Real day numbers, so a 365-day window means what it says.
-    def real(s):
-        y, m, d = (int(x) for x in s.split("-"))
-        a = (y - (m <= 2)) // 1
-        return int(
-            367 * y - 7 * (y + (m + 9) // 12) // 4 + 275 * m // 9 + d - 730_530
-        )
 
-    del day, day_of
-
-    cur_t, batch = None, []
-
-    def flush():
-        for r in batch:
-            tid = r[ix["tournament_id"]]
-            team = r[ix["team_id"]]
-            d = real(r[ix["date"]])
-            n = r[ix["m_n_events"]]
-            # A team with neither a lineup nor a state is not in the field the
-            # engine scored, so it has no event and no residual either.
-            if r[ix["m_forecast_place"]] is None or n is None:
-                continue
-            if r[ix["y_rated"]] != 1 or r[ix["y_place"]] <= 0:
-                continue
-            resid = (r[ix["m_forecast_place"]] - r[ix["y_place"]]) / n
-            surp[team].append((d, resid))
-            place[team].append((d, r[ix["y_place"]] / n))
-            for e in ed.get(tid, []):
-                a = te[(team, e)]
-                a[0] += resid
-                a[1] += 1.0
-
-    def check(r):
-        team = r[ix["team_id"]]
-        tid = r[ix["tournament_id"]]
-        d = real(r[ix["date"]])
-        s = [x for _, x in list(surp[team])[-5:]]
-        s365 = [x for dd, x in surp[team] if dd >= d - 365]
-        p365 = [x for dd, x in place[team] if dd >= d - 365]
-        want = {
-            "tm_surp5_mean": (sum(s) / len(s)) if s else None,
-            "tm_surp365_mean": (sum(s365) / len(s365)) if s365 else None,
-            "tm_surp365_n": float(len(s365)),
-            "tm_best_place365": min(p365) if p365 else None,
-            "tm_worst_place365": max(p365) if p365 else None,
-        }
-        acc = [te[(team, e)] for e in ed.get(tid, []) if te[(team, e)][1] > 0]
-        want["ed_team_n"] = float(len(acc))
-        want["ed_team_resid"] = (
-            sum(a[0] / a[1] for a in acc) / len(acc) if acc else None
-        )
-        want["ed_team_tournaments"] = float(
-            sum(te[(team, e)][1] for e in ed.get(tid, []))
-        )
-        for c, v in want.items():
-            got = r[ix[c]]
-            checked[c] += 1
-            # A count of zero is written as a zero and a mean of nothing as NULL.
-            if v is None and got is None:
-                continue
-            if v is None or got is None or not same(v, got):
-                wrong[c] += 1
-                if v is not None and got is not None:
-                    worst[c] = max(worst[c], abs(v - got))
-
-    for r in rows:
-        tid = r[ix["tournament_id"]]
-        if tid != cur_t:
-            flush()
-            batch, cur_t = [], tid
-        check(r)
-        batch.append(r)
-    flush()
-
+def scramble_report(out, date, field, moved, counts, n_feats):
+    """`field` is `(day, tournament, fields after it)`."""
+    day, tid, n_later = field
+    before = sum(moved["before"].values())
     out.append("")
-    out.append("| outcome column | rows checked | disagreements | largest |")
-    out.append("|---|---:|---:|---:|")
-    ok = True
-    for c in sorted(checked):
-        out.append(f"| `{c}` | {checked[c]} | {wrong[c]} | {worst[c]:.2e} |")
-        ok = ok and wrong[c] == 0
-    return ok
+    out.append(
+        f"Scrambled the first in-person field on or after {date}: tournament "
+        f"{tid} of {day}, {counts['on']} results, with {counts['after']} results in the "
+        f"{n_later} fields that follow it."
+    )
+    out.append(f"Rows of the fields before it that moved: {before}.")
+    out += moved_on(moved["on"], counts["on"], n_feats)
+    out.append(f"Columns that moved in the fields after it, as they must: {len(moved['after'])} of {n_feats}.")
+    return not moved["on"] and before == 0 and len(moved["after"]) > 0
+
+
+def moved_on(moved, n_on, n_feats):
+    if not moved:
+        return [f"**No feature of the {n_on} results moved** when that field's own "
+                f"places and masks were permuted: not one of the {n_feats} columns."]
+    return ["**Columns that moved in the scrambled field itself:**"] + [
+        f"  - `{c}` in {n} of {n_on} rows" for c, n in sorted(moved.items(), key=lambda kv: -kv[1])]
+
+
+def scrambled_field(ra, ix, date):
+    """`fit` reads the tournaments in (date, id) order, so the field it scrambled
+    is the first of those on or after the date: `(day, tournament, fields after)`."""
+    later = sorted({(r[ix["date"]], r[ix["tournament_id"]]) for r in ra if r[ix["date"]] >= date})
+    return (*later[0], len(later) - 1) if later else None
 
 
 def scramble(a_path, b_path, date, out):
-    ca, ra = rows_of(a_path)
-    cb, rb = rows_of(b_path)
+    (ca, ra), (cb, rb) = rows_of(a_path), rows_of(b_path)
     if ca != cb:
         out.append("The two tables have different columns; the check cannot run.")
         return False
     ix = {c: i for i, c in enumerate(ca)}
-    feats = features(ca)
-    key = lambda r: (r[ix["tournament_id"]], r[ix["team_id"]])  # noqa: E731
-    A = {key(r): r for r in ra}
-    B = {key(r): r for r in rb}
-    # `fit` reads the tournaments in (date, id) order, so the field it scrambled
-    # is the first of those on or after the date.
-    later = sorted(
-        {(r[ix["date"]], r[ix["tournament_id"]]) for r in ra if r[ix["date"]] >= date}
-    )
-    if not later:
+    field = scrambled_field(ra, ix, date)
+    if field is None:
         out.append(f"No in-person field on or after {date}.")
         return False
-    day, tid = later[0]
-    moved_on, moved_after = defaultdict(int), defaultdict(int)
-    n_on = n_after = before = 0
-    for k, a in A.items():
-        b = B.get(k)
-        if b is None:
-            continue
-        d, t = a[ix["date"]], a[ix["tournament_id"]]
-        where = "on" if t == tid else ("before" if (d, t) < (day, tid) else "after")
-        n_on += where == "on"
-        n_after += where == "after"
-        for c in feats:
-            if same(a[ix[c]], b[ix[c]]):
-                continue
-            if where == "before":
-                before += 1
-            elif where == "on":
-                moved_on[c] += 1
-            else:
-                moved_after[c] += 1
-    out.append("")
-    out.append(
-        f"Scrambled the first in-person field on or after {date}: tournament "
-        f"{tid} of {day}, {n_on} results, with {n_after} results in the "
-        f"{len(later) - 1} fields that follow it."
+    key = itemgetter(ix["tournament_id"], ix["team_id"])
+    moved, counts = moved_columns({key(r): r for r in ra}, {key(r): r for r in rb}, ix, features(ca), placement(*field[:2]))
+    return scramble_report(out, date, field, moved, counts, len(features(ca)))
+
+
+def placement(day, tid):
+    """Where a field stands against the scrambled one: before, on or after it."""
+    return lambda d, t: "on" if t == tid else ("before" if (d, t) < (day, tid) else "after")
+
+
+OPTIONS = [
+    ("--a", dict(default="out/discovery/features.db")),
+    ("--b", dict()),
+    ("--date", dict()),
+    ("--db", dict(default="buff.db")),
+]
+
+
+def verdict(ok1, ok2, ok3, scrambled):
+    return (
+        f"**{'PASSED' if ok1 and ok2 and ok3 else 'FAILED'}**: census "
+        f"{'ok' if ok1 else 'failed'}, re-derivation {'ok' if ok2 else 'failed'}, "
+        f"scramble {'ok' if ok3 else 'failed' if scrambled else 'not run'}."
     )
-    out.append(f"Rows of the fields before it that moved: {before}.")
-    if moved_on:
-        out.append("**Columns that moved in the scrambled field itself:**")
-        for c, n in sorted(moved_on.items(), key=lambda kv: -kv[1]):
-            out.append(f"  - `{c}` in {n} of {n_on} rows")
-    else:
-        out.append(
-            f"**No feature of the {n_on} results moved** when that field's own "
-            f"places and masks were permuted: not one of the {len(feats)} columns."
-        )
-    out.append(
-        f"Columns that moved in the fields after it, as they must: "
-        f"{len(moved_after)} of {len(feats)}."
-    )
-    return not moved_on and before == 0 and len(moved_after) > 0
+
+
+def parse():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    for name, kw in OPTIONS:
+        ap.add_argument(name, **kw)
+    return ap.parse_args()
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--a", default="out/discovery/features.db")
-    ap.add_argument("--b")
-    ap.add_argument("--date")
-    ap.add_argument("--db", default="buff.db")
-    args = ap.parse_args()
-
+    args = parse()
     out = ["# The leakage check", ""]
-    cols, rows = rows_of(args.a)
-    ok1 = census(cols, rows, out)
-    out.append("")
-    out.append("## Re-derived from strictly earlier rows")
+    ok1 = census(*rows_of(args.a), out)
+    out += ["", "## Re-derived from strictly earlier rows"]
     ok2 = rederive(args.a, args.db, out)
     ok3 = True
     if args.b and args.date:
-        out.append("")
-        out.append("## The scramble test")
+        out += ["", "## The scramble test"]
         ok3 = scramble(args.a, args.b, args.date, out)
-    out.append("")
-    out.append(
-        f"**{'PASSED' if ok1 and ok2 and ok3 else 'FAILED'}**: census "
-        f"{'ok' if ok1 else 'failed'}, re-derivation {'ok' if ok2 else 'failed'}, "
-        f"scramble {'ok' if ok3 else 'failed' if args.b else 'not run'}."
-    )
+    out += ["", verdict(ok1, ok2, ok3, args.b)]
     print("\n".join(out))
     return 0 if (ok1 and ok2 and ok3) else 1
 
