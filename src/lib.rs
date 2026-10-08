@@ -10,6 +10,7 @@ pub mod gauge;
 pub mod geography;
 pub mod ndcg;
 pub mod output;
+pub mod pass;
 pub mod question_model;
 pub mod team_model;
 pub mod team_ndcg;

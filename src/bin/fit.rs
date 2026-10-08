@@ -1,17 +1,9 @@
-use chgk_rating::chemistry::Chemistry;
-use chgk_rating::config::{Config, TeamEngine};
-use chgk_rating::data::Arena;
-use chgk_rating::difficulty::Difficulties;
-use chgk_rating::editor_memory::EditorMemory;
-use chgk_rating::features::Features;
-use chgk_rating::geography::{Geography, PlayerLoad};
-use chgk_rating::gauge::{self, Activity};
-use chgk_rating::output::Writer;
-use chgk_rating::question_model as qm;
-use chgk_rating::team_model::{TeamEvent, Teams};
-use chgk_rating::team_s2::TeamsS2;
-use chgk_rating::util::parse_date as crate_parse_date;
-use chgk_rating::util::{format_date, next_thursday, parse_date, spearman};
+use chgk_rating::config::{Config, FormatEffect};
+use chgk_rating::data::{Arena, Format, Tournament};
+use chgk_rating::features::{Features, Pre};
+use chgk_rating::output::{PlayerEvent, Writer};
+use chgk_rating::pass::{self, Engine, Evening, Morning, Observer, Release};
+use chgk_rating::util::{format_date, parse_date, spearman};
 use std::time::Instant;
 
 fn arg(name: &str) -> Option<String> {
@@ -78,7 +70,7 @@ fn apply_scramble(arena: &mut Arena, date: &str) -> Result<(), String> {
     let t = arena
         .tournaments
         .iter_mut()
-        .find(|t| t.day >= day && t.format == chgk_rating::data::Format::InPerson && !t.train_only)
+        .find(|t| t.day >= day && t.format == Format::InPerson && !t.train_only)
         .ok_or("--scramble: no in-person tournament on or after that date")?;
     let k = t.teams.len();
     if k < 2 {
@@ -118,8 +110,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cfg.data.rows_every = v.parse().map_err(|_| "bad --rows-every")?;
     }
     let start = Instant::now();
-    let from_day = parse_date(&cfg.data.from).ok_or("bad --from")?;
-    let to_day = parse_date(&cfg.data.to).ok_or("bad --to")?;
+    parse_date(&cfg.data.from).ok_or("bad --from")?;
+    parse_date(&cfg.data.to).ok_or("bad --to")?;
     println!(
         "window {} to {}, rows {}",
         cfg.data.from,
@@ -147,576 +139,261 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         start.elapsed().as_secs_f64()
     );
 
-    let passes = arg("--passes").map_or(cfg.data.passes, |v| v.parse().unwrap_or(1));
-    let warm_until = parse_date(&cfg.player.warm_until).ok_or("bad player.warm_until")?;
-    let mut snap: Vec<Option<f64>> = Vec::new();
-    // The wide feature table of plan 8, written on the last pass only. It is a
-    // research output: nothing in the model reads it and asking for it changes
-    // no number the fit produces.
-    let features = arg("--features");
-    let diag = arg("--diag-player").and_then(|v| v.parse::<i64>().ok());
-    let diag = diag.and_then(|id| arena.player_ids.iter().position(|x| *x == id));
-    let mut players = qm::Players::new(arena.n_players(), arena.n_editors(), &cfg);
-    for p in 0..passes {
-        let last = p + 1 == passes;
-        if p > 0 {
-            let n = snap.iter().filter(|x| x.is_some()).count();
-            players.warm_restart(&snap, from_day, &cfg);
-            println!("pass {} of {passes}, {n} players warm-started", p + 1);
-        }
-        let w = last
-            .then(|| Writer::create(&cfg.data.out_path))
-            .transpose()?;
-        let n = run_pass(
-            &arena,
-            &cfg,
-            &mut players,
-            w.as_ref(),
-            from_day,
-            to_day,
-            warm_until,
-            &mut snap,
-            diag,
-            start,
-            last.then_some(features.as_deref()).flatten(),
-        )?;
-        if let Some(w) = w {
-            w.finish()?;
-            println!(
-                "done: {n} releases, {:.1}s total",
-                start.elapsed().as_secs_f64()
-            );
-        }
-    }
-    Ok(())
-}
-
-/// The team side of the pass. Both engines write the same `team_events` and the
-/// same release rows, so everything downstream reads one schema.
-enum Engine {
-    Kalman(Teams),
-    S2(TeamsS2),
-}
-
-impl Engine {
-    fn new(n: usize, cfg: &Config) -> Engine {
-        match cfg.team.engine {
-            TeamEngine::Kalman => Engine::Kalman(Teams::new(n)),
-            TeamEngine::S2 => Engine::S2(TeamsS2::new(n)),
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn step(
-        &mut self,
-        t: &chgk_rating::data::Tournament,
-        players: &qm::Players,
-        params: &[qm::QParams],
-        ctx: &chgk_rating::team_s2::Context,
-        cfg: &Config,
-    ) -> Vec<TeamEvent> {
-        match self {
-            Engine::Kalman(e) => e.step(t, players, params, cfg),
-            Engine::S2(e) => e.step(t, players, ctx, cfg),
-        }
-    }
-
-    /// `(index, raw rating, published rating, sigma, core strength, evidence)`.
-    /// The raw value is what `change` is measured on: for the Kalman engine that
-    /// is the pre-gauge scale, and S2 has no gauge of its own to remove.
-    fn rows(&self, day: i32, window: i32, cfg: &Config, shift: f64)
-        -> Vec<(usize, f64, f64, f64, f64, f64)> {
-        match self {
-            Engine::Kalman(e) => e
-                .listed(day, window)
-                .map(|(i, s)| {
-                    (i, s.mu_raw, s.mu_raw - shift, s.sigma_at(day, cfg), s.core_raw - shift, s.evidence())
-                })
-                .collect(),
-            Engine::S2(e) => e
-                .rows(day, window)
-                .into_iter()
-                .map(|(i, r, sg, q, n)| (i, r, r, sg, q, n))
-                .collect(),
-        }
-    }
-}
-
-/// One chronological sweep. Without a writer nothing is stored and the trailing
-/// releases are skipped, so the player state ends on the last tournament.
-#[allow(clippy::too_many_arguments)]
-fn run_pass(
-    arena: &Arena,
-    cfg: &Config,
-    players: &mut qm::Players,
-    w: Option<&Writer>,
-    from_day: i32,
-    to_day: i32,
-    warm_until: i32,
-    snap: &mut Vec<Option<f64>>,
-    diag: Option<usize>,
-    start: Instant,
-    features: Option<&str>,
-) -> Result<i64, Box<dyn std::error::Error>> {
-    let zfrom = crate_parse_date("2018-01-01").unwrap();
-    let mut teams = Engine::new(arena.n_teams(), cfg);
-    let mut chem = Chemistry::new(
-        cfg.question.chem_u != 0.0 || cfg.team.s2.chemistry != 0.0 || features.is_some(),
-    );
-    let mut diff = Difficulties::new(cfg.team.s2.difficulty_forecast);
-    let s2 = &cfg.team.s2;
-    let mut edmem = EditorMemory::new(
-        s2.editor_memory != 0.0 || s2.ed_phi != 0.0,
-        s2.ed_min_n,
-        s2.ed_key,
-        s2.ed_half_life,
-    );
-    let mut geo = Geography::new(s2.home_bonus != 0.0 || s2.home_team_bonus != 0.0);
-    let mut load = PlayerLoad::new(s2.load_7 != 0.0 || s2.load_30 != 0.0);
-    let mut feats = features
-        .map(|p| Features::create(p, arena))
-        .transpose()?;
-    let mut activity = Activity::new(arena.n_players());
-    // Last published raw value per entity, so `change` excludes the gauge shift.
-    let mut prev_p = vec![f64::NAN; arena.n_players()];
-    let mut prev_t = vec![f64::NAN; arena.n_teams()];
-    let mut ed_seen = vec![0.0f64; arena.n_editors()];
-    let mut release_id: i64 = 0;
-    let mut next_rel = next_thursday(from_day);
-
-    for (n, t) in arena.tournaments.iter().enumerate() {
-        if snap.is_empty() && t.day >= warm_until {
-            *snap = players.snapshot();
-        }
-        while next_rel <= t.day {
-            release_id += 1;
-            emit_release(
-                w,
-                release_id,
-                next_rel,
-                players,
-                &mut activity,
-                &teams,
-                arena,
-                cfg,
-                diag,
-                &mut prev_p,
-                &mut prev_t,
-                // The last release is the last Thursday before `to`, whether or
-                // not a tournament follows it; the trailing loop uses the same rule.
-                next_rel + 7 > to_day,
-            )?;
-            next_rel += 7;
-            if release_id % 50 == 0 {
-                if let Some(w) = w {
-                    w.checkpoint()?;
-                }
-            }
-        }
-        players.seed(t, cfg);
-
-        let field = qm::build_field(t, players, &chem, cfg);
-        let mut n_obs = 0u64;
-        let mut cross = 0.0;
-        // A tournament kept for the player side alone is never scored and never
-        // listed, so the cross-fit it would need is not run either.
-        if !t.train_only {
-            for half in 0..2u8 {
-                let p = qm::fit_all(&field, Some(half), cfg);
-                let (s, k) = qm::score(&field, &p, Some(1 - half), cfg);
-                cross += s;
-                n_obs += k;
-            }
-        }
-        let params = qm::fit_all(&field, None, cfg);
-        let (ins, n_all) = qm::score(&field, &params, None, cfg);
-        let grads = qm::player_grads(&field, &params, cfg);
-        // The team states the forecast was made against, before the step moves
-        // them; the player states the row reads are untouched by it.
-        let pre = feats.as_mut().map(|f| {
-            let s2 = match &teams {
-                Engine::S2(e) => Some(e),
-                Engine::Kalman(_) => None,
-            };
-            s2.map(|e| f.pre(t, e))
-        });
-        let events = if t.train_only {
-            Vec::new()
-        } else {
-            let ctx = chgk_rating::team_s2::Context {
-                chem: &chem,
-                diff: &diff,
-                edmem: &edmem,
-                geo: &geo,
-                load: &load,
-            };
-            teams.step(t, players, &params, &ctx, cfg)
-        };
-        // The feature row is written here, after the field has been scored and
-        // before any memory has absorbed it, so every column is the state of
-        // that morning.
-        if let (Some(f), Some(Some(pre))) = (feats.as_mut(), pre.as_ref()) {
-            f.emit(t, arena, players, &chem, &edmem, pre, &events, cfg)?;
-        }
-        // The difficulty sample and the pair counter are advanced only once the
-        // tournament has been forecast, so neither reads its own field.
-        if diff.on() && t.format == chgk_rating::data::Format::InPerson && !t.train_only {
-            let mut q: Vec<f64> = events.iter().map(|e| e.s_r).filter(|x| x.is_finite()).collect();
-            q.sort_by(|a, b| b.total_cmp(a));
-            let k = 10.min(q.len());
-            if k > 0 {
-                let s = q[..k].iter().sum::<f64>() / k as f64;
-                diff.absorb(s, params.iter().map(|p| p.b));
-            }
-        }
-        if !t.train_only {
-            chem.absorb(t);
-        }
-        // The editor memory sees today's residuals only after today's forecast.
-        if edmem.on() && t.format == chgk_rating::data::Format::InPerson && !t.train_only {
-            let n = events.len().max(1) as f64;
-            let res: Vec<(usize, f64)> = events
-                .iter()
-                .enumerate()
-                .filter(|(_, e)| e.actual_place > 0.0)
-                .map(|(k, e)| (k, (e.forecast_place - e.actual_place) / n))
-                .collect();
-            edmem.absorb(t, &res);
-        }
-        // Where the players come from and how much they have played: both are
-        // advanced only after the field has been forecast, like everything else
-        // on this side, so nothing predicts itself.
-        if !t.train_only {
-            geo.absorb(t);
-            if t.format == chgk_rating::data::Format::InPerson {
-                load.absorb(t);
-            }
-        }
-
-        let w = if t.train_only { None } else { w };
-        if let Some(w) = w {
-            w.question_params(
-                t.id,
-                &params
-                    .iter()
-                    .map(|p| (p.b, p.a(), p.m()))
-                    .collect::<Vec<_>>(),
-            )?;
-            w.team_events(t.id, &format_date(t.day), &arena.team_ids, &events)?;
-            let actual: Vec<f64> = events.iter().map(|e| e.actual_place).collect();
-            let sp_forecast = spearman(
-                &events.iter().map(|e| e.forecast_place).collect::<Vec<_>>(),
-                &actual,
-            );
-            let (po, pa): (Vec<f64>, Vec<f64>) = events
-                .iter()
-                .filter_map(|e| e.pred_place.map(|p| (p, e.actual_place)))
-                .unzip();
-            w.tournament_metrics(
-                t.id,
-                &format_date(t.day),
-                t.format.name(),
-                t.weight,
-                t.teams.len(),
-                t.n_q,
-                n_all,
-                (n_all > 0).then(|| ins / n_all as f64),
-                (n_obs > 0).then(|| cross / n_obs as f64),
-                sp_forecast,
-                spearman(&po, &pa),
-                qm::truedl(&field, &params, cfg),
-            )?;
-        }
-
-        let collect = t.format == chgk_rating::data::Format::InPerson && t.day >= zfrom;
-        let mut lineup: Vec<u32> = t
-            .teams
-            .iter()
-            .flat_map(|r| r.members.iter().copied())
-            .collect();
-        lineup.sort_unstable();
-        lineup.dedup();
-        // The state the forecast read this morning, before the update moves it.
-        let before: Vec<(f64, f64, f64, i64, i64)> = lineup
-            .iter()
-            .map(|&i| {
-                let i = i as usize;
-                let s = &players.state[i];
-                (
-                    players.theta(i),
-                    players.phi(i),
-                    players.sigma_at(i, t.day, cfg),
-                    s.games_ip as i64,
-                    if s.games_ip > 0 {
-                        (t.day - s.last_ip) as i64
-                    } else {
-                        -1
-                    },
-                )
-            })
-            .collect();
-        if let Some(f) = feats.as_mut() {
-            f.absorb_teams(t, &events);
-        }
-        // The field-strength factor reaches the players too, as a larger weight.
-        let s2 = &cfg.team.s2;
-        let pf = if s2.field_players {
-            chgk_rating::team_s2::field_factor(events.iter().map(|e| e.s_r), t.format, s2)
-        } else {
-            1.0
-        };
-        // `question.rel_place`: the place sets the direction of every member's
-        // step, the questions its size. A lineup at or above its forecast place
-        // cannot lose from this tournament, one below it cannot gain.
-        let dir: std::collections::HashMap<u32, f64> = if cfg.question.rel_place {
-            let by_team: std::collections::HashMap<u32, f64> = events
-                .iter()
-                .filter(|e| e.actual_place > 0.0 && e.forecast_place > 0.0)
-                .map(|e| (e.team, e.forecast_place - e.actual_place))
-                .collect();
-            t.teams
-                .iter()
-                .filter_map(|r| by_team.get(&r.team).map(|&s| (r, s)))
-                .flat_map(|(r, s)| r.members.iter().map(move |&m| (m, s)))
-                .collect()
-        } else {
-            std::collections::HashMap::new()
-        };
-        let scaled: Vec<(u32, f64, f64)>;
-        let absorbed = if pf != 1.0 || !dir.is_empty() {
-            scaled = grads
-                .iter()
-                .map(|&(i, g, info)| {
-                    let g = match dir.get(&i) {
-                        Some(&s) if s >= 0.0 => g.max(0.0),
-                        Some(_) => g.min(0.0),
-                        None => g,
-                    };
-                    (i, g * pf, info * pf)
-                })
-                .collect();
-            &scaled
-        } else {
-            &grads
-        };
-        players.absorb(t, absorbed, &mut ed_seen, collect, cfg);
-        players.shrink_to_lineups(t, cfg);
-        if let Some(f) = feats.as_mut() {
-            f.absorb_players(t, &grads, players);
-        }
-        if let Some(w) = w {
-            let rows: Vec<chgk_rating::output::PlayerEvent> = lineup
-                .iter()
-                .zip(&before)
-                .map(|(&i, b)| {
-                    let i = i as usize;
-                    chgk_rating::output::PlayerEvent {
-                        player: arena.player_ids[i],
-                        theta_before: b.0,
-                        theta_after: players.theta(i),
-                        sigma_after: players.sigma_at(i, t.day, cfg),
-                        phi_before: b.1,
-                        sigma_before: b.2,
-                        games_ip: b.3,
-                        days_ip: b.4,
-                    }
-                })
-                .collect();
-            w.player_events(t.id, &rows)?;
-        }
-        for &(i, _, info) in &grads {
-            activity.push(t.day, i, t.weight * info);
-        }
-        if n % 200 == 0 {
-            println!(
-                "{:6}/{} {} {:.0}s",
-                n,
-                arena.tournaments.len(),
-                format_date(t.day),
-                start.elapsed().as_secs_f64()
-            );
-        }
-    }
-    if let Some(f) = feats {
+    // The wide feature table of plan 8. It is a research output: nothing in the
+    // model reads it and asking for it changes no number the fit produces.
+    let features = arg("--features").map(|p| Features::create(&p, &arena)).transpose()?;
+    let diag = arg("--diag-player")
+        .and_then(|v| v.parse::<i64>().ok())
+        .and_then(|id| arena.player_ids.iter().position(|x| *x == id));
+    let opts = pass::Options {
+        passes: arg("--passes").map(|v| v.parse().unwrap_or(1)),
+        scores: true,
+        chemistry: features.is_some(),
+    };
+    let mut fit = Fit {
+        arena: &arena,
+        cfg: &cfg,
+        w: Writer::create(&cfg.data.out_path)?,
+        features,
+        pre: None,
+        diag,
+        start,
+        prev_p: vec![f64::NAN; arena.n_players()],
+        prev_t: vec![f64::NAN; arena.n_teams()],
+        before: Vec::new(),
+    };
+    let n = pass::run(&arena, &cfg, opts, &mut fit)?;
+    if let Some(f) = fit.features {
         println!("features: {} rows", f.rows());
         f.finish()?;
     }
-    if snap.is_empty() {
-        *snap = players.snapshot();
-    }
-    if w.is_some() {
-        while next_rel <= to_day {
-            release_id += 1;
-            emit_release(
-                w,
-                release_id,
-                next_rel,
-                players,
-                &mut activity,
-                &teams,
-                arena,
-                cfg,
-                diag,
-                &mut prev_p,
-                &mut prev_t,
-                next_rel + 7 > to_day,
-            )?;
-            next_rel += 7;
-        }
-    }
-    Ok(release_id)
+    fit.w.finish()?;
+    println!("done: {n} releases, {:.1}s total", start.elapsed().as_secs_f64());
+    Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn emit_release(
-    w: Option<&Writer>,
-    release_id: i64,
-    day: i32,
-    players: &mut qm::Players,
-    activity: &mut Activity,
-    teams: &Engine,
-    arena: &Arena,
-    cfg: &Config,
+/// What the observed pass writes: `out/ratings.db`, the feature table when
+/// asked, and the diagnostics on stdout.
+struct Fit<'a> {
+    arena: &'a Arena,
+    cfg: &'a Config,
+    w: Writer,
+    features: Option<Features>,
+    /// The team states the feature row of this tournament reads.
+    pre: Option<Pre>,
     diag: Option<usize>,
-    prev_p: &mut [f64],
-    prev_t: &mut [f64],
-    last: bool,
-) -> rusqlite::Result<()> {
-    activity.expire_before(day - cfg.gauge.window_days);
-    let shift = gauge::shift(players, activity, cfg.gauge.n_est);
-    players.shift_cum += shift;
-    // The affinity gate stands at a quantile of the same established panel the
-    // gauge centres, so "a strong player" means strong against today's field.
-    if cfg.question.aff_strength == chgk_rating::config::AffStrength::Gate
-        || cfg.team.s2.ed_gate > 0.0
-    {
-        let mut panel: Vec<f64> = (0..arena.n_players())
-            .filter(|&i| activity.count[i] >= cfg.gauge.n_est)
-            .map(|i| players.theta(i))
-            .collect();
-        players.set_gate(&mut panel, cfg.question.aff_gate);
-        players.set_ed_gate(&mut panel, cfg.team.s2.ed_gate);
-    }
-    let mut rows = Vec::new();
-    for (i, &c) in activity.count.iter().enumerate() {
-        if c > 0 {
-            // The published number may carry a share of the format effect; the
-            // forecast reads `theta` and `phi` separately and never this.
-            rows.push((
-                arena.player_ids[i],
-                players.theta(i) + cfg.display.player_phi * players.phi(i),
-                players.sigma_at(i, day, cfg),
-                c,
-                i,
-            ));
+    start: Instant,
+    /// Last published raw value per entity, so `change` excludes the gauge shift.
+    prev_p: Vec<f64>,
+    prev_t: Vec<f64>,
+    /// The lineup of this tournament and the state the forecast read this
+    /// morning, before the update moves it.
+    before: Vec<(u32, PlayerEvent)>,
+}
+
+impl Observer for Fit<'_> {
+    fn pass_start(&mut self, pass: usize, passes: usize, warm: usize) {
+        if pass > 0 {
+            println!("pass {} of {passes}, {warm} players warm-started", pass + 1);
         }
     }
-    let Some(w) = w else { return Ok(()) };
-    if let Some(i) = diag {
-        if activity.count[i] > 0 {
-            let s = &players.state[i];
-            let dt = ((day - s.last_day).max(0) as f64) / 365.25;
-            println!(
-                "diag {} games {} fisher {:.2} sigma_from_fisher {:.3} sigma_at_game {:.3} vol {:.3} sigma {:.3}",
-                format_date(day),
-                activity.count[i],
-                activity.fisher[i],
-                (1.0 / activity.fisher[i].max(1e-9)).sqrt(),
-                s.var.sqrt(),
-                s.vol,
-                (s.var + s.vol * s.vol * dt).sqrt()
-            );
-        }
+
+    fn before_step(&mut self, t: &Tournament, teams: &Engine) {
+        self.pre = self.features.as_mut().and_then(|f| teams.s2().map(|e| f.pre(t, e)));
     }
-    if last {
-        let mut band: Vec<(f64, f64)> = (0..arena.n_players())
-            .filter(|&i| activity.count[i] > 0)
-            .map(|i| {
-                (
-                    players.theta(i),
-                    activity.fisher[i] / activity.count[i] as f64,
-                )
-            })
-            .collect();
-        band.sort_by(|a, b| b.0.total_cmp(&a.0));
-        let med = |v: &[(f64, f64)]| {
-            let mut x: Vec<f64> = v.iter().map(|p| p.1).collect();
-            x.sort_by(f64::total_cmp);
-            x.get(x.len() / 2).copied().unwrap_or(0.0)
-        };
-        println!(
-            "fisher per game: top 200 {:.3}, ranks 2000-5000 {:.3}",
-            med(&band[..200.min(band.len())]),
-            med(&band[2000.min(band.len())..5000.min(band.len())])
-        );
-        if cfg.question.format_effect != chgk_rating::config::FormatEffect::None {
-            let mut phi: Vec<f64> = (0..arena.n_players())
-                .filter(|&i| activity.count[i] > 0)
-                .map(|i| players.state[i].aff[0])
+
+    fn morning(&mut self, m: &Morning) -> pass::Result<()> {
+        let (t, cfg) = (m.t, self.cfg);
+        // The feature row is written after the field has been scored and before
+        // any memory has absorbed it, so every column is the state of that morning.
+        if let (Some(f), Some(pre)) = (self.features.as_mut(), self.pre.take()) {
+            f.emit(t, self.arena, m.players, &m.memories.chem, &m.memories.edmem, &pre, m.events, cfg)?;
+        }
+        self.before = self.lineup_states(m);
+        if t.train_only {
+            return Ok(());
+        }
+        let qs: Vec<(f64, f64, f64)> = m.params.iter().map(|p| (p.b, p.a(), p.m())).collect();
+        self.w.question_params(t.id, &qs)?;
+        self.w.team_events(t.id, &format_date(t.day), &self.arena.team_ids, m.events)?;
+        let actual: Vec<f64> = m.events.iter().map(|e| e.actual_place).collect();
+        let forecast: Vec<f64> = m.events.iter().map(|e| e.forecast_place).collect();
+        let (po, pa): (Vec<f64>, Vec<f64>) =
+            m.events.iter().filter_map(|e| e.pred_place.map(|p| (p, e.actual_place))).unzip();
+        let s = m.scores.as_ref().ok_or("fit runs the pass with scores")?;
+        let mean = |(sum, n): (f64, u64)| (n > 0).then(|| sum / n as f64);
+        self.w.tournament_metrics(
+            t.id,
+            &format_date(t.day),
+            t.format.name(),
+            t.weight,
+            t.teams.len(),
+            t.n_q,
+            s.in_sample.1,
+            mean(s.in_sample),
+            mean(s.cross),
+            spearman(&forecast, &actual),
+            spearman(&po, &pa),
+            chgk_rating::question_model::truedl(m.field, m.params, cfg),
+        )?;
+        Ok(())
+    }
+
+    fn evening(&mut self, e: &Evening) -> pass::Result<()> {
+        let (t, cfg) = (e.t, self.cfg);
+        if let Some(f) = self.features.as_mut() {
+            f.absorb_teams(t, e.events);
+            f.absorb_players(t, e.grads, e.players);
+        }
+        if !t.train_only {
+            let rows: Vec<PlayerEvent> = std::mem::take(&mut self.before)
+                .into_iter()
+                .map(|(i, b)| PlayerEvent {
+                    theta_after: e.players.theta(i as usize),
+                    sigma_after: e.players.sigma_at(i as usize, t.day, cfg),
+                    ..b
+                })
                 .collect();
-            phi.sort_by(f64::total_cmp);
-            let q = |f: f64| phi[((phi.len() - 1) as f64 * f) as usize];
+            self.w.player_events(t.id, &rows)?;
+        }
+        if e.index % 200 == 0 {
             println!(
-                "phi over {} listed players: mean {:.3}, deciles {:.3} {:.3}, median {:.3}, {:.3} {:.3}",
-                phi.len(),
-                phi.iter().sum::<f64>() / phi.len() as f64,
-                q(0.0),
-                q(0.1),
-                q(0.5),
-                q(0.9),
-                q(1.0)
+                "{:6}/{} {} {:.0}s",
+                e.index,
+                self.arena.tournaments.len(),
+                format_date(t.day),
+                self.start.elapsed().as_secs_f64()
             );
         }
-        let (n, s1, s2) = players.zstat;
-        if n > 0.0 {
-            println!(
-                "player zvar {:.3} (n {n:.0}, mean {:.3})",
-                s2 / n - (s1 / n) * (s1 / n),
-                s1 / n
-            );
-        }
-        let np = (0..arena.n_players())
-            .filter(|&i| activity.count[i] > 0)
-            .filter(|&i| players.sigma_at(i, day, cfg) <= cfg.display.provisional_sigma)
-            .count();
-        let nl = activity.count.iter().filter(|&&c| c > 0).count();
-        println!(
-            "players rated {np}/{nl} ({:.0}%)",
-            100.0 * np as f64 / nl as f64
-        );
+        Ok(())
     }
-    w.release(
-        release_id,
-        &format_date(day),
-        shift,
-        players.shift_cum,
-        rows.len(),
-    )?;
-    if cfg.data.write_rows(release_id, last) {
-        let prows: Vec<(i64, f64, f64, u32, f64)> = rows
+
+    fn release(&mut self, r: &Release) -> pass::Result<()> {
+        let (cfg, arena) = (self.cfg, self.arena);
+        if r.id % 50 == 0 {
+            self.w.checkpoint()?;
+        }
+        let listed: Vec<usize> = (0..arena.n_players()).filter(|&i| r.activity.count[i] > 0).collect();
+        if let Some(i) = self.diag {
+            diag_player(r, i);
+        }
+        if r.last {
+            release_diagnostics(r, &listed, cfg);
+        }
+        self.w.release(r.id, &format_date(r.day), r.shift, r.players.shift_cum, listed.len())?;
+        if !cfg.data.write_rows(r.id, r.last) {
+            return Ok(());
+        }
+        let prows: Vec<(i64, f64, f64, u32, f64)> = listed
             .iter()
-            .map(|&(id, theta, sigma, c, i)| {
-                let raw = players.state[i].theta_raw;
-                let change = if prev_p[i].is_finite() {
-                    raw - prev_p[i]
-                } else {
-                    0.0
-                };
-                prev_p[i] = raw;
-                (id, theta, sigma, c, change)
+            .map(|&i| {
+                let raw = r.players.state[i].theta_raw;
+                let change = if self.prev_p[i].is_finite() { raw - self.prev_p[i] } else { 0.0 };
+                self.prev_p[i] = raw;
+                // The published number may carry a share of the format effect; the
+                // forecast reads `theta` and `phi` separately and never this.
+                let theta = r.players.theta(i) + cfg.display.player_phi * r.players.phi(i);
+                (arena.player_ids[i], theta, r.players.sigma_at(i, r.day, cfg), r.activity.count[i], change)
             })
             .collect();
-        w.player_ratings(release_id, &prows, |t| chgk_rating::display::player(t, cfg))?;
-        let trows: Vec<(i64, f64, f64, f64, f64, f64)> = teams
-            .rows(day, cfg.gauge.window_days, cfg, players.shift_cum)
+        self.w.player_ratings(r.id, &prows, |t| chgk_rating::display::player(t, cfg))?;
+        let trows: Vec<(i64, f64, f64, f64, f64, f64)> = r
+            .teams
+            .rows(r.day, cfg.gauge.window_days, cfg, r.players.shift_cum)
             .into_iter()
             .map(|(i, raw, mu, sigma, core, evidence)| {
-                let change = if prev_t[i].is_finite() { raw - prev_t[i] } else { 0.0 };
-                prev_t[i] = raw;
+                let change = if self.prev_t[i].is_finite() { raw - self.prev_t[i] } else { 0.0 };
+                self.prev_t[i] = raw;
                 (arena.team_ids[i], mu, sigma, core, evidence, change)
             })
             .collect();
-        w.team_ratings(release_id, &trows, |m| chgk_rating::display::team(m, cfg))?;
+        self.w.team_ratings(r.id, &trows, |m| chgk_rating::display::team(m, cfg))?;
+        Ok(())
     }
-    Ok(())
+}
+
+impl Fit<'_> {
+    /// Every player of the field once, with the state the forecast read.
+    fn lineup_states(&self, m: &Morning) -> Vec<(u32, PlayerEvent)> {
+        let (t, players, cfg) = (m.t, m.players, self.cfg);
+        let mut lineup: Vec<u32> = t.teams.iter().flat_map(|r| r.members.iter().copied()).collect();
+        lineup.sort_unstable();
+        lineup.dedup();
+        let state = |i: u32| {
+            let (i, s) = (i as usize, &players.state[i as usize]);
+            let ev = PlayerEvent {
+                player: self.arena.player_ids[i],
+                theta_before: players.theta(i),
+                theta_after: f64::NAN,
+                sigma_after: f64::NAN,
+                phi_before: players.phi(i),
+                sigma_before: players.sigma_at(i, t.day, cfg),
+                games_ip: s.games_ip as i64,
+                days_ip: if s.games_ip > 0 { (t.day - s.last_ip) as i64 } else { -1 },
+            };
+            (i as u32, ev)
+        };
+        lineup.into_iter().map(state).collect()
+    }
+}
+
+/// `--diag-player`: one player's uncertainty decomposition at a release.
+fn diag_player(r: &Release, i: usize) {
+    if r.activity.count[i] == 0 {
+        return;
+    }
+    let s = &r.players.state[i];
+    let dt = ((r.day - s.last_day).max(0) as f64) / 365.25;
+    println!(
+        "diag {} games {} fisher {:.2} sigma_from_fisher {:.3} sigma_at_game {:.3} vol {:.3} sigma {:.3}",
+        format_date(r.day),
+        r.activity.count[i],
+        r.activity.fisher[i],
+        (1.0 / r.activity.fisher[i].max(1e-9)).sqrt(),
+        s.var.sqrt(),
+        s.vol,
+        (s.var + s.vol * s.vol * dt).sqrt()
+    );
+}
+
+/// The summary lines printed with the last release.
+fn release_diagnostics(r: &Release, listed: &[usize], cfg: &Config) {
+    let players = r.players;
+    let mut band: Vec<(f64, f64)> = listed
+        .iter()
+        .map(|&i| (players.theta(i), r.activity.fisher[i] / r.activity.count[i] as f64))
+        .collect();
+    band.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let med = |v: &[(f64, f64)]| {
+        let mut x: Vec<f64> = v.iter().map(|p| p.1).collect();
+        x.sort_by(f64::total_cmp);
+        x.get(x.len() / 2).copied().unwrap_or(0.0)
+    };
+    let n = band.len();
+    println!(
+        "fisher per game: top 200 {:.3}, ranks 2000-5000 {:.3}",
+        med(&band[..200.min(n)]),
+        med(&band[2000.min(n)..5000.min(n)])
+    );
+    if cfg.question.format_effect != FormatEffect::None {
+        let mut phi: Vec<f64> = listed.iter().map(|&i| players.state[i].aff[0]).collect();
+        phi.sort_by(f64::total_cmp);
+        let q = |f: f64| phi[((phi.len() - 1) as f64 * f) as usize];
+        println!(
+            "phi over {} listed players: mean {:.3}, deciles {:.3} {:.3}, median {:.3}, {:.3} {:.3}",
+            phi.len(),
+            phi.iter().sum::<f64>() / phi.len() as f64,
+            q(0.0),
+            q(0.1),
+            q(0.5),
+            q(0.9),
+            q(1.0)
+        );
+    }
+    let (n, s1, s2) = players.zstat;
+    if n > 0.0 {
+        println!("player zvar {:.3} (n {n:.0}, mean {:.3})", s2 / n - (s1 / n) * (s1 / n), s1 / n);
+    }
+    let rated = listed.iter().filter(|&&i| players.sigma_at(i, r.day, cfg) <= cfg.display.provisional_sigma).count();
+    println!("players rated {rated}/{} ({:.0}%)", listed.len(), 100.0 * rated as f64 / listed.len() as f64);
 }
