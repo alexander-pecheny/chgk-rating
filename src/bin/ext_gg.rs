@@ -10,7 +10,7 @@
 //! chgk.gg scale by matching quantiles against this week's chgk.gg players.
 use chgk_rating::data::Format;
 use chgk_rating::output::Writer;
-use chgk_rating::team_model::TeamEvent;
+use chgk_rating::team_event::TeamEvent;
 use chgk_rating::util::{csv_rows, format_date, parse_date, spearman};
 use rusqlite::Connection;
 use std::collections::HashMap;

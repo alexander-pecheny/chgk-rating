@@ -5,16 +5,15 @@ use chgk_rating::config::{Anchor, Config, Perf, PlayerRule, S2Lineup, Simple};
 use chgk_rating::data::{Arena, Format};
 use chgk_rating::gauge::Activity;
 use chgk_rating::output::Writer;
-use chgk_rating::team_model::TeamEvent;
+use chgk_rating::team_event::TeamEvent;
 use chgk_rating::team_s2::lineup_strength;
 use chgk_rating::util::{
     avg_ranks, format_date, last_thursday, next_thursday, parse_date, spearman,
 };
+use chgk_rating::ndcg::{ndcg_at, TEST, TUNE};
 use rusqlite::Connection;
 use std::collections::HashMap;
 
-const TUNE: (&str, &str) = ("2018-09-01", "2024-08-29");
-const TEST: (&str, &str) = ("2024-08-30", "2026-08-27");
 /// Where the anchor of rule 13 puts the established teams.
 const ANCHOR_MEAN: f64 = 5000.0;
 const ANCHOR_SD: f64 = 1000.0;
@@ -33,20 +32,9 @@ fn ndcg(fc: &[f64], place: &[f64], k: usize) -> Option<f64> {
     }
     let mut o: Vec<usize> = (0..fc.len()).collect();
     o.sort_by(|&a, &b| fc[b].total_cmp(&fc[a]));
-    let mut rel: Vec<f64> = o.iter().map(|&i| 1.0 / place[i]).collect();
-    let k = k.min(rel.len());
-    let dcg: f64 = rel[..k]
-        .iter()
-        .enumerate()
-        .map(|(i, r)| r / ((i + 2) as f64).log2())
-        .sum();
-    rel.sort_by(|a, b| b.total_cmp(a));
-    let idcg: f64 = rel[..k]
-        .iter()
-        .enumerate()
-        .map(|(i, r)| r / ((i + 2) as f64).log2())
-        .sum();
-    (idcg > 0.0).then(|| dcg / idcg)
+    let rel: Vec<f64> = o.iter().map(|&i| 1.0 / place[i]).collect();
+    let v = ndcg_at(&rel, k);
+    v.is_finite().then_some(v)
 }
 
 #[derive(Default, Clone, Copy)]

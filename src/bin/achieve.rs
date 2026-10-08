@@ -12,16 +12,13 @@
 //! `/achieve/` lab reads the same three files from `out/achieve/`.
 
 use chgk_rating::achieve_core::{self as ac, Knobs, Lab, Names, Res, Seasons};
-use chgk_rating::chemistry::Chemistry;
 use chgk_rating::config::Config;
 use chgk_rating::data::{Arena, Format, CORRECT, SKIP};
-use chgk_rating::difficulty::Difficulties;
-use chgk_rating::editor_memory::EditorMemory;
-use chgk_rating::gauge::{self, Activity};
+use chgk_rating::pass::{self, Evening, Morning, Observer};
 use chgk_rating::question_model as qm;
 use chgk_rating::team_ndcg as metric;
-use chgk_rating::team_s2::{lineup_strength, player_rating, rows_of, TeamsS2};
-use chgk_rating::util::{next_thursday, parse_date};
+use chgk_rating::team_s2::{lineup_strength, player_rating};
+use chgk_rating::util::parse_date;
 use rusqlite::Connection;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -118,8 +115,6 @@ fn fmt_char(f: Format) -> char {
     }
 }
 
-/// The player pass of `team_sweep`, with each result's performance read off the
-/// question fit of its own tournament and the fair rule replayed beside it.
 /// The combined strength of the 20 strongest base rosters of the season on
 /// `day`, on the published scale, each roster read over its six strongest
 /// known players the way a lineup is: in-person strength when `ip`, the plain
@@ -151,10 +146,9 @@ fn ref20(rosters: &[Vec<u32>], players: &qm::Players, day: i32, ip: bool, cfg: &
     qs.iter().take(20).sum()
 }
 
-fn build(arena: &Arena, cfg: &Config, seasons: &Seasons, geo: &HashMap<String, (i64, i64)>) -> Vec<Res> {
-    // Each town of the arena as (town id, country id), -1 where unknown.
-    let town_geo: Vec<(i64, i64)> =
-        arena.towns.iter().map(|n| geo.get(n).copied().unwrap_or((-1, -1))).collect();
+/// The player pass of `fit`, with each result's performance read off the
+/// question fit of its own tournament and the fair rule's rating beside it.
+fn build(arena: &Arena, cfg: &Config, seasons: &Seasons, geo: &HashMap<String, (i64, i64)>) -> pass::Result<Vec<Res>> {
     // Every season's base rosters as player indices of this arena.
     let pidx: HashMap<i64, u32> = arena.player_ids.iter().enumerate().map(|(i, &p)| (p, i as u32)).collect();
     let mut by_season: HashMap<i64, Vec<Vec<u32>>> = HashMap::new();
@@ -164,169 +158,163 @@ fn build(arena: &Arena, cfg: &Config, seasons: &Seasons, geo: &HashMap<String, (
             by_season.entry(*s).or_default().push(r);
         }
     }
-    let empty = Vec::new();
-    // Recomputed once a week, like a release.
-    let mut refs: Option<(i32, f64, f64)> = None;
-    let qual = metric::qualify(metric::QUALIFY);
-    let tw = metric::weights(metric::WEIGHTS);
-    let passes = cfg.data.passes;
-    let from_day = parse_date(&cfg.data.from).unwrap();
-    let warm_until = parse_date(&cfg.player.warm_until).unwrap();
-    let zfrom = parse_date("2018-01-01").unwrap();
-    let s2 = &cfg.team.s2;
-    let disp = |x: f64| cfg.display.a_team + cfg.display.b_team * x;
-    let c = std::f64::consts::LN_10 / s2.d;
-    let mut players = qm::Players::new(arena.n_players(), arena.n_editors(), cfg);
-    let mut snap: Vec<Option<f64>> = Vec::new();
-    let mut out = Vec::new();
-    let start = std::time::Instant::now();
-    for pass in 0..passes {
-        let last = pass + 1 == passes;
-        if pass > 0 {
-            players.warm_restart(&snap, from_day, cfg);
+    let mut b = Build {
+        arena,
+        cfg,
+        seasons,
+        by_season,
+        // Each town of the arena as (town id, country id), -1 where unknown.
+        town_geo: arena.towns.iter().map(|n| geo.get(n).copied().unwrap_or((-1, -1))).collect(),
+        refs: None,
+        qual: metric::qualify(metric::QUALIFY),
+        tw: metric::weights(metric::WEIGHTS),
+        out: Vec::new(),
+        start: std::time::Instant::now(),
+    };
+    pass::run(arena, cfg, pass::Options::default(), &mut b)?;
+    Ok(b.out)
+}
+
+struct Build<'a> {
+    arena: &'a Arena,
+    cfg: &'a Config,
+    seasons: &'a Seasons,
+    by_season: HashMap<i64, Vec<Vec<u32>>>,
+    town_geo: Vec<(i64, i64)>,
+    /// The reference strengths of the week, in person and not: recomputed once
+    /// a week, like a release.
+    refs: Option<(i32, f64, f64)>,
+    qual: HashSet<(i64, i64)>,
+    tw: HashMap<i64, f64>,
+    out: Vec<Res>,
+    start: std::time::Instant,
+}
+
+impl Build<'_> {
+    fn refs_for(&mut self, m: &Morning) -> (f64, f64) {
+        let week = m.next_release;
+        if self.refs.map_or(true, |r| r.0 != week) {
+            let season = self.seasons.season_of(m.t.day).unwrap_or(-1);
+            let rs = self.by_season.get(&season).map_or(&[][..], |v| &v[..]);
+            let ip = ref20(rs, m.players, m.t.day, true, self.cfg);
+            let sync = ref20(rs, m.players, m.t.day, false, self.cfg);
+            self.refs = Some((week, ip, sync));
         }
-        let mut ed_seen = vec![0.0f64; arena.n_editors()];
-        let mut activity = Activity::new(arena.n_players());
-        let mut next_rel = next_thursday(from_day);
-        let mut teams = TeamsS2::new(arena.n_teams());
-        out.clear();
-        let mut chem = Chemistry::new(cfg.question.chem_u != 0.0 || s2.chemistry != 0.0);
-        let diff = Difficulties::new(false);
-        let edmem = EditorMemory::new(false, 0.0, s2.ed_key, 0.0);
-        let geo = chgk_rating::geography::Geography::new(false);
-        let load = chgk_rating::geography::PlayerLoad::new(false);
-        for (n, t) in arena.tournaments.iter().enumerate() {
-            if snap.is_empty() && t.day >= warm_until {
-                snap = players.snapshot();
-            }
-            while next_rel <= t.day {
-                activity.expire_before(next_rel - cfg.gauge.window_days);
-                players.shift_cum += gauge::shift(&players, &activity, cfg.gauge.n_est);
-                next_rel += 7;
-            }
-            players.seed(t, cfg);
-            let field = qm::build_field(t, &players, &chem, cfg);
-            let params = qm::fit_all(&field, None, cfg);
-            let grads = qm::player_grads(&field, &params, cfg);
-            if last && !t.train_only {
-                let week = next_rel;
-                if refs.map_or(true, |r| r.0 != week) {
-                    let season = seasons.season_of(t.day).unwrap_or(-1);
-                    let rs = by_season.get(&season).unwrap_or(&empty);
-                    refs = Some((
-                        week,
-                        ref20(rs, &players, t.day, true, cfg),
-                        ref20(rs, &players, t.day, false, cfg),
-                    ));
-                }
-                let (_, ref_ip, ref_sync) = refs.unwrap();
-                let ctx = chgk_rating::team_s2::Context {
-                    chem: &chem,
-                    diff: &diff,
-                    edmem: &edmem,
-                    geo: &geo,
-                    load: &load,
-                };
-                let rows = rows_of(t, &players, &ctx, cfg);
-                let evs = teams.step_rows(t.id, t.day, t.weight, t.format, &rows, s2);
-                let mu: HashMap<u32, f64> = evs.iter().map(|e| (e.team, e.mu_before)).collect();
-                let q: HashMap<u32, f64> = rows.iter().map(|r| (r.team, r.q)).collect();
-                let placed: Vec<(f64, f64)> = t
-                    .teams
-                    .iter()
-                    .filter(|r| r.position > 0.0)
-                    .map(|r| (r.position, q.get(&r.team).copied().unwrap_or(f64::NAN)))
-                    .collect();
-                let known: Vec<f64> = placed.iter().map(|x| x.1).filter(|x| x.is_finite()).collect();
-                let mid = {
-                    let mut v = known.clone();
-                    v.sort_by(|a, b| a.total_cmp(b));
-                    v.get(v.len() / 2).copied().unwrap_or(0.0)
-                };
-                for r in &t.teams {
-                    let qi = q.get(&r.team).copied().unwrap_or(f64::NAN);
-                    let perf_p = if r.position > 0.0 {
-                        let mut others = Vec::with_capacity(placed.len());
-                        let mut wins = 0.0;
-                        let mut seen_self = false;
-                        for &(pos, fq) in &placed {
-                            if !seen_self && pos == r.position && (fq == qi || (fq.is_nan() && qi.is_nan())) {
-                                seen_self = true;
-                                continue;
-                            }
-                            if !fq.is_finite() {
-                                continue;
-                            }
-                            others.push(fq);
-                            wins += if pos > r.position {
-                                1.0
-                            } else if pos == r.position {
-                                0.5
-                            } else {
-                                0.0
-                            };
-                        }
-                        let own = if qi.is_finite() { qi } else { mid };
-                        if others.is_empty() {
-                            f64::NAN
-                        } else {
-                            place_perf(own, &others, wins, 1.0, c)
-                        }
-                    } else {
-                        f64::NAN
-                    };
-                    let (th, taken, n_q) = score_perf(&r.mask, &params);
-                    let perf_s = if th.is_finite() {
-                        s2.player_zero + s2.player_scale * (th + 6f64.ln() + cfg.team.roster_bias)
-                    } else {
-                        f64::NAN
-                    };
-                    out.push(Res {
-                        tid: t.id,
-                        day: t.day,
-                        format: fmt_char(t.format),
-                        team: arena.team_ids[r.team as usize],
-                        place: r.position,
-                        rated: r.rated,
-                        n: r.members.len() as u32,
-                        n_base: r.base.iter().filter(|&&b| b).count() as u32,
-                        q: disp(qi),
-                        perf_s: disp(perf_s),
-                        perf_p: disp(perf_p),
-                        taken,
-                        n_q,
-                        fair_mu: mu.get(&r.team).map_or(f64::NAN, |&m| disp(m)),
-                        venue: r.venue,
-                        vplace: r.venue_position,
-                        qual: qual.contains(&(t.id, arena.team_ids[r.team as usize])),
-                        tw: tw.get(&t.id).copied().unwrap_or(0.0),
-                        ref20: if t.format == Format::InPerson { ref_ip } else { ref_sync },
-                        town: town_geo.get(r.town as usize).map_or(-1, |g| g.0),
-                        country: town_geo.get(r.town as usize).map_or(-1, |g| g.1),
-                    });
-                }
-            }
-            chem.absorb(t);
-            let collect = t.format == Format::InPerson && t.day >= zfrom;
-            players.absorb(t, &grads, &mut ed_seen, collect, cfg);
-            players.shrink_to_lineups(t, cfg);
-            for &(i, _, info) in &grads {
-                activity.push(t.day, i, t.weight * info);
-            }
-            if n % 2000 == 0 {
-                eprintln!(
-                    "pass {}/{passes} {n}/{} {:.0}s",
-                    pass + 1,
-                    arena.tournaments.len(),
-                    start.elapsed().as_secs_f64()
-                );
-            }
-        }
-        if snap.is_empty() {
-            snap = players.snapshot();
-        }
+        let (_, ip, sync) = self.refs.unwrap_or_default();
+        (ip, sync)
     }
-    out
+}
+
+impl Observer for Build<'_> {
+    fn morning(&mut self, m: &Morning) -> pass::Result<()> {
+        let (t, cfg) = (m.t, self.cfg);
+        if t.train_only {
+            return Ok(());
+        }
+        let (ref_ip, ref_sync) = self.refs_for(m);
+        let s2 = &cfg.team.s2;
+        let disp = |x: f64| cfg.display.a_team + cfg.display.b_team * x;
+        let mu: HashMap<u32, f64> = m.events.iter().map(|e| (e.team, e.mu_before)).collect();
+        let q: HashMap<u32, f64> = m.rows.iter().map(|r| (r.team, r.q)).collect();
+        let field = Field::new(t, &q);
+        let c = std::f64::consts::LN_10 / s2.d;
+        for r in &t.teams {
+            let qi = q.get(&r.team).copied().unwrap_or(f64::NAN);
+            let (th, taken, n_q) = score_perf(&r.mask, m.params);
+            let perf_s = if th.is_finite() {
+                s2.player_zero + s2.player_scale * (th + 6f64.ln() + cfg.team.roster_bias)
+            } else {
+                f64::NAN
+            };
+            let team = self.arena.team_ids[r.team as usize];
+            let geo = self.town_geo.get(r.town as usize);
+            self.out.push(Res {
+                tid: t.id,
+                day: t.day,
+                format: fmt_char(t.format),
+                team,
+                place: r.position,
+                rated: r.rated,
+                n: r.members.len() as u32,
+                n_base: r.base.iter().filter(|&&b| b).count() as u32,
+                q: disp(qi),
+                perf_s: disp(perf_s),
+                perf_p: disp(field.perf(r.position, qi, c)),
+                taken,
+                n_q,
+                fair_mu: mu.get(&r.team).map_or(f64::NAN, |&m| disp(m)),
+                venue: r.venue,
+                vplace: r.venue_position,
+                qual: self.qual.contains(&(t.id, team)),
+                tw: self.tw.get(&t.id).copied().unwrap_or(0.0),
+                ref20: if t.format == Format::InPerson { ref_ip } else { ref_sync },
+                town: geo.map_or(-1, |g| g.0),
+                country: geo.map_or(-1, |g| g.1),
+            });
+        }
+        Ok(())
+    }
+
+    fn evening(&mut self, e: &Evening) -> pass::Result<()> {
+        if e.index % 2000 == 0 {
+            eprintln!("{}/{} {:.0}s", e.index, self.arena.tournaments.len(), self.start.elapsed().as_secs_f64());
+        }
+        Ok(())
+    }
+}
+
+/// The placed results of one field as (place, lineup strength), and the median
+/// known strength, which stands in for a lineup nobody listed.
+struct Field {
+    placed: Vec<(f64, f64)>,
+    mid: f64,
+}
+
+impl Field {
+    fn new(t: &chgk_rating::data::Tournament, q: &HashMap<u32, f64>) -> Field {
+        let placed: Vec<(f64, f64)> = t
+            .teams
+            .iter()
+            .filter(|r| r.position > 0.0)
+            .map(|r| (r.position, q.get(&r.team).copied().unwrap_or(f64::NAN)))
+            .collect();
+        let mut known: Vec<f64> = placed.iter().map(|x| x.1).filter(|x| x.is_finite()).collect();
+        known.sort_by(|a, b| a.total_cmp(b));
+        let mid = known.get(known.len() / 2).copied().unwrap_or(0.0);
+        Field { placed, mid }
+    }
+
+    /// The place performance of the result at `place` with lineup strength
+    /// `qi`: it beats every known lineup placed below it and half of those
+    /// level with it, and does not count itself.
+    fn perf(&self, place: f64, qi: f64, c: f64) -> f64 {
+        if place <= 0.0 {
+            return f64::NAN;
+        }
+        let mut others = Vec::with_capacity(self.placed.len());
+        let mut wins = 0.0;
+        let mut seen_self = false;
+        for &(pos, fq) in &self.placed {
+            if !seen_self && pos == place && (fq == qi || (fq.is_nan() && qi.is_nan())) {
+                seen_self = true;
+                continue;
+            }
+            if !fq.is_finite() {
+                continue;
+            }
+            others.push(fq);
+            wins += match pos.total_cmp(&place) {
+                std::cmp::Ordering::Greater => 1.0,
+                std::cmp::Ordering::Equal => 0.5,
+                std::cmp::Ordering::Less => 0.0,
+            };
+        }
+        if others.is_empty() {
+            return f64::NAN;
+        }
+        let own = if qi.is_finite() { qi } else { self.mid };
+        place_perf(own, &others, wins, 1.0, c)
+    }
 }
 
 // ---------------------------------------------------------------------- main
@@ -685,7 +673,7 @@ fn publish(lab: &Lab, k: &Knobs, db: &str, cfg: &Config, threads: usize) -> rusq
             for v in vals {
                 let wf = v.w / (v.wfmt * v.geo).max(1e-9);
                 ins.execute(rusqlite::params![
-                    v.venue, v.tid, t, ac::show_day(v.day), v.format.to_string(), v.place, v.vplace,
+                    v.venue, v.tid, t, chgk_rating::util::format_date(v.day), v.format.to_string(), v.place, v.vplace,
                     v.nt as i64, v.nv as i64, v.fs, v.perf, v.by_score, v.w, v.wfmt, wf, v.geo,
                     v.n_towns as i64, v.base, gains.get(&(v.venue, t))
                 ])?;
@@ -712,7 +700,7 @@ fn publish(lab: &Lab, k: &Knobs, db: &str, cfg: &Config, threads: usize) -> rusq
                     t, i as i64 + 1, v.venue, v.tid, v.base, f, now / (v.base * f).max(1e-9), share, now / slots
                 ])?;
             }
-            team.execute(rusqlite::params![t, x, slots, c.len() as i64, (1.0 - share_sum).max(0.0), ac::show_day(d)])?;
+            team.execute(rusqlite::params![t, x, slots, c.len() as i64, (1.0 - share_sum).max(0.0), chgk_rating::util::format_date(d)])?;
         }
     }
     {
@@ -749,7 +737,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .prepare("SELECT name, min(id), coalesce(max(country_id), -1) FROM towns GROUP BY name")?
             .query_map([], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))))?
             .collect::<Result<_, _>>()?;
-        let rs = build(&arena, &cfg, &seasons(&conn), &geo);
+        let rs = build(&arena, &cfg, &seasons(&conn), &geo)?;
         ac::save_results(&rs, &results)?;
         eprintln!("wrote {results}: {} results", rs.len());
     }
@@ -812,7 +800,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let name = if spec.is_empty() { "achievement (base)".to_string() } else { format!("`{spec}`") };
         let _ = writeln!(table, "| {name} | {tune:.4} | {test:.4} | {:+.4} |", test - lab.fair.1);
         let (v, _) = ac::table(&lab, &b, at, &k);
-        let mut md = format!("# Achievement rating on {}\n\nKnobs: `{k:?}`\n\n", ac::show_day(at));
+        let mut md = format!("# Achievement rating on {}\n\nKnobs: `{k:?}`\n\n", chgk_rating::util::format_date(at));
         let _ = writeln!(md, "| # | was | team | rating | counted |\n|---|---|---|---|---|");
         for (i, (t, x, c, _)) in v.iter().take(top_n).enumerate() {
             let _ = writeln!(

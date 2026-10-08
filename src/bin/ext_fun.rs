@@ -4,8 +4,8 @@
 //! prose and the fidelity check against the site's own API.
 use chgk_rating::data::Format;
 use chgk_rating::output::Writer;
-use chgk_rating::team_model::TeamEvent;
-use chgk_rating::util::{civil_from_days, days_from_civil, format_date, parse_date, spearman};
+use chgk_rating::team_event::TeamEvent;
+use chgk_rating::util::{avg_ranks, civil_from_days, days_from_civil, format_date, parse_date, spearman};
 use rayon::prelude::*;
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -74,24 +74,6 @@ fn max_like(mut r: f64, rates: &[f64], gets: f64, is_team: bool) -> f64 {
     r
 }
 
-fn avg_ranks_desc(key: &[f64]) -> Vec<f64> {
-    let mut o: Vec<usize> = (0..key.len()).collect();
-    o.sort_by(|&a, &b| key[b].total_cmp(&key[a]));
-    let mut r = vec![0.0; key.len()];
-    let mut i = 0;
-    while i < o.len() {
-        let mut j = i;
-        while j + 1 < o.len() && key[o[j + 1]] == key[o[i]] {
-            j += 1;
-        }
-        let avg = (i + j) as f64 / 2.0 + 1.0;
-        for &k in &o[i..=j] {
-            r[k] = avg;
-        }
-        i = j + 1;
-    }
-    r
-}
 
 fn arg(name: &str) -> Option<String> {
     let a: Vec<String> = std::env::args().collect();
@@ -576,7 +558,7 @@ fn run_tournament(t: &Tour, arena: &Arena, st: &mut State, w: &Writer) -> rusqli
             )
         })
         .collect();
-    let fplace = avg_ranks_desc(&listed.iter().map(|&(l, _)| rating[l]).collect::<Vec<_>>());
+    let fplace = avg_ranks(&listed.iter().map(|&(l, _)| -rating[l]).collect::<Vec<_>>());
 
     let mut evs = Vec::with_capacity(rows.len());
     for (k, &(l, i)) in listed.iter().enumerate() {

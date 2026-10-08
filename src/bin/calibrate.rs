@@ -2,6 +2,7 @@ use chgk_rating::config::Config;
 use chgk_rating::data::{Format, CORRECT};
 use chgk_rating::question_model as qm;
 use chgk_rating::team_model::roster_estimate;
+use chgk_rating::pass::{Morning, Observer};
 use chgk_rating::util::{csv_rows, parse_date};
 
 fn arg(name: &str) -> Option<String> {
@@ -111,6 +112,63 @@ fn display_constants(cfg: &Config) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// The pairwise outcomes of the in-person fields in `[lo, hi)` against the
+/// roster estimates of the morning, and the residuals of six-player lineups as
+/// `(n, sum, sum of squares, summed player variance)`.
+struct Calibration<'a> {
+    cfg: &'a Config,
+    lo: i32,
+    hi: i32,
+    hist: Hist,
+    res: [f64; 4],
+}
+
+impl Observer for Calibration<'_> {
+    fn morning(&mut self, m: &Morning) -> chgk_rating::pass::Result<()> {
+        let (t, players, cfg) = (m.t, m.players, self.cfg);
+        if t.format != Format::InPerson || t.day < self.lo || t.day >= self.hi {
+            return Ok(());
+        }
+        let vbar = players.editor_mean(t);
+        let estimate = |r: &chgk_rating::data::TeamResult| {
+            (!r.members.is_empty()).then(|| {
+                let at = |i: &u32| players.theta(*i as usize) + players.affinity(*i as usize, &vbar);
+                let z: Vec<f64> = r.members.iter().map(at).collect();
+                let v: Vec<f64> = r.members.iter().map(|&i| players.state[i as usize].var).collect();
+                roster_estimate(&z, &v, cfg)
+            })
+        };
+        let est: Vec<Option<(f64, f64)>> = t.teams.iter().map(estimate).collect();
+        let basis = (t.n_q.max(1) as f64 / 36.0).sqrt();
+        for (a, ea) in est.iter().enumerate() {
+            let Some((sa, _)) = *ea else { continue };
+            for (b, eb) in est.iter().enumerate().skip(a + 1) {
+                let Some((sb, _)) = *eb else { continue };
+                let y = match t.teams[a].position.total_cmp(&t.teams[b].position) {
+                    std::cmp::Ordering::Less => 1.0,
+                    std::cmp::Ordering::Equal => 0.5,
+                    std::cmp::Ordering::Greater => 0.0,
+                };
+                self.hist.add((sa - sb) * basis, y);
+            }
+        }
+        for (r, e) in t.teams.iter().zip(&est) {
+            let Some((sr, var)) = *e else { continue };
+            if r.members.len() != 6 || r.mask.is_empty() {
+                continue;
+            }
+            let hits = r.mask.iter().filter(|&&y| y == CORRECT).count() as f64;
+            let Some(s) = qm::realised_strength(m.params, &r.mask, hits, cfg) else { continue };
+            let d = s - sr;
+            self.res[0] += 1.0;
+            self.res[1] += d;
+            self.res[2] += d * d;
+            self.res[3] += var - cfg.team.sigma_model * cfg.team.sigma_model;
+        }
+        Ok(())
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cfg_path = arg("--config").unwrap_or_else(|| "config.toml".into());
     let cfg = Config::load(&cfg_path)?;
@@ -159,77 +217,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (lo, hi) = (parse_date(&from).unwrap(), parse_date(&to).unwrap());
 
     let arena = chgk_rating::data::load(&cfg, &cfg.data.from, &cfg.data.to)?;
-    let mut players = qm::Players::new(arena.n_players(), arena.n_editors(), &cfg);
-    let mut ed_seen = vec![0.0f64; arena.n_editors()];
-    let mut hist = Hist {
-        n: vec![0.0; BINS],
-        y: vec![0.0; BINS],
-    };
-    let (mut rn, mut rs, mut rss, mut vsum) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
-
-    let mut chem = chgk_rating::chemistry::Chemistry::new(cfg.question.chem_u != 0.0);
-    for t in &arena.tournaments {
-        players.seed(t, &cfg);
-        let field = qm::build_field(t, &players, &chem, &cfg);
-        let params = qm::fit_all(&field, None, &cfg);
-        let in_window = t.format == Format::InPerson && t.day >= lo && t.day < hi;
-        if in_window {
-            let vbar = players.editor_mean(t);
-            let est: Vec<Option<(f64, f64)>> = t
-                .teams
-                .iter()
-                .map(|r| {
-                    (!r.members.is_empty()).then(|| {
-                        let z: Vec<f64> = r
-                            .members
-                            .iter()
-                            .map(|&i| {
-                                players.theta(i as usize) + players.affinity(i as usize, &vbar)
-                            })
-                            .collect();
-                        let v: Vec<f64> = r
-                            .members
-                            .iter()
-                            .map(|&i| players.state[i as usize].var)
-                            .collect();
-                        roster_estimate(&z, &v, &cfg)
-                    })
-                })
-                .collect();
-            let basis = (t.n_q.max(1) as f64 / 36.0).sqrt();
-            for (a, ea) in est.iter().enumerate() {
-                let Some((sa, _)) = *ea else { continue };
-                for (b, eb) in est.iter().enumerate().skip(a + 1) {
-                    let Some((sb, _)) = *eb else { continue };
-                    let (pa, pb) = (t.teams[a].position, t.teams[b].position);
-                    let y = match pa.total_cmp(&pb) {
-                        std::cmp::Ordering::Less => 1.0,
-                        std::cmp::Ordering::Equal => 0.5,
-                        std::cmp::Ordering::Greater => 0.0,
-                    };
-                    hist.add((sa - sb) * basis, y);
-                }
-            }
-            for (r, e) in t.teams.iter().zip(&est) {
-                let Some((sr, var)) = *e else { continue };
-                if r.members.len() != 6 || r.mask.is_empty() {
-                    continue;
-                }
-                let hits = r.mask.iter().filter(|&&y| y == CORRECT).count() as f64;
-                let Some(s) = qm::realised_strength(&params, &r.mask, hits, &cfg) else {
-                    continue;
-                };
-                let d = s - sr;
-                rn += 1.0;
-                rs += d;
-                rss += d * d;
-                vsum += var - cfg.team.sigma_model * cfg.team.sigma_model;
-            }
-        }
-        let grads = qm::player_grads(&field, &params, &cfg);
-        chem.absorb(t);
-        players.absorb(t, &grads, &mut ed_seen, false, &cfg);
-    }
+    let mut c = Calibration { cfg: &cfg, lo, hi, hist: Hist { n: vec![0.0; BINS], y: vec![0.0; BINS] }, res: [0.0; 4] };
+    chgk_rating::pass::run(&arena, &cfg, Default::default(), &mut c)?;
+    let (hist, [rn, rs, rss, vsum]) = (c.hist, c.res);
 
     let pairs: f64 = hist.n.iter().sum();
     println!("beta window {from} to {to}, in-person only");

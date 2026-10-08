@@ -26,7 +26,9 @@ pub struct Scored {
     pub ndcg3: f64,
 }
 
-fn ndcg_at(rel: &[f64], k: usize) -> f64 {
+/// DCG of `rel` in the order given over the ideal order, cut at `k`, with the
+/// usual `1 / log2(rank + 1)` discount; NaN when nothing is relevant.
+pub fn ndcg_at(rel: &[f64], k: usize) -> f64 {
     let k = k.min(rel.len());
     let dcg: f64 = rel[..k]
         .iter()

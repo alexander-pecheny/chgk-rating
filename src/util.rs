@@ -90,32 +90,12 @@ impl Rng {
     }
 }
 
-/// Average ranks, ties shared. `v` is left untouched.
-fn rank_avg(v: &[f64]) -> Vec<f64> {
-    let mut o: Vec<usize> = (0..v.len()).collect();
-    o.sort_by(|&a, &b| v[a].total_cmp(&v[b]));
-    let mut r = vec![0.0; v.len()];
-    let mut i = 0;
-    while i < o.len() {
-        let mut j = i;
-        while j + 1 < o.len() && v[o[j + 1]] == v[o[i]] {
-            j += 1;
-        }
-        let avg = (i + j) as f64 / 2.0 + 1.0;
-        for &k in &o[i..=j] {
-            r[k] = avg;
-        }
-        i = j + 1;
-    }
-    r
-}
-
 /// Spearman correlation, tie-corrected. None when either side is constant.
 pub fn spearman(a: &[f64], b: &[f64]) -> Option<f64> {
     if a.len() < 3 || a.len() != b.len() {
         return None;
     }
-    let (ra, rb) = (rank_avg(a), rank_avg(b));
+    let (ra, rb) = (avg_ranks(a), avg_ranks(b));
     let n = a.len() as f64;
     let (ma, mb) = (ra.iter().sum::<f64>() / n, rb.iter().sum::<f64>() / n);
     let mut num = 0.0;

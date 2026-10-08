@@ -12,14 +12,10 @@
 
 use chgk_rating::config::{Config, MarginShape, PullTarget, S2};
 use chgk_rating::data::{Arena, Format};
-use chgk_rating::gauge::{self, Activity};
-use chgk_rating::question_model as qm;
+use chgk_rating::pass::{self, Morning, Observer};
 use chgk_rating::team_ndcg::{self as metric, QUALIFY, TEST, TUNE, WEIGHTS};
-use chgk_rating::chemistry::Chemistry;
-use chgk_rating::difficulty::Difficulties;
-use chgk_rating::editor_memory::EditorMemory;
-use chgk_rating::team_s2::{lineup_strength, rows_of, Row, TeamsS2};
-use chgk_rating::util::{next_thursday, parse_date};
+use chgk_rating::team_s2::{lineup_strength, Row, TeamsS2};
+use chgk_rating::util::parse_date;
 use std::collections::{HashMap, HashSet};
 
 fn args() -> Vec<String> {
@@ -402,86 +398,21 @@ fn line(name: &str, r: &Run, base: Option<&Run>, w: &HashMap<i64, f64>, nboot: u
 
 // --------------------------------------------------------------------- main
 
-fn build_cache(arena: &Arena, cfg: &Config) -> Vec<Cached> {
-    let passes = cfg.data.passes;
-    let from_day = parse_date(&cfg.data.from).unwrap();
-    let warm_until = parse_date(&cfg.player.warm_until).unwrap();
-    let zfrom = parse_date("2018-01-01").unwrap();
-    let mut players = qm::Players::new(arena.n_players(), arena.n_editors(), cfg);
-    let mut snap: Vec<Option<f64>> = Vec::new();
-    let mut cache = Vec::new();
-    let start = std::time::Instant::now();
-    for pass in 0..passes {
-        let last = pass + 1 == passes;
-        if pass > 0 {
-            players.warm_restart(&snap, from_day, cfg);
-        }
-        let mut ed_seen = vec![0.0f64; arena.n_editors()];
-        let mut activity = Activity::new(arena.n_players());
-        let mut next_rel = next_thursday(from_day);
-        cache.clear();
-        // The team sweep replays the rows, so it needs the pair counter the
-        // forecast reads; it never scores a difficulty-aware forecast.
-        let mut chem = Chemistry::new(cfg.question.chem_u != 0.0 || cfg.team.s2.chemistry != 0.0);
-        let diff = Difficulties::new(false);
-        let edmem = EditorMemory::new(false, 0.0, cfg.team.s2.ed_key, 0.0);
-        let geo = chgk_rating::geography::Geography::new(false);
-        let load = chgk_rating::geography::PlayerLoad::new(false);
-        for (n, t) in arena.tournaments.iter().enumerate() {
-            if snap.is_empty() && t.day >= warm_until {
-                snap = players.snapshot();
-            }
-            // The weekly gauge re-centres every theta the team model then reads.
-            while next_rel <= t.day {
-                activity.expire_before(next_rel - cfg.gauge.window_days);
-                players.shift_cum += gauge::shift(&players, &activity, cfg.gauge.n_est);
-                next_rel += 7;
-            }
-            players.seed(t, cfg);
-            let field = qm::build_field(t, &players, &chem, cfg);
-            let params = qm::fit_all(&field, None, cfg);
-            let grads = qm::player_grads(&field, &params, cfg);
-            if last {
-                cache.push(Cached {
-                    id: t.id,
-                    day: t.day,
-                    format: t.format,
-                    weight: t.weight,
-                    rows: rows_of(
-                        t,
-                        &players,
-                        &chgk_rating::team_s2::Context {
-                            chem: &chem,
-                            diff: &diff,
-                            edmem: &edmem,
-                            geo: &geo,
-                            load: &load,
-                        },
-                        cfg,
-                    ),
-                });
-            }
-            chem.absorb(t);
-            let collect = t.format == Format::InPerson && t.day >= zfrom;
-            players.absorb(t, &grads, &mut ed_seen, collect, cfg);
-            players.shrink_to_lineups(t, cfg);
-            for &(i, _, info) in &grads {
-                activity.push(t.day, i, t.weight * info);
-            }
-            if n % 2000 == 0 {
-                eprintln!(
-                    "pass {}/{passes} {n}/{} {:.0}s",
-                    pass + 1,
-                    arena.tournaments.len(),
-                    start.elapsed().as_secs_f64()
-                );
-            }
-        }
-        if snap.is_empty() {
-            snap = players.snapshot();
+/// The lineup strengths of every field as the shipped pass computed them, for
+/// the team rules to be replayed over.
+fn build_cache(arena: &Arena, cfg: &Config) -> pass::Result<Vec<Cached>> {
+    struct Cache(Vec<Cached>);
+    impl Observer for Cache {
+        fn morning(&mut self, m: &Morning) -> pass::Result<()> {
+            let t = m.t;
+            let rows = m.rows.to_vec();
+            self.0.push(Cached { id: t.id, day: t.day, format: t.format, weight: t.weight, rows });
+            Ok(())
         }
     }
-    cache
+    let mut cache = Cache(Vec::new());
+    pass::run(arena, cfg, pass::Options::default(), &mut cache)?;
+    Ok(cache.0)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -500,7 +431,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         qual.len(),
         w.len()
     );
-    let cache = build_cache(&arena, &cfg);
+    let cache = build_cache(&arena, &cfg)?;
 
     let base = apply(
         &Point { s2: cfg.team.s2.clone(), idle_drop: 0.0 },

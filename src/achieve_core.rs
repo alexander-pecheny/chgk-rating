@@ -1,8 +1,6 @@
 //! The achievement rating's aggregate: from each result's frozen values to a
 //! team table, under a set of knobs. `src/bin/achieve.rs` writes the frozen
-//! values; this module reads them, and so does the site's `/achieve/` lab
-//! (`web/src/main.rs` includes this file by path), which is why it uses nothing
-//! outside the standard library.
+//! values; this module reads them.
 //!
 //! ```text
 //! perf    = how the team played: from the questions taken on the package
@@ -13,51 +11,11 @@
 //! rating  = Σ best top_x of value · fade(age) / slots
 //! ```
 
+use crate::ndcg::{TEST, TUNE};
+use crate::team_ndcg;
+use crate::util::{format_date as show_day, parse_date as parse_day};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
-
-// --------------------------------------------------------------------- dates
-
-fn days_from_civil(y: i32, m: u32, d: u32) -> i32 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = y - era * 400;
-    let mp = (m as i32 + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d as i32 - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
-}
-
-pub fn parse_day(s: &str) -> Option<i32> {
-    let b = s.as_bytes();
-    if b.len() < 10 {
-        return None;
-    }
-    let num = |a: usize, z: usize| -> Option<i32> {
-        let mut v = 0i32;
-        for &c in &b[a..z] {
-            if !c.is_ascii_digit() {
-                return None;
-            }
-            v = v * 10 + (c - b'0') as i32;
-        }
-        Some(v)
-    };
-    Some(days_from_civil(num(0, 4)?, num(5, 7)? as u32, num(8, 10)? as u32))
-}
-
-pub fn show_day(z: i32) -> String {
-    let z = z + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    format!("{:04}-{m:02}-{d:02}", if m <= 2 { y + 1 } else { y })
-}
 
 // ------------------------------------------------------------ frozen values
 
@@ -1023,52 +981,6 @@ pub fn table(lab: &Lab, b: &Book, day: i32, k: &Knobs) -> (Vec<(i64, f64, Vec<(V
 
 // -------------------------------------------------------------------- metric
 
-pub const TUNE: (&str, &str) = ("2018-09-01", "2024-08-29");
-pub const TEST: (&str, &str) = ("2024-08-30", "2026-08-27");
-
-fn tiekey(tid: i64, team: i64) -> u64 {
-    let mut x = (tid as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(team as u64);
-    x ^= x >> 30;
-    x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    x ^= x >> 27;
-    x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
-    x ^ (x >> 31)
-}
-
-fn avg_ranks(v: &[f64]) -> Vec<f64> {
-    let mut ord: Vec<usize> = (0..v.len()).collect();
-    ord.sort_by(|&a, &b| v[a].total_cmp(&v[b]));
-    let mut r = vec![0.0; v.len()];
-    let mut i = 0;
-    while i < ord.len() {
-        let mut j = i;
-        while j + 1 < ord.len() && v[ord[j + 1]] == v[ord[i]] {
-            j += 1;
-        }
-        for &t in &ord[i..=j] {
-            r[t] = (i + j) as f64 / 2.0 + 1.0;
-        }
-        i = j + 1;
-    }
-    r
-}
-
-/// NDCG of one field, the arithmetic of `team_ndcg::score`.
-fn field_ndcg(tid: i64, team: &[i64], mu: &[f64], place: &[f64]) -> Option<f64> {
-    if team.len() < 5 {
-        return None;
-    }
-    let ranks = avg_ranks(place);
-    let mut ord: Vec<usize> = (0..team.len()).collect();
-    ord.sort_by(|&a, &b| mu[b].total_cmp(&mu[a]).then(tiekey(tid, team[a]).cmp(&tiekey(tid, team[b]))));
-    let rel: Vec<f64> = ord.iter().map(|&i| 1.0 / ranks[i]).collect();
-    let g = |r: &[f64]| r.iter().enumerate().map(|(i, r)| r / ((i + 2) as f64).log2()).sum::<f64>();
-    let mut s = rel.clone();
-    s.sort_by(|a, b| b.total_cmp(a));
-    let idcg = g(&s);
-    (idcg > 0.0).then(|| g(&rel) / idcg)
-}
-
 /// The team NDCG of DESIGN 7.3, weighted, over the tune and test windows.
 pub fn ndcg(rows: &[Res], mut score: impl FnMut(&Res) -> f64) -> (f64, f64) {
     let win = [
@@ -1092,7 +1004,7 @@ pub fn ndcg(rows: &[Res], mut score: impl FnMut(&Res) -> f64) -> (f64, f64) {
                 place.push(r.place);
             }
         }
-        if let Some(x) = field_ndcg(*tid, &team, &mu, &place) {
+        if let Some(x) = team_ndcg::score(*tid, &team, &mu, &place, usize::MAX) {
             acc[w].0 += tw * x;
             acc[w].1 += tw;
         }

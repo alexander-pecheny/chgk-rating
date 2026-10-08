@@ -1,5 +1,9 @@
+//! The Kalman team engine of DESIGN 4.2, which S2 replaced. It still runs from
+//! the same config under `[team] engine = "kalman"`.
+
 use crate::config::Config;
-use crate::data::{Tournament, CORRECT};
+use crate::data::{TeamResult, Tournament, CORRECT};
+use crate::team_event::TeamEvent;
 use crate::question_model::{realised_strength, Players, QParams};
 use rayon::prelude::*;
 
@@ -51,41 +55,6 @@ impl TeamState {
     }
 }
 
-/// One row of `team_events`.
-pub struct TeamEvent {
-    pub team: u32,
-    pub c: f64,
-    pub delta_l: f64,
-    pub x: f64,
-    pub forecast: f64,
-    pub forecast_place: f64,
-    /// 1 + sum over the field of P(B beats A): the place the pairwise model expects.
-    pub expected_place: f64,
-    pub actual_place: f64,
-    /// The old system's `predictedPosition`, carried through for DESIGN 7.2.
-    pub pred_place: Option<f64>,
-    pub s_r: f64,
-    pub s_pair: f64,
-    pub i_pair: f64,
-    pub mu_before: f64,
-    pub mu_after: f64,
-    pub sigma_before: f64,
-    pub sigma_after: f64,
-    pub evidence: f64,
-    pub gap_days: i32,
-    pub var_diff: f64,
-    pub lost_prev: f64,
-    pub rated: bool,
-    /// (realised strength - x) / sqrt(sigma_T^2 + sigma_model^2); should be unit variance.
-    pub z: Option<f64>,
-    /// The two parts of `mu_after - mu_before` under S2, on the internal scale:
-    /// the placement step of DESIGN 4.3 step 3 and the pull towards the lineup.
-    /// Whatever is left is the winner's floor. NaN where the engine has no such
-    /// split, or the result took no update.
-    pub d_place: f64,
-    pub d_pull: f64,
-}
-
 /// What the pairwise stage needs, read off the pre-update states.
 struct Entry {
     ri: usize,
@@ -129,131 +98,14 @@ impl Teams {
     }
 
     /// One tournament: DESIGN 4.3. Player states must be the pre-tournament ones.
-    pub fn step(
-        &mut self,
-        t: &Tournament,
-        players: &Players,
-        params: &[QParams],
-        cfg: &Config,
-    ) -> Vec<TeamEvent> {
-        let shift = players.shift_cum;
+    pub fn step(&mut self, t: &Tournament, players: &Players, params: &[QParams], cfg: &Config) -> Vec<TeamEvent> {
         let vbar = players.editor_mean(t);
-        let tm = &cfg.team;
-
-        let mut es: Vec<Entry> = Vec::with_capacity(t.teams.len());
-        for (ri, r) in t.teams.iter().enumerate() {
-            let idx = r.team as usize;
-            let sr = (!r.members.is_empty()).then(|| {
-                let z: Vec<f64> = r
-                    .members
-                    .iter()
-                    .map(|&i| players.theta(i as usize) + players.affinity(i as usize, &vbar))
-                    .collect();
-                let var: Vec<f64> = r
-                    .members
-                    .iter()
-                    .map(|&i| players.state[i as usize].var)
-                    .collect();
-                roster_estimate(&z, &var, cfg)
-            });
-            let mut gap_days = -1;
-            let mut var_diff = 0.0;
-            match &mut self.state[idx] {
-                Some(s) => {
-                    gap_days = (t.day - s.last_day).max(0);
-                    var_diff = s.vol * s.vol * gap_days as f64 / 365.25;
-                    s.var += var_diff;
-                }
-                None => {
-                    // A team with neither a lineup nor a state cannot be placed on the
-                    // scale; an unrated result never opens one.
-                    let Some((s_r, v)) = sr else { continue };
-                    if !r.rated {
-                        es.push(Entry {
-                            ri,
-                            idx,
-                            x: s_r + tm.roster_bias,
-                            c: 0.0,
-                            delta: 0.0,
-                            mu_before: f64::NAN,
-                            forecast: s_r + tm.roster_bias,
-                            sr,
-                            place: r.position,
-                            score: r.score,
-                            var: v,
-                            evidence: 0.0,
-                            gap_days: -1,
-                            var_diff: 0.0,
-                            lost_prev: 0.0,
-                            rated: false,
-                            real: None,
-                            z: None,
-                        });
-                        continue;
-                    }
-                    self.state[idx] = Some(TeamState {
-                        mu_raw: s_r + tm.roster_bias + shift,
-                        var: v + tm.sigma_new_team * tm.sigma_new_team,
-                        core_raw: s_r + shift,
-                        ev: Vec::new(),
-                        last_day: t.day,
-                        lost_prev: 0.0,
-                        vol: tm.tau_t,
-                    });
-                }
-            }
-            let s = self.state[idx].as_ref().unwrap();
-            let e_tot = s.evidence();
-            let c = if e_tot <= 0.0 {
-                1.0
-            } else {
-                r.members
-                    .iter()
-                    .filter_map(|i| s.ev.iter().find(|(j, _, _)| j == i))
-                    .map(|(_, e, _)| *e)
-                    .sum::<f64>()
-                    / e_tot
-            };
-            let mu = s.mu_raw - shift;
-            let delta = sr.map_or(0.0, |(v, _)| v - (s.core_raw - shift));
-            let x = mu + delta;
-            let forecast = match sr {
-                Some((v, vv)) => {
-                    let v = v + tm.roster_bias;
-                    (x / s.var + v / vv) / (1.0 / s.var + 1.0 / vv)
-                }
-                None => x,
-            };
-            let real = (!r.mask.is_empty())
-                .then(|| {
-                    let hits = r.mask.iter().filter(|&&y| y == CORRECT).count() as f64;
-                    realised_strength(params, &r.mask, hits, cfg)
-                })
-                .flatten();
-            let z = real.map(|real| (real - x) / (s.var + tm.sigma_model * tm.sigma_model).sqrt());
-            es.push(Entry {
-                ri,
-                idx,
-                // An unrated lineup stands in the field at its forecast strength.
-                x: if r.rated { x } else { forecast },
-                c,
-                delta,
-                mu_before: mu,
-                forecast,
-                sr,
-                place: r.position,
-                score: r.score,
-                var: s.var,
-                evidence: e_tot,
-                gap_days,
-                var_diff,
-                lost_prev: s.lost_prev,
-                rated: r.rated,
-                real,
-                z,
-            });
-        }
-
+        let es: Vec<Entry> = t
+            .teams
+            .iter()
+            .enumerate()
+            .filter_map(|(ri, r)| self.enter(ri, r, t, players, &vbar, params, cfg))
+            .collect();
         let n = es.len();
         let mut order: Vec<usize> = (0..n).collect();
         order.sort_by(|&a, &b| es[b].forecast.total_cmp(&es[a].forecast));
@@ -261,162 +113,17 @@ impl Teams {
         for (k, &i) in order.iter().enumerate() {
             fplace[i] = (k + 1) as f64;
         }
-
+        let tm = &cfg.team;
         let n_q = if t.n_q == 0 { 36 } else { t.n_q };
         let beta_t = tm.beta * (36.0 / n_q as f64).sqrt();
-        let scale = if n > 1 {
-            tm.nu.min((n - 1) as f64) / (n - 1) as f64
-        } else {
-            0.0
-        };
-        let si: Vec<(f64, f64, f64)> = es
-            .par_iter()
-            .enumerate()
-            .map(|(ia, a)| {
-                let (mut s, mut i, mut beaten) = (0.0, 0.0, 0.0);
-                for (ib, b) in es.iter().enumerate() {
-                    if ia == ib {
-                        continue;
-                    }
-                    let p = 1.0 / (1.0 + ((b.x - a.x) / beta_t).exp());
-                    beaten += 1.0 - p;
-                    // A shared place says nothing about which team is better.
-                    let y = match a.place.total_cmp(&b.place) {
-                        std::cmp::Ordering::Less => 1.0,
-                        std::cmp::Ordering::Equal => continue,
-                        std::cmp::Ordering::Greater => 0.0,
-                    };
-                    let m = match (a.score, b.score) {
-                        (Some(u), Some(v)) => (1.0 + (u - v).abs() / tm.kappa_m).min(tm.m_max),
-                        _ => 1.0,
-                    };
-                    s += (y - p) * m;
-                    i += p * (1.0 - p) * m;
-                }
-                (s * scale, i * scale, 1.0 + beaten)
-            })
-            .collect();
+        let scale = if n > 1 { tm.nu.min((n - 1) as f64) / (n - 1) as f64 } else { 0.0 };
+        let si = pair_stats(&es, beta_t, scale, cfg);
         let first_place = es.iter().map(|e| e.place).fold(f64::INFINITY, f64::min);
-
+        let step = Step { t, shift: players.shift_cum, beta_t, scale, first_place };
         let mut out = Vec::with_capacity(n);
         for (k, e) in es.iter().enumerate() {
             let (s_pair, i_pair, expected_place) = si[k];
-            let members = &t.teams[e.ri].members;
-            let Some(st) = self.state[e.idx].as_mut() else {
-                out.push(TeamEvent {
-                    d_place: f64::NAN,
-                    d_pull: f64::NAN,
-                    team: e.idx as u32,
-                    c: 0.0,
-                    delta_l: 0.0,
-                    x: e.x,
-                    forecast: e.forecast,
-                    forecast_place: fplace[k],
-                    expected_place,
-                    actual_place: e.place,
-                    pred_place: t.teams[e.ri].pred_pos,
-                    s_r: e.sr.map_or(f64::NAN, |p| p.0 + tm.roster_bias),
-                    sigma_before: e.var.sqrt(),
-                    sigma_after: e.var.sqrt(),
-                    evidence: 0.0,
-                    gap_days: -1,
-                    var_diff: 0.0,
-                    lost_prev: 0.0,
-                    rated: false,
-                    z: None,
-                    s_pair,
-                    i_pair,
-                    mu_before: f64::NAN,
-                    mu_after: f64::NAN,
-                });
-                continue;
-            };
-            let mut mu_after = e.mu_before;
-            if e.rated && e.c > 0.0 {
-                st.var /= tm.forget.powf(t.weight * e.c);
-                if tm.surprise_z0 > 0.0 {
-                    let i_raw = i_pair / scale.max(1e-12);
-                    let z_raw = (s_pair * beta_t / i_pair.max(1e-9))
-                        / (st.var + beta_t * beta_t / i_raw.max(1e-9)).sqrt();
-                    let down = !tm.surprise_down_only || z_raw < 0.0;
-                    if down && z_raw.abs() > tm.surprise_z0 {
-                        st.var *= (z_raw / tm.surprise_z0).powi(2).min(tm.surprise_max);
-                    }
-                }
-                let obs_prec = t.weight * e.c * i_pair / (beta_t * beta_t);
-                let marg_sigma = tm.margin_sigma.unwrap_or(tm.sigma_model);
-                // The score says how strong the team was but not who it beat, so it
-                // sharpens the posterior without moving it: the winner rule is exact.
-                let margin_prec = match e.real {
-                    Some(_) => tm.margin_prec_scale * t.weight * e.c / (marg_sigma * marg_sigma),
-                    None => 0.0,
-                };
-                let prec = 1.0 / st.var + obs_prec + margin_prec;
-                let mut step = t.weight * e.c * (s_pair / beta_t) / prec;
-                if step < 0.0 {
-                    step *= tm.k_down;
-                }
-                if tm.margin_mean {
-                    if let Some(real) = e.real {
-                        let cal = (real - tm.margin_intercept) / tm.margin_slope;
-                        step += margin_prec * (cal - e.x) / prec;
-                        if e.place <= first_place {
-                            step = step.max(0.0);
-                        }
-                    }
-                }
-                st.mu_raw += step;
-                st.var = (1.0 / prec).max(tm.sigma_floor * tm.sigma_floor);
-                let z = (s_pair * beta_t / i_pair.max(1e-9))
-                    / (e.var + 1.0 / obs_prec.max(1e-12)).sqrt();
-                let (lo, hi) = (tm.v_min.ln(), tm.v_max.ln());
-                let lv = st.vol.ln();
-                st.vol = (lv + tm.v_eta * (if z.abs() > 1.0 { hi } else { lo } - lv)).exp();
-                mu_after = st.mu_raw - shift;
-
-                let e_tot = st.evidence();
-                for &i in members {
-                    match st.ev.iter_mut().find(|(j, _, _)| *j == i) {
-                        Some(p) => {
-                            p.1 = (p.1 + t.weight).min(tm.e_cap);
-                            p.2 = 0;
-                        }
-                        None => st.ev.push((i, t.weight.min(tm.e_cap), 0)),
-                    }
-                }
-                // A rotating roster is not a departure: evidence decays only after
-                // a player has missed `miss_streak` of the team's tournaments in a row.
-                let mut lost = 0.0;
-                for (j, x, miss) in st.ev.iter_mut() {
-                    if !members.contains(j) {
-                        *miss += 1;
-                        if *miss >= tm.miss_streak {
-                            lost += *x * (1.0 - tm.rho);
-                            *x *= tm.rho;
-                        }
-                    }
-                }
-                st.lost_prev = 0.0;
-                if e_tot > 0.0 {
-                    let l = (lost / e_tot).clamp(0.0, 0.9);
-                    st.var /= (1.0 - l).powf(tm.gamma);
-                    st.lost_prev = l;
-                }
-                // After total turnover a team knows no more about itself than a new
-                // team of the same lineup, so that is the ceiling on its uncertainty.
-                if let Some((_, v)) = e.sr {
-                    st.var = st.var.min(v + tm.sigma_new_team * tm.sigma_new_team);
-                }
-                st.ev.retain(|(_, x, _)| *x > 0.01);
-                if let Some((v, _)) = e.sr {
-                    let w_add = t.weight * members.len() as f64;
-                    st.core_raw = (st.core_raw * e_tot + (v + shift) * w_add) / (e_tot + w_add);
-                }
-            }
-            if e.rated {
-                st.last_day = t.day;
-            }
-            out.push(TeamEvent {
+            let mut ev = TeamEvent {
                 d_place: f64::NAN,
                 d_pull: f64::NAN,
                 team: e.idx as u32,
@@ -430,7 +137,7 @@ impl Teams {
                 pred_place: t.teams[e.ri].pred_pos,
                 s_r: e.sr.map_or(f64::NAN, |p| p.0 + tm.roster_bias),
                 sigma_before: e.var.sqrt(),
-                sigma_after: self.state[e.idx].as_ref().unwrap().var.sqrt(),
+                sigma_after: e.var.sqrt(),
                 evidence: e.evidence,
                 gap_days: e.gap_days,
                 var_diff: e.var_diff,
@@ -440,9 +147,270 @@ impl Teams {
                 s_pair,
                 i_pair,
                 mu_before: e.mu_before,
-                mu_after,
-            });
+                mu_after: f64::NAN,
+            };
+            if let Some(st) = self.state[e.idx].as_mut() {
+                ev.mu_after = update(st, e, s_pair, i_pair, &step, cfg);
+                ev.sigma_after = st.var.sqrt();
+            }
+            out.push(ev);
         }
         out
+    }
+
+    /// One result as it stands in the field, opening the team's state on its
+    /// first rated result. `None` for a team with neither a lineup nor a
+    /// state, which cannot be placed on the scale.
+    #[allow(clippy::too_many_arguments)]
+    fn enter(
+        &mut self,
+        ri: usize,
+        r: &TeamResult,
+        t: &Tournament,
+        players: &Players,
+        vbar: &[f64],
+        params: &[QParams],
+        cfg: &Config,
+    ) -> Option<Entry> {
+        let (tm, shift, idx) = (&cfg.team, players.shift_cum, r.team as usize);
+        let sr = (!r.members.is_empty()).then(|| {
+            let z: Vec<f64> =
+                r.members.iter().map(|&i| players.theta(i as usize) + players.affinity(i as usize, vbar)).collect();
+            let var: Vec<f64> = r.members.iter().map(|&i| players.state[i as usize].var).collect();
+            roster_estimate(&z, &var, cfg)
+        });
+        let mut gap_days = -1;
+        let mut var_diff = 0.0;
+        match &mut self.state[idx] {
+            Some(s) => {
+                gap_days = (t.day - s.last_day).max(0);
+                var_diff = s.vol * s.vol * gap_days as f64 / 365.25;
+                s.var += var_diff;
+            }
+            None => {
+                let (s_r, v) = sr?;
+                // An unrated result never opens a state; it stands in the field
+                // at its lineup.
+                if !r.rated {
+                    return Some(Entry::unrated(ri, idx, r, sr, s_r + tm.roster_bias, v));
+                }
+                self.state[idx] = Some(TeamState {
+                    mu_raw: s_r + tm.roster_bias + shift,
+                    var: v + tm.sigma_new_team * tm.sigma_new_team,
+                    core_raw: s_r + shift,
+                    ev: Vec::new(),
+                    last_day: t.day,
+                    lost_prev: 0.0,
+                    vol: tm.tau_t,
+                });
+            }
+        }
+        let s = self.state[idx].as_ref()?;
+        let e_tot = s.evidence();
+        let c = if e_tot <= 0.0 {
+            1.0
+        } else {
+            r.members.iter().filter_map(|i| s.ev.iter().find(|(j, _, _)| j == i)).map(|(_, e, _)| *e).sum::<f64>()
+                / e_tot
+        };
+        let mu = s.mu_raw - shift;
+        let delta = sr.map_or(0.0, |(v, _)| v - (s.core_raw - shift));
+        let x = mu + delta;
+        let forecast = match sr {
+            Some((v, vv)) => {
+                let v = v + tm.roster_bias;
+                (x / s.var + v / vv) / (1.0 / s.var + 1.0 / vv)
+            }
+            None => x,
+        };
+        let real = (!r.mask.is_empty())
+            .then(|| {
+                let hits = r.mask.iter().filter(|&&y| y == CORRECT).count() as f64;
+                realised_strength(params, &r.mask, hits, cfg)
+            })
+            .flatten();
+        let z = real.map(|real| (real - x) / (s.var + tm.sigma_model * tm.sigma_model).sqrt());
+        Some(Entry {
+            ri,
+            idx,
+            // An unrated lineup stands in the field at its forecast strength.
+            x: if r.rated { x } else { forecast },
+            c,
+            delta,
+            mu_before: mu,
+            forecast,
+            sr,
+            place: r.position,
+            score: r.score,
+            var: s.var,
+            evidence: e_tot,
+            gap_days,
+            var_diff,
+            lost_prev: s.lost_prev,
+            rated: r.rated,
+            real,
+            z,
+        })
+    }
+}
+
+impl Entry {
+    fn unrated(ri: usize, idx: usize, r: &TeamResult, sr: Option<(f64, f64)>, x: f64, var: f64) -> Entry {
+        Entry {
+            ri,
+            idx,
+            x,
+            c: 0.0,
+            delta: 0.0,
+            mu_before: f64::NAN,
+            forecast: x,
+            sr,
+            place: r.position,
+            score: r.score,
+            var,
+            evidence: 0.0,
+            gap_days: -1,
+            var_diff: 0.0,
+            lost_prev: 0.0,
+            rated: false,
+            real: None,
+            z: None,
+        }
+    }
+}
+
+/// What every update in one field shares.
+struct Step<'a> {
+    t: &'a Tournament,
+    shift: f64,
+    beta_t: f64,
+    scale: f64,
+    first_place: f64,
+}
+
+/// Each team's `(score, information, expected place)` over the field. A shared
+/// place says nothing about which team is better and counts for neither.
+fn pair_stats(es: &[Entry], beta_t: f64, scale: f64, cfg: &Config) -> Vec<(f64, f64, f64)> {
+    let tm = &cfg.team;
+    let one = |(ia, a): (usize, &Entry)| {
+        let (mut s, mut i, mut beaten) = (0.0, 0.0, 0.0);
+        for (ib, b) in es.iter().enumerate() {
+            if ia == ib {
+                continue;
+            }
+            let p = 1.0 / (1.0 + ((b.x - a.x) / beta_t).exp());
+            beaten += 1.0 - p;
+            let y = match a.place.total_cmp(&b.place) {
+                std::cmp::Ordering::Less => 1.0,
+                std::cmp::Ordering::Equal => continue,
+                std::cmp::Ordering::Greater => 0.0,
+            };
+            let m = match (a.score, b.score) {
+                (Some(u), Some(v)) => (1.0 + (u - v).abs() / tm.kappa_m).min(tm.m_max),
+                _ => 1.0,
+            };
+            s += (y - p) * m;
+            i += p * (1.0 - p) * m;
+        }
+        (s * scale, i * scale, 1.0 + beaten)
+    };
+    es.par_iter().enumerate().map(one).collect()
+}
+
+/// The Kalman update of one team, then its volatility, its players' evidence
+/// and its core. Returns the rating after, on the published scale.
+fn update(st: &mut TeamState, e: &Entry, s_pair: f64, i_pair: f64, step: &Step, cfg: &Config) -> f64 {
+    let (tm, t) = (&cfg.team, step.t);
+    let beta_t = step.beta_t;
+    if !(e.rated && e.c > 0.0) {
+        if e.rated {
+            st.last_day = t.day;
+        }
+        return e.mu_before;
+    }
+    st.var /= tm.forget.powf(t.weight * e.c);
+    if tm.surprise_z0 > 0.0 {
+        let i_raw = i_pair / step.scale.max(1e-12);
+        let z_raw = (s_pair * beta_t / i_pair.max(1e-9)) / (st.var + beta_t * beta_t / i_raw.max(1e-9)).sqrt();
+        let down = !tm.surprise_down_only || z_raw < 0.0;
+        if down && z_raw.abs() > tm.surprise_z0 {
+            st.var *= (z_raw / tm.surprise_z0).powi(2).min(tm.surprise_max);
+        }
+    }
+    let obs_prec = t.weight * e.c * i_pair / (beta_t * beta_t);
+    let marg_sigma = tm.margin_sigma.unwrap_or(tm.sigma_model);
+    // The score says how strong the team was but not who it beat, so it
+    // sharpens the posterior without moving it: the winner rule is exact.
+    let margin_prec = match e.real {
+        Some(_) => tm.margin_prec_scale * t.weight * e.c / (marg_sigma * marg_sigma),
+        None => 0.0,
+    };
+    let prec = 1.0 / st.var + obs_prec + margin_prec;
+    let mut d = t.weight * e.c * (s_pair / beta_t) / prec;
+    if d < 0.0 {
+        d *= tm.k_down;
+    }
+    if tm.margin_mean {
+        if let Some(real) = e.real {
+            let cal = (real - tm.margin_intercept) / tm.margin_slope;
+            d += margin_prec * (cal - e.x) / prec;
+            if e.place <= step.first_place {
+                d = d.max(0.0);
+            }
+        }
+    }
+    st.mu_raw += d;
+    st.var = (1.0 / prec).max(tm.sigma_floor * tm.sigma_floor);
+    let z = (s_pair * beta_t / i_pair.max(1e-9)) / (e.var + 1.0 / obs_prec.max(1e-12)).sqrt();
+    let (lo, hi) = (tm.v_min.ln(), tm.v_max.ln());
+    let lv = st.vol.ln();
+    st.vol = (lv + tm.v_eta * (if z.abs() > 1.0 { hi } else { lo } - lv)).exp();
+    let mu_after = st.mu_raw - step.shift;
+    absorb_lineup(st, e, &t.teams[e.ri].members, step, cfg);
+    st.last_day = t.day;
+    mu_after
+}
+
+/// The evidence each player has given the team, its decay for players who
+/// stay away, and the core strength the lineup offset is measured against.
+fn absorb_lineup(st: &mut TeamState, e: &Entry, members: &[u32], step: &Step, cfg: &Config) {
+    let (tm, weight) = (&cfg.team, step.t.weight);
+    let e_tot = st.evidence();
+    for &i in members {
+        match st.ev.iter_mut().find(|(j, _, _)| *j == i) {
+            Some(p) => {
+                p.1 = (p.1 + weight).min(tm.e_cap);
+                p.2 = 0;
+            }
+            None => st.ev.push((i, weight.min(tm.e_cap), 0)),
+        }
+    }
+    // A rotating roster is not a departure: evidence decays only after a player
+    // has missed `miss_streak` of the team's tournaments in a row.
+    let mut lost = 0.0;
+    for (j, x, miss) in st.ev.iter_mut() {
+        if !members.contains(j) {
+            *miss += 1;
+            if *miss >= tm.miss_streak {
+                lost += *x * (1.0 - tm.rho);
+                *x *= tm.rho;
+            }
+        }
+    }
+    st.lost_prev = 0.0;
+    if e_tot > 0.0 {
+        let l = (lost / e_tot).clamp(0.0, 0.9);
+        st.var /= (1.0 - l).powf(tm.gamma);
+        st.lost_prev = l;
+    }
+    // After total turnover a team knows no more about itself than a new team of
+    // the same lineup, so that is the ceiling on its uncertainty.
+    if let Some((_, v)) = e.sr {
+        st.var = st.var.min(v + tm.sigma_new_team * tm.sigma_new_team);
+    }
+    st.ev.retain(|(_, x, _)| *x > 0.01);
+    if let Some((v, _)) = e.sr {
+        let w_add = weight * members.len() as f64;
+        st.core_raw = (st.core_raw * e_tot + (v + step.shift) * w_add) / (e_tot + w_add);
     }
 }

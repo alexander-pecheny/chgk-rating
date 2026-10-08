@@ -7,7 +7,7 @@ use chgk_rating::config::Config;
 use chgk_rating::data::{Arena, Format, Tournament, CORRECT, SKIP};
 use chgk_rating::gauge::Activity;
 use chgk_rating::output::Writer;
-use chgk_rating::team_model::TeamEvent;
+use chgk_rating::team_event::TeamEvent;
 use chgk_rating::util::{format_date, next_thursday, parse_date, spearman, Rng};
 use std::collections::HashMap;
 use std::time::Instant;
