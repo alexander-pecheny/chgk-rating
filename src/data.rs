@@ -114,7 +114,7 @@ impl Arena {
 }
 
 /// The town id to town name map of the old system, saved by
-/// `tools/fetch_towns.py`. An absent file leaves every tournament townless,
+/// `tools/fetch/towns.py`. An absent file leaves every tournament townless,
 /// which turns the geography switches off rather than failing the run.
 pub const TOWNS: &str = "data/towns.csv";
 
@@ -253,7 +253,7 @@ fn rescore(t: &mut Tournament) {
     }
 }
 
-/// The roster history `tools/prep_gg_inputs.py` writes from chgk.gg's dump, and
+/// The roster history `tools/fetch/prep_gg_inputs.py` writes from chgk.gg's dump, and
 /// the season calendar that closes an open entry.
 pub const BASE_ROSTERS: &str = "data/external/chgk_gg/base_rosters.csv";
 pub const SEASONS: &str = "data/external/chgk_gg/seasons.csv";
