@@ -43,7 +43,7 @@ impl Activity {
 /// Mean theta of the established players; DESIGN 3.5.
 pub fn shift(players: &Players, activity: &Activity, n_est: u32) -> f64 {
     let mut sum = 0.0;
-    let mut n = 0u32;
+    let mut n: u32 = 0;
     for (i, &c) in activity.count.iter().enumerate() {
         if c >= n_est {
             sum += players.theta(i);

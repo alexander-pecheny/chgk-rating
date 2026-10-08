@@ -1,4 +1,8 @@
+use crate::team_event::TeamEvent;
 use rusqlite::{params, Connection};
+
+/// Columns of `team_events`.
+const TEAM_EVENT_COLS: usize = 25;
 
 pub struct Writer {
     pub conn: Connection,
@@ -17,6 +21,31 @@ pub struct PlayerEvent {
     pub sigma_before: f64,
     pub games_ip: i64,
     pub days_ip: i64,
+}
+
+/// One row of `tournament_metrics`: the field, how well the question model fits
+/// it in sample and cross-fitted, and how well the forecasts ordered it.
+pub struct TournamentMetrics<'a> {
+    pub tid: i64,
+    pub date: &'a str,
+    pub kind: &'a str,
+    pub weight: f64,
+    pub n_teams: usize,
+    pub n_q: usize,
+    pub n_obs: u64,
+    pub insample: Option<f64>,
+    pub crossfit: Option<f64>,
+    pub sp_forecast: Option<f64>,
+    pub sp_old: Option<f64>,
+    pub truedl: Option<f64>,
+}
+
+impl<'a> TournamentMetrics<'a> {
+    /// A row with the field filled in and no fit or forecast measured yet.
+    pub fn field(tid: i64, date: &'a str, kind: &'a str, weight: f64, n_teams: usize, n_q: usize) -> Self {
+        let (insample, crossfit, sp_forecast, sp_old, truedl) = (None, None, None, None, None);
+        TournamentMetrics { tid, date, kind, weight, n_teams, n_q, n_obs: 0, insample, crossfit, sp_forecast, sp_old, truedl }
+    }
 }
 
 const SCHEMA: &str = "
@@ -42,105 +71,39 @@ impl Writer {
         Ok(Writer { conn })
     }
 
-    pub fn release(
-        &self,
-        id: i64,
-        date: &str,
-        shift: f64,
-        cum: f64,
-        n: usize,
-    ) -> rusqlite::Result<()> {
-        self.conn.execute(
-            "INSERT INTO releases VALUES (?1,?2,?3,?4,?5)",
-            params![id, date, shift, cum, n as i64],
-        )?;
+    pub fn release(&self, id: i64, date: &str, shift: f64, cum: f64, n: usize) -> rusqlite::Result<()> {
+        self.conn.execute("INSERT INTO releases VALUES (?1,?2,?3,?4,?5)", params![id, date, shift, cum, n as i64])?;
         Ok(())
     }
 
-    pub fn player_ratings(
-        &self,
-        release_id: i64,
-        rows: &[(i64, f64, f64, u32, f64)],
-        disp: impl Fn(f64) -> f64,
-    ) -> rusqlite::Result<()> {
-        let mut st = self
-            .conn
-            .prepare_cached("INSERT INTO player_ratings VALUES (?1,?2,?3,?4,?5,?6,?7)")?;
+    /// `(player, theta, sigma, games in the window, change)` of every listed player.
+    pub fn player_ratings(&self, release_id: i64, rows: &[(i64, f64, f64, u32, f64)], disp: impl Fn(f64) -> f64) -> rusqlite::Result<()> {
+        let mut st = self.conn.prepare_cached("INSERT INTO player_ratings VALUES (?1,?2,?3,?4,?5,?6,?7)")?;
         for (pid, theta, sigma, games, change) in rows {
-            st.execute(params![
-                release_id,
-                pid,
-                theta,
-                sigma,
-                games,
-                disp(*theta),
-                change
-            ])?;
+            st.execute(params![release_id, pid, theta, sigma, games, disp(*theta), change])?;
         }
         Ok(())
     }
 
-    pub fn team_ratings(
-        &self,
-        release_id: i64,
-        rows: &[(i64, f64, f64, f64, f64, f64)],
-        disp: impl Fn(f64) -> f64,
-    ) -> rusqlite::Result<()> {
-        let mut st = self
-            .conn
-            .prepare_cached("INSERT INTO team_ratings VALUES (?1,?2,?3,?4,?5,?6,?7,1,?8)")?;
+    /// `(team, mu, sigma, core strength, evidence, change)` of every listed team.
+    pub fn team_ratings(&self, release_id: i64, rows: &[(i64, f64, f64, f64, f64, f64)], disp: impl Fn(f64) -> f64) -> rusqlite::Result<()> {
+        let mut st = self.conn.prepare_cached("INSERT INTO team_ratings VALUES (?1,?2,?3,?4,?5,?6,?7,1,?8)")?;
         for (tid, mu, sigma, core, ev, change) in rows {
-            st.execute(params![
-                release_id,
-                tid,
-                mu,
-                sigma,
-                core,
-                ev,
-                disp(*mu),
-                change
-            ])?;
+            st.execute(params![release_id, tid, mu, sigma, core, ev, disp(*mu), change])?;
         }
         Ok(())
     }
 
-    pub fn team_events(
-        &self,
-        tid: i64,
-        date: &str,
-        team_ids: &[i64],
-        evs: &[crate::team_event::TeamEvent],
-    ) -> rusqlite::Result<()> {
-        let mut st = self.conn.prepare_cached(
-            "INSERT INTO team_events VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)",
-        )?;
+    /// NaN marks a value the engine does not have, and is stored as NULL.
+    pub fn team_events(&self, tid: i64, date: &str, team_ids: &[i64], evs: &[TeamEvent]) -> rusqlite::Result<()> {
+        let holes: Vec<String> = (1..=TEAM_EVENT_COLS).map(|i| format!("?{i}")).collect();
+        let mut st = self.conn.prepare_cached(&format!("INSERT INTO team_events VALUES ({})", holes.join(",")))?;
+        let known = |x: f64| x.is_finite().then_some(x);
         for e in evs {
             st.execute(params![
-                tid,
-                date,
-                team_ids[e.team as usize],
-                e.c,
-                e.delta_l,
-                e.x,
-                e.s_r.is_finite().then_some(e.s_r),
-                e.forecast,
-                e.forecast_place,
-                e.actual_place,
-                e.s_pair,
-                e.i_pair,
-                e.mu_before.is_finite().then_some(e.mu_before),
-                e.mu_after.is_finite().then_some(e.mu_after),
-                e.sigma_before,
-                e.sigma_after,
-                e.evidence,
-                e.gap_days,
-                e.var_diff,
-                e.lost_prev,
-                e.rated,
-                e.z,
-                e.expected_place,
-                e.d_place.is_finite().then_some(e.d_place),
-                e.d_pull.is_finite().then_some(e.d_pull),
+                tid, date, team_ids[e.team as usize], e.c, e.delta_l, e.x, known(e.s_r), e.forecast, e.forecast_place,
+                e.actual_place, e.s_pair, e.i_pair, known(e.mu_before), known(e.mu_after), e.sigma_before, e.sigma_after,
+                e.evidence, e.gap_days, e.var_diff, e.lost_prev, e.rated, e.z, e.expected_place, known(e.d_place), known(e.d_pull),
             ])?;
         }
         Ok(())
@@ -150,68 +113,27 @@ impl Writer {
     /// the update moved; the last four are the state the forecast read, which is
     /// what a residual diagnosis needs.
     pub fn player_events(&self, tid: i64, rows: &[PlayerEvent]) -> rusqlite::Result<()> {
-        let mut st = self
-            .conn
-            .prepare_cached("INSERT INTO player_events VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)")?;
+        let mut st = self.conn.prepare_cached("INSERT INTO player_events VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)")?;
         for e in rows {
-            st.execute(params![
-                tid,
-                e.player,
-                e.theta_before,
-                e.theta_after,
-                e.sigma_after,
-                e.phi_before,
-                e.sigma_before,
-                e.games_ip,
-                e.days_ip
-            ])?;
+            let (before, after) = ((e.theta_before, e.phi_before, e.sigma_before), (e.theta_after, e.sigma_after));
+            st.execute(params![tid, e.player, before.0, after.0, after.1, before.1, before.2, e.games_ip, e.days_ip])?;
         }
         Ok(())
     }
 
     pub fn question_params(&self, tid: i64, qs: &[(f64, f64, f64)]) -> rusqlite::Result<()> {
-        let mut st = self
-            .conn
-            .prepare_cached("INSERT INTO question_params VALUES (?1,?2,?3,?4,?5)")?;
+        let mut st = self.conn.prepare_cached("INSERT INTO question_params VALUES (?1,?2,?3,?4,?5)")?;
         for (q, (b, a, m)) in qs.iter().enumerate() {
             st.execute(params![tid, q as i64, b, a, m])?;
         }
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn tournament_metrics(
-        &self,
-        tid: i64,
-        date: &str,
-        kind: &str,
-        weight: f64,
-        n_teams: usize,
-        n_q: usize,
-        n_obs: u64,
-        insample: Option<f64>,
-        crossfit: Option<f64>,
-        sp_forecast: Option<f64>,
-        sp_old: Option<f64>,
-        truedl: Option<f64>,
-    ) -> rusqlite::Result<()> {
-        self.conn.execute(
-            "INSERT INTO tournament_metrics VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
-            params![
-                tid,
-                date,
-                kind,
-                weight,
-                n_teams as i64,
-                n_q as i64,
-                n_obs as i64,
-                insample,
-                crossfit,
-                sp_forecast,
-                sp_old,
-                truedl
-            ],
-        )?;
+    pub fn tournament_metrics(&self, m: &TournamentMetrics) -> rusqlite::Result<()> {
+        let sql = "INSERT INTO tournament_metrics VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)";
+        let counts = (m.n_teams as i64, m.n_q as i64, m.n_obs as i64);
+        let fit = (m.insample, m.crossfit, m.sp_forecast, m.sp_old, m.truedl);
+        self.conn.execute(sql, params![m.tid, m.date, m.kind, m.weight, counts.0, counts.1, counts.2, fit.0, fit.1, fit.2, fit.3, fit.4])?;
         Ok(())
     }
 

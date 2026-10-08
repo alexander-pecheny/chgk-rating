@@ -11,6 +11,41 @@ use crate::question_model::Players;
 use crate::team_event::TeamEvent;
 use crate::util::{avg_ranks, Rng};
 
+/// Six seats at a table.
+const FULL_LINEUP: usize = 6;
+const SEATS: f64 = 6.0;
+/// Rated games after which a team is no longer provisional, and the sigma the
+/// schema is given on either side of that.
+const ESTABLISHED_GAMES: f64 = 5.0;
+const SIGMA_ESTABLISHED: f64 = 0.1;
+const SIGMA_PROVISIONAL: f64 = 0.5;
+const HALF: f64 = 0.5;
+/// Display points per unit of the spread and field-strength rules.
+const SPREAD_UNIT: f64 = 1000.0;
+const MIN_SPREAD: f64 = 1e-3;
+/// `tau_spread` needs three lineups, and keeps the temperature in this range.
+const MIN_TAU_FIELD: usize = 3;
+const TAU_RANGE: (f64, f64) = (0.2, 2.0);
+const FIELD_FACTOR_RANGE: (f64, f64) = (0.2, 5.0);
+/// `adj_mult` keeps today's lineup within this ratio of the reference.
+const LINEUP_RATIO: (f64, f64) = (0.5, 2.0);
+/// The performance root is bracketed this many Elo units either side of the
+/// field, and found to half a display point.
+const BRACKET: f64 = 8.0;
+const PERF_TOLERANCE: f64 = 0.5;
+/// A core member whose attendance weight falls below this drops out.
+const MIN_ATTENDANCE: f64 = 0.01;
+/// The index of the fourth lineup, for the top-gap rules.
+const FOURTH: usize = 3;
+/// `info_norm`: the Fisher information of a pair, p(1 - p), is 1/4 at most.
+const INFO_SCALE: f64 = 4.0;
+/// Seeds the relevance draws apart from every other use of the tournament id.
+const RELEVANCE_SALT: u64 = 0x5265_6C65_7661_6E63;
+/// Breaks ties of the expected relevance by mean strength, far below one draw.
+const TIE_NUDGE: f64 = 1e-9;
+/// Keeps `ln u` finite in a Gumbel draw.
+const GUMBEL_GUARD: f64 = 1e-12;
+
 /// The forecast-side memories a tournament is read against, none of which is a
 /// property of a single player: how long the lineup has played together, the
 /// difficulties a field of this strength usually gets, how this lineup has
@@ -27,10 +62,10 @@ pub struct Context<'a> {
 /// S2 carries no variance, so `sigma` is only the provisional flag in the shape
 /// the schema and `display.provisional_sigma` expect.
 pub fn sigma(games: f64) -> f64 {
-    if games >= 5.0 {
-        0.1
+    if games >= ESTABLISHED_GAMES {
+        SIGMA_ESTABLISHED
     } else {
-        0.5
+        SIGMA_PROVISIONAL
     }
 }
 
@@ -56,7 +91,7 @@ pub fn lineup_strength(rs: &[f64], p: &S2) -> f64 {
     match p.lineup {
         S2Lineup::Mean => {
             rs.iter().sum::<f64>() / rs.len() as f64
-                - p.delta * (6.0 - rs.len() as f64).max(0.0)
+                - p.delta * (SEATS - rs.len() as f64).max(0.0)
         }
         S2Lineup::Roster => roster(rs, p.player_scale),
         // The same soft maximum at temperature tau: tau -> 0 is the best player,
@@ -69,14 +104,11 @@ pub fn lineup_strength(rs: &[f64], p: &S2) -> f64 {
             let mut v = rs.to_vec();
             v.sort_by(|a, b| b.total_cmp(a));
             let fill = v[v.len() - 1] - p.delta;
-            v.resize(6, fill);
-            let w: f64 = (1..=6).map(|k| (7 - k) as f64).sum();
-            v.iter()
-                .take(6)
-                .enumerate()
-                .map(|(k, x)| (6 - k) as f64 * x)
-                .sum::<f64>()
-                / w
+            v.resize(FULL_LINEUP, fill);
+            // Weights 6, 5, ... 1 down the sorted lineup.
+            let weight = |k: usize| (FULL_LINEUP - k) as f64;
+            let w: f64 = (0..FULL_LINEUP).map(weight).sum();
+            v.iter().take(FULL_LINEUP).enumerate().map(|(k, x)| weight(k) * x).sum::<f64>() / w
         }
     }
 }
@@ -378,13 +410,13 @@ impl<'a> Reader<'a> {
 /// together is read more sharply, because that is where the order is decided by
 /// the strongest player at each table rather than by the table as a whole.
 fn field_tau(v: &[f64], p: &S2) -> f64 {
-    if v.len() < 3 {
+    if v.len() < MIN_TAU_FIELD {
         return p.tau;
     }
     let m = v.iter().sum::<f64>() / v.len() as f64;
     let sd = (v.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / v.len() as f64).sqrt();
-    let r = (sd / 1000.0).max(1e-3);
-    (p.tau * r.powf(p.tau_spread)).clamp(0.2, 2.0)
+    let r = (sd / SPREAD_UNIT).max(MIN_SPREAD);
+    (p.tau * r.powf(p.tau_spread)).clamp(TAU_RANGE.0, TAU_RANGE.1)
 }
 
 /// Team state of DESIGN 4.2: a rating, the usual lineup it was earned with, and
@@ -427,20 +459,20 @@ fn performance(own: f64, others: &[f64], wins: f64, m: f64, c: f64) -> f64 {
         others.iter().map(|&f| 1.0 / (1.0 + (c * (f - x)).exp())).sum::<f64>()
             + m / (1.0 + (c * (own - x)).exp())
             - wins
-            - m / 2.0
+            - m * HALF
     };
-    let lo0 = others.iter().copied().fold(own, f64::min) - 8.0 / c;
-    let hi0 = others.iter().copied().fold(own, f64::max) + 8.0 / c;
+    let lo0 = others.iter().copied().fold(own, f64::min) - BRACKET / c;
+    let hi0 = others.iter().copied().fold(own, f64::max) + BRACKET / c;
     let (mut lo, mut hi) = (lo0, hi0);
-    while hi - lo > 0.5 {
-        let mid = 0.5 * (lo + hi);
+    while hi - lo > PERF_TOLERANCE {
+        let mid = HALF * (lo + hi);
         if g(mid) < 0.0 {
             lo = mid;
         } else {
             hi = mid;
         }
     }
-    0.5 * (lo + hi)
+    HALF * (lo + hi)
 }
 
 /// What the pairwise stage needs, read off the pre-tournament states.
@@ -478,7 +510,7 @@ struct Entry {
 fn expected_relevance(id: i64, es: &[Entry], rows: &[Row], p: &S2) -> Vec<f64> {
     let n = es.len();
     let mut acc = vec![0.0f64; n];
-    let mut rng = Rng::new(id as u64 ^ 0x5265_6C65_7661_6E63);
+    let mut rng = Rng::new(id as u64 ^ RELEVANCE_SALT);
     // Gumbel(0, beta) noise reproduces the pairwise win probability of DESIGN
     // 4.3 exactly: beta = D / ln 10.
     let beta = if p.rank_rule == RankRule::ErelD {
@@ -494,7 +526,7 @@ fn expected_relevance(id: i64, es: &[Entry], rows: &[Row], p: &S2) -> Vec<f64> {
             let mut v = e.fc + sd * rng.normal();
             if beta > 0.0 {
                 // -ln(-ln u) is a standard Gumbel.
-                let u = ((rng.next_u64() >> 11) as f64 / (1u64 << 53) as f64).max(1e-12);
+                let u = rng.uniform().max(GUMBEL_GUARD);
                 v += beta * -(-u.ln()).ln();
             }
             x.push((v, k));
@@ -521,7 +553,7 @@ fn expected_relevance(id: i64, es: &[Entry], rows: &[Row], p: &S2) -> Vec<f64> {
         .fold(f64::NEG_INFINITY, f64::max);
     let span = (hi - lo).max(1.0);
     for (k, a) in acc.iter_mut().enumerate() {
-        *a = *a / d + 1e-9 * (es[k].fc - lo) / span;
+        *a = *a / d + TIE_NUDGE * (es[k].fc - lo) / span;
     }
     acc
 }
@@ -539,7 +571,7 @@ pub fn field_factor(q: impl Iterator<Item = f64>, format: Format, p: &S2) -> f64
         return 1.0;
     }
     let s = v[..k].iter().sum::<f64>() / k as f64;
-    (p.field_gamma * (s - p.field_ref) / 1000.0).exp().clamp(0.2, 5.0)
+    (p.field_gamma * (s - p.field_ref) / SPREAD_UNIT).exp().clamp(FIELD_FACTOR_RANGE.0, FIELD_FACTOR_RANGE.1)
 }
 
 /// The outcome of one pair, `y_AB` of DESIGN 4.3 step 2. Win/lose when
@@ -554,7 +586,7 @@ fn outcome(a: &Entry, b: &Entry, p: &S2) -> f64 {
         return plain;
     };
     match p.margin_shape {
-        MarginShape::Linear => (0.5 + (sa - sb) / (2.0 * p.margin_g)).clamp(0.0, 1.0),
+        MarginShape::Linear => (HALF + HALF * (sa - sb) / p.margin_g).clamp(0.0, 1.0),
         MarginShape::Logistic => 1.0 / (1.0 + 10f64.powf(-(sa - sb) / p.margin_g)),
     }
 }
@@ -569,7 +601,7 @@ impl TeamsS2 {
             surprise: vec![Vec::new(); n],
             b: vec![0.0; n],
             core: vec![Vec::new(); n],
-            seats: vec![6.0; n],
+            seats: vec![SEATS; n],
             pr: Vec::new(),
             guest_gap: Vec::new(),
             pool: vec![Vec::new(); n],
@@ -635,7 +667,7 @@ impl TeamsS2 {
                 None => c.push((m, k_c, is_base(k))),
             }
         }
-        c.retain(|e| e.1 >= 0.01);
+        c.retain(|e| e.1 >= MIN_ATTENDANCE);
     }
 
     /// The mean of a team's stored surprises, 0 when it has none.
@@ -794,7 +826,7 @@ impl TeamsS2 {
         let base = if p.ref_core && !self.core[idx].is_empty() { self.core_q(idx, p) } else { self.qbar[idx] };
         if p.adj_mult {
             let z = p.start_zero;
-            let ratio = ((q - z) / (base - z).max(1.0)).clamp(0.5, 2.0);
+            let ratio = ((q - z) / (base - z).max(1.0)).clamp(LINEUP_RATIO.0, LINEUP_RATIO.1);
             z + (self.r[idx] - z) * ratio
         } else {
             self.r[idx] + p.lineup_adj * (q - base)
@@ -1025,8 +1057,8 @@ fn top_gap(rows: &[Row], p: &S2) -> f64 {
     }
     let mut v: Vec<f64> = rows.iter().map(|r| r.q).filter(|x| x.is_finite()).collect();
     v.sort_by(|a, b| b.total_cmp(a));
-    if v.len() >= 4 {
-        v[0] - v[3]
+    if v.len() > FOURTH {
+        v[0] - v[FOURTH]
     } else {
         f64::INFINITY
     }
@@ -1136,7 +1168,7 @@ fn pair_scores(es: &[Entry], p: &S2) -> (Vec<f64>, Vec<f64>) {
                 (0..n).filter(|b| !level.contains(b)).map(|b| outcome(&es[a], &es[b], p)).sum()
             };
             let tied: f64 = level.iter().filter(|&&b| b != a).map(|&b| win(es[a].f, es[b].f, p)).sum();
-            let norm = if p.info_norm { (4.0 * pvar[a]).max(p.info_min) } else { ((n - 1) as f64).max(1.0) };
+            let norm = if p.info_norm { (INFO_SCALE * pvar[a]).max(p.info_min) } else { ((n - 1) as f64).max(1.0) };
             spair[a] = (ysum - psum[a] + tied) / norm;
         }
         i = j + 1;
@@ -1161,7 +1193,7 @@ fn performances(es: &[Entry], p: &S2) -> Vec<f64> {
             others.push(o.fc);
             wins += match o.place.total_cmp(&e.place) {
                 std::cmp::Ordering::Greater => 1.0,
-                std::cmp::Ordering::Equal => 0.5,
+                std::cmp::Ordering::Equal => HALF,
                 std::cmp::Ordering::Less => 0.0,
             };
         }

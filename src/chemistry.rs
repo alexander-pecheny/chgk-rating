@@ -22,7 +22,7 @@ pub struct Chemistry {
 
 fn key(a: u32, b: u32) -> u64 {
     let (lo, hi) = if a < b { (a, b) } else { (b, a) };
-    ((lo as u64) << 32) | hi as u64
+    crate::util::pack(lo, hi)
 }
 
 impl Chemistry {
@@ -45,7 +45,7 @@ impl Chemistry {
             return 0.0;
         }
         let mut sum = 0.0;
-        let mut n = 0u32;
+        let mut n: u32 = 0;
         for a in 0..members.len() {
             for b in a + 1..members.len() {
                 sum += (self.pairs.get(&key(members[a], members[b])).copied().unwrap_or(0) as f64)

@@ -8,6 +8,7 @@ use chgk_rating::data::{Arena, Format, Tournament, CORRECT, SKIP};
 use chgk_rating::gauge::Activity;
 use chgk_rating::output::Writer;
 use chgk_rating::team_event::TeamEvent;
+use chgk_rating::output::TournamentMetrics;
 use chgk_rating::util::{format_date, next_thursday, parse_date, spearman, Rng};
 use std::collections::HashMap;
 use std::time::Instant;
@@ -585,20 +586,17 @@ fn write_events(w: &Writer, t: &Tournament, arena: &Arena, fit: &Fit) -> rusqlit
         .iter()
         .filter_map(|e| e.pred_place.map(|p| (p, e.actual_place)))
         .unzip();
-    w.tournament_metrics(
-        t.id,
-        &format_date(t.day),
-        t.format.name(),
-        weights(t.format)[0],
-        t.teams.len(),
-        t.n_q,
-        fit.online.1,
-        (fit.insample.1 > 0).then(|| fit.insample.0 / fit.insample.1 as f64),
-        (fit.online.1 > 0).then(|| fit.online.0 / fit.online.1 as f64),
-        spearman(&place, &actual),
-        spearman(&po, &pa),
-        None,
-    )
+    let date = format_date(t.day);
+    let field = TournamentMetrics::field(t.id, &date, t.format.name(), weights(t.format)[0], t.teams.len(), t.n_q);
+    let mean = |(sum, n): (f64, u64)| (n > 0).then(|| sum / n as f64);
+    w.tournament_metrics(&TournamentMetrics {
+        n_obs: fit.online.1,
+        insample: mean(fit.insample),
+        crossfit: mean(fit.online),
+        sp_forecast: spearman(&place, &actual),
+        sp_old: spearman(&po, &pa),
+        ..field
+    })
 }
 
 struct Release<'a> {

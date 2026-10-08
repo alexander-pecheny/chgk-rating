@@ -17,6 +17,10 @@ use crate::team_s2::{self, Context, Row, TeamsS2};
 use crate::util::{next_thursday, parse_date};
 use std::collections::HashMap;
 
+const WEEK: i32 = 7;
+/// The cross-fit splits a field's teams into two halves.
+const HALVES: u8 = 2;
+
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 /// The team side of the pass. Both engines write the same `team_events` and the
@@ -301,13 +305,13 @@ impl<'a> Sweep<'a> {
                 day: rel,
                 // The last release is the last Thursday before `to`, whether or
                 // not a tournament follows it.
-                last: rel + 7 > self.to_day,
+                last: rel + WEEK > self.to_day,
                 shift,
                 players: self.players,
                 activity: &self.activity,
                 teams: &self.teams,
             })?;
-            self.next_rel += 7;
+            self.next_rel += WEEK;
         }
         Ok(())
     }
@@ -333,41 +337,63 @@ impl<'a> Sweep<'a> {
 
     fn tournament(&mut self, n: usize, t: &Tournament, obs: &mut dyn Observer) -> Result<()> {
         let cfg = self.cfg;
-        self.players.seed(t, cfg);
-        let field = qm::build_field(t, self.players, &self.mem.chem, cfg);
-        let scores = (self.opts.scores).then(|| cross_fit(&field, t, cfg));
-        let params = qm::fit_all(&field, None, cfg);
-        let scores = scores.map(|cross| FitScores { in_sample: qm::score(&field, &params, None, cfg), cross });
-        let grads = qm::player_grads(&field, &params, cfg);
+        let q = self.questions(t);
         obs.before_step(t, &self.teams);
         let (rows, events) = if t.train_only {
             (Vec::new(), Vec::new())
         } else {
-            self.teams.step(t, self.players, &params, &self.mem.context(), cfg)
+            self.teams.step(t, self.players, &q.params, &self.mem.context(), cfg)
         };
         obs.morning(&Morning {
             index: n,
             t,
             players: self.players,
             memories: &self.mem,
-            field: &field,
-            params: &params,
+            field: &q.field,
+            params: &q.params,
             rows: &rows,
             events: &events,
-            scores,
+            scores: q.scores,
             next_release: self.next_rel,
         })?;
-        self.mem.absorb(t, &events, &params);
+        self.learn(t, &q.grads, &events, &q.params);
+        obs.evening(&Evening { index: n, t, players: self.players, grads: &q.grads, events: &events })
+    }
+
+    /// Step 1 of a tournament: its players seeded, its questions fitted, and
+    /// what they say about each player.
+    fn questions(&mut self, t: &Tournament) -> Questions {
+        let cfg = self.cfg;
+        self.players.seed(t, cfg);
+        let field = qm::build_field(t, self.players, &self.mem.chem, cfg);
+        let cross = self.opts.scores.then(|| cross_fit(&field, t, cfg));
+        let params = qm::fit_all(&field, None, cfg);
+        let scores = cross.map(|cross| FitScores { in_sample: qm::score(&field, &params, None, cfg), cross });
+        let grads = qm::player_grads(&field, &params, cfg);
+        Questions { field, params, scores, grads }
+    }
+
+    /// Everything that learns from a tournament once it has been forecast: the
+    /// memories, then the players, then the gauge's activity record.
+    fn learn(&mut self, t: &Tournament, grads: &[(u32, f64, f64)], events: &[TeamEvent], params: &[QParams]) {
+        let cfg = self.cfg;
+        self.mem.absorb(t, events, params);
         let collect = t.format == Format::InPerson && t.day >= self.zfrom;
-        let steered = steer(&grads, &events, t, cfg);
-        self.players.absorb(t, steered.as_deref().unwrap_or(&grads), &mut self.ed_seen, collect, cfg);
+        let steered = steer(grads, events, t, cfg);
+        self.players.absorb(t, steered.as_deref().unwrap_or(grads), &mut self.ed_seen, collect, cfg);
         self.players.shrink_to_lineups(t, cfg);
-        obs.evening(&Evening { index: n, t, players: self.players, grads: &grads, events: &events })?;
-        for &(i, _, info) in &grads {
+        for &(i, _, info) in grads {
             self.activity.push(t.day, i, t.weight * info);
         }
-        Ok(())
     }
+}
+
+/// One tournament's questions as the model fitted them.
+struct Questions {
+    field: Field,
+    params: Vec<QParams>,
+    scores: Option<FitScores>,
+    grads: Vec<(u32, f64, f64)>,
 }
 
 /// The question log-likelihood of each half of the field, fitted on the other.
@@ -375,7 +401,7 @@ fn cross_fit(field: &Field, t: &Tournament, cfg: &Config) -> (f64, u64) {
     if t.train_only {
         return (0.0, 0);
     }
-    (0..2u8).fold((0.0, 0), |(s, k), half| {
+    (0..HALVES).fold((0.0, 0), |(s, k), half| {
         let p = qm::fit_all(field, Some(half), cfg);
         let (s1, k1) = qm::score(field, &p, Some(1 - half), cfg);
         (s + s1, k + k1)

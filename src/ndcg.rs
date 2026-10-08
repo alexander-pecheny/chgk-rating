@@ -18,6 +18,13 @@ pub const TUNE: (&str, &str) = ("2018-09-01", "2024-08-29");
 pub const TEST: (&str, &str) = ("2024-08-30", "2026-08-27");
 pub const WEIGHTS: &str = "data/tournament_weights.csv";
 
+/// A field is scored from five teams up, and NDCG@3 over its top three.
+pub const MIN_FIELD: usize = 5;
+const TOP: usize = 3;
+/// The weight column of `data/tournament_weights.csv`.
+const WEIGHT_COL: usize = 3;
+const BOOTSTRAP_SEED: u64 = 0x_1CDC_2025;
+
 /// One tournament's score: NDCG over the whole field and over the top three.
 #[derive(Debug, Clone, Copy)]
 pub struct Scored {
@@ -52,7 +59,7 @@ pub fn ndcg_at(rel: &[f64], k: usize) -> f64 {
 /// One field's score from (forecast, actual place) pairs; `None` under five
 /// teams. The parameter sweep scores its replays with this same function.
 pub fn score_field(tid: i64, field: &[(f64, f64)]) -> Option<Scored> {
-    if field.len() < 5 {
+    if field.len() < MIN_FIELD {
         return None;
     }
     let mut ord: Vec<usize> = (0..field.len()).collect();
@@ -65,7 +72,7 @@ pub fn score_field(tid: i64, field: &[(f64, f64)]) -> Option<Scored> {
     Some(Scored {
         tid,
         ndcg: ndcg_at(&rel, rel.len()),
-        ndcg3: ndcg_at(&rel, 3),
+        ndcg3: ndcg_at(&rel, TOP),
     })
 }
 
@@ -110,7 +117,7 @@ pub fn weights(path: &str) -> HashMap<i64, f64> {
     crate::util::csv_rows(path)
         .unwrap_or_default()
         .iter()
-        .filter_map(|r| Some((r.first()?.trim().parse().ok()?, r.get(3)?.trim().parse().ok()?)))
+        .filter_map(|r| Some((r.first()?.trim().parse().ok()?, r.get(WEIGHT_COL)?.trim().parse().ok()?)))
         .collect()
 }
 
@@ -170,7 +177,7 @@ pub fn paired_se(
     if pairs.is_empty() {
         return (f64::NAN, f64::NAN);
     }
-    let mut rng = Rng::new(0x_1CDC_2025);
+    let mut rng = Rng::new(BOOTSTRAP_SEED);
     let (mut s1, mut s2) = (0.0, 0.0);
     let mut idx = vec![0usize; pairs.len()];
     for _ in 0..n {

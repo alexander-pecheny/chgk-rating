@@ -1,10 +1,17 @@
 use chgk_rating::config::{Config, FormatEffect};
 use chgk_rating::data::{Arena, Format, Tournament};
 use chgk_rating::features::{Features, Pre};
-use chgk_rating::output::{PlayerEvent, Writer};
+use chgk_rating::output::{PlayerEvent, TournamentMetrics, Writer};
 use chgk_rating::pass::{self, Engine, Evening, Morning, Observer, Release};
 use chgk_rating::util::{format_date, parse_date, spearman};
 use std::time::Instant;
+
+const SCRAMBLE_SEED: u64 = 0x5C2A_3B1E;
+/// A progress line every this many tournaments, a WAL checkpoint every this
+/// many releases.
+const PROGRESS_EVERY: usize = 200;
+const CHECKPOINT_EVERY: i64 = 50;
+const DAYS_PER_YEAR: f64 = 365.25;
 
 fn arg(name: &str) -> Option<String> {
     let a: Vec<String> = std::env::args().collect();
@@ -66,7 +73,7 @@ fn apply_swap(arena: &mut Arena, spec: &str) -> Result<(), String> {
 /// not leakage.
 fn apply_scramble(arena: &mut Arena, date: &str) -> Result<(), String> {
     let day = parse_date(date).ok_or("--scramble: bad date")?;
-    let mut rng = chgk_rating::util::Rng::new(0x5C2A_3B1E);
+    let mut rng = chgk_rating::util::Rng::new(SCRAMBLE_SEED);
     let t = arena
         .tournaments
         .iter_mut()
@@ -95,73 +102,18 @@ fn apply_scramble(arena: &mut Arena, date: &str) -> Result<(), String> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cfg_path = arg("--config").unwrap_or_else(|| "config.toml".into());
-    let mut cfg = Config::load(&cfg_path)?;
-    for (flag, slot) in [
-        ("--from", &mut cfg.data.from),
-        ("--to", &mut cfg.data.to),
-        ("--out", &mut cfg.data.out_path),
-    ] {
-        if let Some(v) = arg(flag) {
-            *slot = v;
-        }
-    }
-    if let Some(v) = arg("--rows-every") {
-        cfg.data.rows_every = v.parse().map_err(|_| "bad --rows-every")?;
-    }
     let start = Instant::now();
-    parse_date(&cfg.data.from).ok_or("bad --from")?;
-    parse_date(&cfg.data.to).ok_or("bad --to")?;
-    println!(
-        "window {} to {}, rows {}",
-        cfg.data.from,
-        cfg.data.to,
-        match cfg.data.rows_every {
-            0 => "at the last release only".to_string(),
-            1 => "every release".to_string(),
-            n => format!("every {n} releases"),
-        }
-    );
-
-    let mut arena = chgk_rating::data::load(&cfg, &cfg.data.from, &cfg.data.to)?;
-    if let Some(s) = arg("--swap") {
-        apply_swap(&mut arena, &s)?;
-    }
-    if let Some(d) = arg("--scramble") {
-        apply_scramble(&mut arena, &d)?;
-    }
-    println!(
-        "loaded {} tournaments, {} players, {} teams, {} editors in {:.1}s",
-        arena.tournaments.len(),
-        arena.n_players(),
-        arena.n_teams(),
-        arena.n_editors(),
-        start.elapsed().as_secs_f64()
-    );
-
+    let cfg = config()?;
+    let arena = arena(&cfg, start)?;
     // The wide feature table of plan 8. It is a research output: nothing in the
     // model reads it and asking for it changes no number the fit produces.
     let features = arg("--features").map(|p| Features::create(&p, &arena)).transpose()?;
-    let diag = arg("--diag-player")
-        .and_then(|v| v.parse::<i64>().ok())
-        .and_then(|id| arena.player_ids.iter().position(|x| *x == id));
     let opts = pass::Options {
         passes: arg("--passes").map(|v| v.parse().unwrap_or(1)),
         scores: true,
         chemistry: features.is_some(),
     };
-    let mut fit = Fit {
-        arena: &arena,
-        cfg: &cfg,
-        w: Writer::create(&cfg.data.out_path)?,
-        features,
-        pre: None,
-        diag,
-        start,
-        prev_p: vec![f64::NAN; arena.n_players()],
-        prev_t: vec![f64::NAN; arena.n_teams()],
-        before: Vec::new(),
-    };
+    let mut fit = Fit::new(&arena, &cfg, features, start)?;
     let n = pass::run(&arena, &cfg, opts, &mut fit)?;
     if let Some(f) = fit.features {
         println!("features: {} rows", f.rows());
@@ -170,6 +122,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fit.w.finish()?;
     println!("done: {n} releases, {:.1}s total", start.elapsed().as_secs_f64());
     Ok(())
+}
+
+/// The config, with the window, the output and the row cadence as the command
+/// line overrides them.
+fn config() -> Result<Config, Box<dyn std::error::Error>> {
+    let mut cfg = Config::load(&arg("--config").unwrap_or_else(|| "config.toml".into()))?;
+    for (flag, slot) in [("--from", &mut cfg.data.from), ("--to", &mut cfg.data.to), ("--out", &mut cfg.data.out_path)] {
+        if let Some(v) = arg(flag) {
+            *slot = v;
+        }
+    }
+    if let Some(v) = arg("--rows-every") {
+        cfg.data.rows_every = v.parse().map_err(|_| "bad --rows-every")?;
+    }
+    parse_date(&cfg.data.from).ok_or("bad --from")?;
+    parse_date(&cfg.data.to).ok_or("bad --to")?;
+    let rows = match cfg.data.rows_every {
+        0 => "at the last release only".to_string(),
+        1 => "every release".to_string(),
+        n => format!("every {n} releases"),
+    };
+    println!("window {} to {}, rows {rows}", cfg.data.from, cfg.data.to);
+    Ok(cfg)
+}
+
+/// The window's tournaments, with the acceptance tests' edits applied.
+fn arena(cfg: &Config, start: Instant) -> Result<Arena, Box<dyn std::error::Error>> {
+    let mut arena = chgk_rating::data::load(cfg, &cfg.data.from, &cfg.data.to)?;
+    if let Some(s) = arg("--swap") {
+        apply_swap(&mut arena, &s)?;
+    }
+    if let Some(d) = arg("--scramble") {
+        apply_scramble(&mut arena, &d)?;
+    }
+    let counts = (arena.tournaments.len(), arena.n_players(), arena.n_teams(), arena.n_editors());
+    let secs = start.elapsed().as_secs_f64();
+    println!("loaded {} tournaments, {} players, {} teams, {} editors in {secs:.1}s", counts.0, counts.1, counts.2, counts.3);
+    Ok(arena)
 }
 
 /// What the observed pass writes: `out/ratings.db`, the feature table when
@@ -189,6 +179,24 @@ struct Fit<'a> {
     /// The lineup of this tournament and the state the forecast read this
     /// morning, before the update moves it.
     before: Vec<(u32, PlayerEvent)>,
+}
+
+impl<'a> Fit<'a> {
+    fn new(arena: &'a Arena, cfg: &'a Config, features: Option<Features>, start: Instant) -> rusqlite::Result<Fit<'a>> {
+        let diag = arg("--diag-player").and_then(|v| v.parse::<i64>().ok());
+        Ok(Fit {
+            arena,
+            cfg,
+            w: Writer::create(&cfg.data.out_path)?,
+            features,
+            pre: None,
+            diag: diag.and_then(|id| arena.player_ids.iter().position(|x| *x == id)),
+            start,
+            prev_p: vec![f64::NAN; arena.n_players()],
+            prev_t: vec![f64::NAN; arena.n_teams()],
+            before: Vec::new(),
+        })
+    }
 }
 
 impl Observer for Fit<'_> {
@@ -222,20 +230,21 @@ impl Observer for Fit<'_> {
             m.events.iter().filter_map(|e| e.pred_place.map(|p| (p, e.actual_place))).unzip();
         let s = m.scores.as_ref().ok_or("fit runs the pass with scores")?;
         let mean = |(sum, n): (f64, u64)| (n > 0).then(|| sum / n as f64);
-        self.w.tournament_metrics(
-            t.id,
-            &format_date(t.day),
-            t.format.name(),
-            t.weight,
-            t.teams.len(),
-            t.n_q,
-            s.in_sample.1,
-            mean(s.in_sample),
-            mean(s.cross),
-            spearman(&forecast, &actual),
-            spearman(&po, &pa),
-            chgk_rating::question_model::truedl(m.field, m.params, cfg),
-        )?;
+        let date = format_date(t.day);
+        self.w.tournament_metrics(&TournamentMetrics {
+            tid: t.id,
+            date: &date,
+            kind: t.format.name(),
+            weight: t.weight,
+            n_teams: t.teams.len(),
+            n_q: t.n_q,
+            n_obs: s.in_sample.1,
+            insample: mean(s.in_sample),
+            crossfit: mean(s.cross),
+            sp_forecast: spearman(&forecast, &actual),
+            sp_old: spearman(&po, &pa),
+            truedl: chgk_rating::question_model::truedl(m.field, m.params, cfg),
+        })?;
         Ok(())
     }
 
@@ -256,7 +265,7 @@ impl Observer for Fit<'_> {
                 .collect();
             self.w.player_events(t.id, &rows)?;
         }
-        if e.index % 200 == 0 {
+        if e.index % PROGRESS_EVERY == 0 {
             println!(
                 "{:6}/{} {} {:.0}s",
                 e.index,
@@ -270,7 +279,7 @@ impl Observer for Fit<'_> {
 
     fn release(&mut self, r: &Release) -> pass::Result<()> {
         let (cfg, arena) = (self.cfg, self.arena);
-        if r.id % 50 == 0 {
+        if r.id % CHECKPOINT_EVERY == 0 {
             self.w.checkpoint()?;
         }
         let listed: Vec<usize> = (0..arena.n_players()).filter(|&i| r.activity.count[i] > 0).collect();
@@ -343,7 +352,7 @@ fn diag_player(r: &Release, i: usize) {
         return;
     }
     let s = &r.players.state[i];
-    let dt = ((r.day - s.last_day).max(0) as f64) / 365.25;
+    let dt = ((r.day - s.last_day).max(0) as f64) / DAYS_PER_YEAR;
     println!(
         "diag {} games {} fisher {:.2} sigma_from_fisher {:.3} sigma_at_game {:.3} vol {:.3} sigma {:.3}",
         format_date(r.day),

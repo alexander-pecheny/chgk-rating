@@ -11,6 +11,7 @@ use chgk_rating::util::{
     avg_ranks, format_date, last_thursday, next_thursday, parse_date, spearman,
 };
 use chgk_rating::ndcg::{ndcg_at, TEST, TUNE};
+use chgk_rating::output::TournamentMetrics;
 use rusqlite::Connection;
 use std::collections::HashMap;
 
@@ -499,20 +500,9 @@ fn run(
                 .filter(|e| e.actual_place > 0.0)
                 .filter_map(|e| e.pred_place.map(|p| (p, e.actual_place)))
                 .unzip();
-            w.tournament_metrics(
-                t.id,
-                &format_date(t.day),
-                t.format.name(),
-                t.weight,
-                t.teams.len(),
-                t.n_q,
-                0,
-                None,
-                None,
-                sp,
-                spearman(&po, &pa),
-                None,
-            )?;
+            let date = format_date(t.day);
+            let field = TournamentMetrics::field(t.id, &date, t.format.name(), t.weight, t.teams.len(), t.n_q);
+            w.tournament_metrics(&TournamentMetrics { sp_forecast: sp, sp_old: spearman(&po, &pa), ..field })?;
         }
     }
     sc.new_level = st.new_level;

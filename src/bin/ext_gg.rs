@@ -11,6 +11,7 @@
 use chgk_rating::data::Format;
 use chgk_rating::output::Writer;
 use chgk_rating::team_event::TeamEvent;
+use chgk_rating::output::TournamentMetrics;
 use chgk_rating::util::{csv_rows, format_date, parse_date, spearman};
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -900,20 +901,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .iter()
                 .filter_map(|r| r.pred_pos.map(|p| (p, r.position)))
                 .unzip();
-            w.tournament_metrics(
-                t.id,
-                &format_date(t.end),
-                &t.kind,
-                t.coeff,
-                t.teams.len(),
-                0,
-                0,
-                None,
-                None,
-                spearman(&s.mp, &actual),
-                spearman(&theirs, &act2),
-                None,
-            )?;
+            let date = format_date(t.end);
+            let field = TournamentMetrics::field(t.id, &date, &t.kind, t.coeff, t.teams.len(), 0);
+            let (sp_forecast, sp_old) = (spearman(&s.mp, &actual), spearman(&theirs, &act2));
+            w.tournament_metrics(&TournamentMetrics { sp_forecast, sp_old, ..field })?;
         }
 
         for (i, t) in teams.iter_mut().enumerate() {

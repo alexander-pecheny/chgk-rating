@@ -131,30 +131,30 @@ pub fn town_names(path: &str) -> HashMap<i64, String> {
         .collect()
 }
 
-fn parse_ids(s: &str, index: &mut HashMap<i64, u32>, ids: &mut Vec<i64>, out: &mut Vec<u32>) {
-    let mut cur: i64 = 0;
-    let mut have = false;
-    for c in s.bytes() {
-        if c.is_ascii_digit() {
-            cur = cur * 10 + (c - b'0') as i64;
-            have = true;
-        } else if have {
-            let n = ids.len() as u32;
-            out.push(*index.entry(cur).or_insert_with(|| {
-                ids.push(cur);
-                n
-            }));
-            cur = 0;
-            have = false;
-        }
+/// Ids of one kind numbered in order of first appearance, so an entity is
+/// one `u32` everywhere downstream.
+struct Interner<K> {
+    index: HashMap<K, u32>,
+    ids: Vec<K>,
+}
+
+impl<K: std::hash::Hash + Eq + Clone> Interner<K> {
+    fn new() -> Interner<K> {
+        Interner { index: HashMap::new(), ids: Vec::new() }
     }
-    if have {
-        let n = ids.len() as u32;
-        out.push(*index.entry(cur).or_insert_with(|| {
-            ids.push(cur);
+
+    fn get(&mut self, k: K) -> u32 {
+        let n = self.ids.len() as u32;
+        *self.index.entry(k.clone()).or_insert_with(|| {
+            self.ids.push(k);
             n
-        }));
+        })
     }
+}
+
+/// Every run of digits in `s` as an id, interned.
+fn parse_ids(s: &str, ids: &mut Interner<i64>) -> Vec<u32> {
+    s.split(|c: char| !c.is_ascii_digit()).filter(|x| !x.is_empty()).filter_map(|x| x.parse().ok()).map(|v| ids.get(v)).collect()
 }
 
 /// Pulls one numeric field out of the old system's per-result JSON blob.
@@ -192,13 +192,31 @@ fn parse_mask(s: &str, out: &mut Vec<u8>) {
 /// are one field. Each group is folded into its lowest id, provided every
 /// result carries a score, and re-ranked by it, ties sharing the mean place.
 fn merge_cities(ts: &mut Vec<Tournament>, days: i32) {
+    let into = merge_targets(ts, days);
+    let mut merged = vec![false; ts.len()];
+    for (k, first) in into.iter().enumerate() {
+        let Some(first) = *first else { continue };
+        let teams = std::mem::take(&mut ts[k].teams);
+        ts[first].teams.extend(teams);
+        ts[first].id = ts[first].id.min(ts[k].id);
+        merged[first] = true;
+    }
+    for (t, _) in ts.iter_mut().zip(&merged).filter(|(_, &m)| m) {
+        rescore(t);
+    }
+    let folded = into.iter().filter(|x| x.is_some()).count();
+    let groups = merged.iter().filter(|&&m| m).count();
+    ts.retain(|t| !t.teams.is_empty());
+    eprintln!("merge_cities: {folded} fields folded into {groups} tournaments");
+}
+
+/// For every tournament, the earlier one of its group it folds into, if any.
+fn merge_targets(ts: &[Tournament], days: i32) -> Vec<Option<usize>> {
     let mut key_of: HashMap<(Vec<u32>, usize), Vec<(i32, usize)>> = HashMap::new();
-    let mut into: Vec<Option<usize>> = vec![None; ts.len()];
+    let mut into = vec![None; ts.len()];
     for (k, t) in ts.iter().enumerate() {
-        if t.format != Format::InPerson || t.train_only || t.editors.is_empty() || t.n_q == 0 {
-            continue;
-        }
-        if t.teams.iter().any(|r| r.score.is_none()) {
+        let mergeable = t.format == Format::InPerson && !t.train_only && !t.editors.is_empty() && t.n_q > 0;
+        if !mergeable || t.teams.iter().any(|r| r.score.is_none()) {
             continue;
         }
         let mut ed = t.editors.clone();
@@ -209,55 +227,30 @@ fn merge_cities(ts: &mut Vec<Tournament>, days: i32) {
             None => firsts.push((t.day, k)),
         }
     }
-    let mut merged = vec![false; ts.len()];
-    for k in 0..ts.len() {
-        if let Some(first) = into[k] {
-            let teams = std::mem::take(&mut ts[k].teams);
-            ts[first].teams.extend(teams);
-            if ts[k].id < ts[first].id {
-                ts[first].id = ts[k].id;
-            }
-            merged[first] = true;
+    into
+}
+
+/// A question dropped at any venue is dropped at all of them, and the scores
+/// are recounted and re-ranked, so every venue plays for the same questions.
+fn rescore(t: &mut Tournament) {
+    let nq = t.teams.iter().map(|r| r.mask.len()).max().unwrap_or(0);
+    let mut drop = vec![false; nq];
+    for r in t.teams.iter().filter(|r| !r.mask.is_empty()) {
+        for (q, d) in drop.iter_mut().enumerate() {
+            *d |= r.mask.get(q).is_none_or(|&y| y == SKIP);
         }
     }
-    let (mut groups, mut folded) = (0, 0);
-    for (k, t) in ts.iter_mut().enumerate() {
-        if into[k].is_some() {
-            folded += 1;
-        }
-        if !merged[k] {
-            continue;
-        }
-        groups += 1;
-        // A question dropped at any venue is dropped at all of them, and the
-        // scores are recounted, so every venue plays for the same questions.
-        let nq = t.teams.iter().map(|r| r.mask.len()).max().unwrap_or(0);
-        let mut drop = vec![false; nq];
-        for r in t.teams.iter().filter(|r| !r.mask.is_empty()) {
-            for (q, d) in drop.iter_mut().enumerate() {
-                if r.mask.get(q).map_or(true, |&y| y == SKIP) {
-                    *d = true;
-                }
-            }
-        }
-        for r in t.teams.iter_mut().filter(|r| !r.mask.is_empty()) {
-            r.mask.resize(nq, SKIP);
-            for (q, &d) in drop.iter().enumerate() {
-                if d {
-                    r.mask[q] = SKIP;
-                }
-            }
-            r.score = Some(r.mask.iter().filter(|&&y| y == CORRECT).count() as f64);
-        }
-        let s: Vec<f64> = t.teams.iter().map(|r| r.score.unwrap_or(0.0)).collect();
-        for (i, r) in t.teams.iter_mut().enumerate() {
-            let above = s.iter().filter(|&&x| x > s[i]).count() as f64;
-            let level = s.iter().filter(|&&x| x == s[i]).count() as f64;
-            r.position = above + (level + 1.0) / 2.0;
-        }
+    for r in t.teams.iter_mut().filter(|r| !r.mask.is_empty()) {
+        r.mask.resize(nq, SKIP);
+        r.mask.iter_mut().zip(&drop).filter(|(_, &d)| d).for_each(|(y, _)| *y = SKIP);
+        r.score = Some(r.mask.iter().filter(|&&y| y == CORRECT).count() as f64);
     }
-    ts.retain(|t| !t.teams.is_empty());
-    eprintln!("merge_cities: {folded} fields folded into {groups} tournaments");
+    let s: Vec<f64> = t.teams.iter().map(|r| r.score.unwrap_or(0.0)).collect();
+    for (r, &x) in t.teams.iter_mut().zip(&s) {
+        let above = s.iter().filter(|&&y| y > x).count() as f64;
+        let level = s.iter().filter(|&&y| y == x).count() as f64;
+        r.position = above + (level + 1.0) * HALF;
+    }
 }
 
 /// The roster history `tools/prep_gg_inputs.py` writes from chgk.gg's dump, and
@@ -265,68 +258,105 @@ fn merge_cities(ts: &mut Vec<Tournament>, days: i32) {
 pub const BASE_ROSTERS: &str = "data/external/chgk_gg/base_rosters.csv";
 pub const SEASONS: &str = "data/external/chgk_gg/seasons.csv";
 
+/// `(team, player, season, added, removed)` of one base-roster entry.
+type RosterEntry = (i64, i64, i64, Option<i32>, Option<i32>);
+type Rosters = HashMap<(i64, i64), Vec<(i32, i32)>>;
+
 /// For each (team, player) the day ranges they were on its base roster: the
 /// chgk.gg history, joined with `buff.db`'s `team_seasons`, which holds the two
 /// current seasons and so keeps the daily update current. An entry with no end
 /// runs to the end of its season.
-fn base_rosters(conn: &Connection) -> HashMap<(i64, i64), Vec<(i32, i32)>> {
-    let mut season_end: HashMap<i64, i32> = HashMap::new();
-    for l in std::fs::read_to_string(SEASONS).unwrap_or_default().lines().skip(1) {
-        let f: Vec<&str> = l.trim().split(',').collect();
-        if let (Some(Ok(id)), Some(e)) = (f.first().map(|x| x.parse()), f.get(2).and_then(|x| parse_date(x))) {
-            season_end.insert(id, e);
-        }
-    }
-    let mut m: HashMap<(i64, i64), Vec<(i32, i32)>> = HashMap::new();
-    let mut add = |t: i64, pl: i64, s: i64, a: Option<i32>, b: Option<i32>| {
+fn base_rosters(conn: &Connection) -> Rosters {
+    let season_end = season_ends();
+    let mut m = Rosters::new();
+    for (t, pl, s, a, b) in roster_csv().into_iter().chain(roster_db(conn)) {
         if let Some(a) = a {
             let b = b.or(season_end.get(&s).copied()).unwrap_or(i32::MAX);
             m.entry((t, pl)).or_default().push((a, b));
         }
-    };
-    let csv = std::fs::read_to_string(BASE_ROSTERS).unwrap_or_default();
-    if csv.is_empty() {
-        eprintln!("warning: no {BASE_ROSTERS}; base rosters from buff.db alone");
-    }
-    for l in csv.lines().skip(1) {
-        let f: Vec<&str> = l.trim().split(',').collect();
-        if let (Some(Ok(t)), Some(Ok(pl)), Some(Ok(s))) = (
-            f.first().map(|x| x.parse()),
-            f.get(1).map(|x| x.parse()),
-            f.get(2).map(|x| x.parse()),
-        ) {
-            add(t, pl, s, f.get(3).and_then(|x| parse_date(x)), f.get(4).and_then(|x| parse_date(x)));
-        }
-    }
-    let rows = conn
-        .prepare(
-            "SELECT team_id, player_id, season_id, substr(date_added,1,10), substr(date_removed,1,10)
-             FROM team_seasons",
-        )
-        .and_then(|mut st| {
-            st.query_map([], |r| {
-                Ok((
-                    r.get::<_, i64>(0)?,
-                    r.get::<_, i64>(1)?,
-                    r.get::<_, i64>(2)?,
-                    r.get::<_, Option<String>>(3)?,
-                    r.get::<_, Option<String>>(4)?,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()
-        })
-        .unwrap_or_default();
-    for (t, pl, s, a, b) in rows {
-        add(t, pl, s, a.as_deref().and_then(parse_date), b.as_deref().and_then(parse_date));
     }
     m
 }
 
+/// The comma-separated fields of every line of `path` after its header.
+fn csv_fields(path: &str) -> Vec<Vec<String>> {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    text.lines().skip(1).map(|l| l.trim().split(',').map(str::to_string).collect()).collect()
+}
+
+fn season_ends() -> HashMap<i64, i32> {
+    let end = |f: &Vec<String>| Some((f.first()?.parse().ok()?, parse_date(f.get(SEASON_END)?)?));
+    csv_fields(SEASONS).iter().filter_map(end).collect()
+}
+
+fn roster_csv() -> Vec<RosterEntry> {
+    let rows = csv_fields(BASE_ROSTERS);
+    if rows.is_empty() {
+        eprintln!("warning: no {BASE_ROSTERS}; base rosters from buff.db alone");
+    }
+    let day = |f: &Vec<String>, i: usize| f.get(i).and_then(|x| parse_date(x));
+    let entry = |f: &Vec<String>| {
+        Some((f.first()?.parse().ok()?, f.get(1)?.parse().ok()?, f.get(2)?.parse().ok()?, day(f, ROSTER_ADDED), day(f, ROSTER_REMOVED)))
+    };
+    rows.iter().filter_map(entry).collect()
+}
+
+fn roster_db(conn: &Connection) -> Vec<RosterEntry> {
+    let sql = "SELECT team_id, player_id, season_id, substr(date_added,1,10), substr(date_removed,1,10) FROM team_seasons";
+    let day = |s: Option<String>| s.as_deref().and_then(parse_date);
+    let read = |r: &rusqlite::Row| Ok((r.get(0)?, r.get(1)?, r.get(2)?, day(r.get(ROSTER_ADDED)?), day(r.get(ROSTER_REMOVED)?)));
+    conn.prepare(sql).and_then(|mut st| st.query_map([], read)?.collect()).unwrap_or_default()
+}
+
+/// The columns of the results query in `load`.
+const C_ID: usize = 0;
+const C_DATE: usize = 1;
+const C_TYPE: usize = 2;
+const C_EDITORS: usize = 3;
+const C_TEAM: usize = 4;
+const C_POSITION: usize = 5;
+const C_SCORE: usize = 6;
+const C_MASK: usize = 7;
+const C_MEMBERS: usize = 8;
+const C_RATING: usize = 9;
+const C_QUESTIONS: usize = 10;
+const C_IN_RATING: usize = 11;
+const C_TOWN: usize = 12;
+const C_TEAM_TOWN: usize = 13;
+/// The date columns of the roster files and of `team_seasons`.
+const SEASON_END: usize = 2;
+const ROSTER_ADDED: usize = 3;
+const ROSTER_REMOVED: usize = 4;
+const HALF: f64 = 0.5;
+
 pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error> {
-    let conn = Connection::open_with_flags(
-        &cfg.data.db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )?;
+    let conn = Connection::open_with_flags(&cfg.data.db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut stmt = conn.prepare(&results_sql(cfg))?;
+    let mut rows = stmt.query([from, to])?;
+    let mut ld = Loader::new(cfg);
+    let mut skip_id = i64::MIN;
+    while let Some(row) = rows.next()? {
+        let tid: i64 = row.get(C_ID)?;
+        if tid == skip_id {
+            continue;
+        }
+        if ld.tournaments.last().map(|t| t.id) != Some(tid) {
+            match ld.tournament(row)? {
+                Some(t) => ld.tournaments.push(t),
+                None => {
+                    skip_id = tid;
+                    continue;
+                }
+            }
+        }
+        ld.result(row)?;
+    }
+    Ok(ld.finish(&conn))
+}
+
+/// Every result of the window, the official system's unrated tournaments in
+/// or out as `data` says.
+fn results_sql(cfg: &Config) -> String {
     let rated = if cfg.data.include_unrated || cfg.data.train_unrated {
         ""
     } else if cfg.data.unrated_in_person {
@@ -334,173 +364,124 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
     } else {
         "t.in_rating = 1 AND"
     };
-    let mut stmt = conn.prepare(&format!(
+    format!(
         "SELECT t.id, substr(t.date_start,1,10), t.tournament_type, t.editors,
                 r.team_id, r.position, r.questions_total, r.mask, r.team_members, r.rating,
                 t.questions_by_tour, t.in_rating, t.town_id, r.team_current_town
          FROM tournaments t JOIN tournament_results r ON r.id = t.id
          WHERE {rated} substr(t.date_start,1,10) >= ?1 AND substr(t.date_start,1,10) < ?2
          ORDER BY substr(t.date_start,1,10), t.id"
-    ))?;
-    let mut rows = stmt.query([from, to])?;
+    )
+}
 
-    let mut pidx: HashMap<i64, u32> = HashMap::new();
-    let mut player_ids: Vec<i64> = Vec::new();
-    let mut eidx: HashMap<i64, u32> = HashMap::new();
-    let mut editor_ids: Vec<i64> = Vec::new();
-    let mut tidx: HashMap<i64, u32> = HashMap::new();
-    let mut team_ids: Vec<i64> = Vec::new();
-    let mut tournaments: Vec<Tournament> = Vec::new();
-    let mut skip_id: i64 = i64::MIN;
-    // One index per town name, shared by the tournament's own town and by the
-    // towns the teams are registered in.
-    let names = town_names(TOWNS);
-    let mut wnames: Vec<String> = Vec::new();
-    let mut widx: HashMap<String, u32> = HashMap::new();
-    let mut town_of = |name: Option<String>| -> u32 {
-        let Some(name) = name.filter(|s| !s.is_empty()) else {
-            return u32::MAX;
+/// The arena as it is read, one result row at a time.
+struct Loader<'a> {
+    cfg: &'a Config,
+    players: Interner<i64>,
+    editors: Interner<i64>,
+    teams: Interner<i64>,
+    /// One index per town name, shared by the tournament's own town and by the
+    /// towns the teams are registered in.
+    towns: Interner<String>,
+    names: HashMap<i64, String>,
+    tournaments: Vec<Tournament>,
+}
+
+impl<'a> Loader<'a> {
+    fn new(cfg: &'a Config) -> Loader<'a> {
+        Loader {
+            cfg,
+            players: Interner::new(),
+            editors: Interner::new(),
+            teams: Interner::new(),
+            towns: Interner::new(),
+            names: town_names(TOWNS),
+            tournaments: Vec::new(),
+        }
+    }
+
+    fn town(&mut self, name: Option<String>) -> u32 {
+        name.filter(|s| !s.is_empty()).map_or(u32::MAX, |n| self.towns.get(n))
+    }
+
+    /// The tournament a row opens, or `None` for one the window leaves out:
+    /// no date, an unknown format, or a weight of zero. `train_unrated` keeps
+    /// the unrated tournaments for the player side only, at a weight of their
+    /// own; `include_unrated` treats them as ordinary tournaments, which is the
+    /// switch round 2 measured.
+    fn tournament(&mut self, row: &rusqlite::Row) -> rusqlite::Result<Option<Tournament>> {
+        let (cfg, id) = (self.cfg, row.get(C_ID)?);
+        let date: String = row.get(C_DATE)?;
+        let kind: Option<String> = row.get(C_TYPE)?;
+        let (Some(day), Some(format)) = (parse_date(&date), kind.as_deref().and_then(Format::parse)) else {
+            return Ok(None);
         };
-        let n = wnames.len() as u32;
-        *widx.entry(name.clone()).or_insert_with(|| {
-            wnames.push(name);
-            n
-        })
-    };
+        let in_rating: i64 = row.get::<_, Option<i64>>(C_IN_RATING)?.unwrap_or(0);
+        let train_only = cfg.data.train_unrated && !cfg.data.include_unrated && in_rating == 0;
+        let weight = format.weight(cfg) * if train_only { cfg.data.w_unrated } else { 1.0 };
+        if weight <= 0.0 {
+            return Ok(None);
+        }
+        let editors = row.get::<_, Option<String>>(C_EDITORS)?.map_or(Vec::new(), |e| parse_ids(&e, &mut self.editors));
+        // Tournaments whose results carry no mask still need a question count
+        // for the pairwise scale; the tournament row declares it.
+        let declared = row.get::<_, Option<String>>(C_QUESTIONS)?;
+        let n_q_declared = declared.map_or(0, |s| s.split(',').filter_map(|x| x.trim().parse::<usize>().ok()).sum());
+        let town_name = row.get::<_, Option<i64>>(C_TOWN)?.and_then(|i| self.names.get(&i).cloned());
+        let town = self.town(town_name);
+        Ok(Some(Tournament { id, day, format, weight, train_only, town, editors, teams: Vec::new(), n_q: 0, n_q_declared }))
+    }
 
-    while let Some(row) = rows.next()? {
-        let tid: i64 = row.get(0)?;
-        if tid == skip_id {
-            continue;
-        }
-        if tournaments.last().map(|t| t.id) != Some(tid) {
-            let date: String = row.get(1)?;
-            let kind: Option<String> = row.get(2)?;
-            let format = kind.as_deref().and_then(Format::parse);
-            let (day, format) = match (parse_date(&date), format) {
-                (Some(d), Some(f)) => (d, f),
-                _ => {
-                    skip_id = tid;
-                    continue;
-                }
-            };
-            // `train_unrated` keeps the unrated tournaments for the player side
-            // only, at a weight of their own; `include_unrated` treats them as
-            // ordinary tournaments, which is the switch round 2 measured.
-            let in_rating: i64 = row.get::<_, Option<i64>>(11)?.unwrap_or(0);
-            let train_only = cfg.data.train_unrated && !cfg.data.include_unrated && in_rating == 0;
-            let mut weight = format.weight(cfg);
-            if train_only {
-                weight *= cfg.data.w_unrated;
-            }
-            if weight <= 0.0 {
-                skip_id = tid;
-                continue;
-            }
-            let mut editors = Vec::new();
-            if let Some(e) = row.get::<_, Option<String>>(3)? {
-                parse_ids(&e, &mut eidx, &mut editor_ids, &mut editors);
-            }
-            // Tournaments whose results carry no mask still need a question count
-            // for the pairwise scale; the tournament row declares it.
-            let declared: usize = row
-                .get::<_, Option<String>>(10)?
-                .map(|s| {
-                    s.split(',')
-                        .filter_map(|x| x.trim().parse::<usize>().ok())
-                        .sum()
-                })
-                .unwrap_or(0);
-            let town = town_of(
-                row.get::<_, Option<i64>>(12)?
-                    .and_then(|i| names.get(&i).cloned()),
-            );
-            tournaments.push(Tournament {
-                id: tid,
-                day,
-                format,
-                weight,
-                train_only,
-                town,
-                editors,
-                teams: Vec::new(),
-                n_q: 0,
-                n_q_declared: declared,
-            });
-        }
-        let mut members = Vec::new();
-        if let Some(m) = row.get::<_, Option<String>>(8)? {
-            parse_ids(&m, &mut pidx, &mut player_ids, &mut members);
-        }
+    /// One result of the current tournament.
+    fn result(&mut self, row: &rusqlite::Row) -> rusqlite::Result<()> {
+        let members = row.get::<_, Option<String>>(C_MEMBERS)?.map_or(Vec::new(), |m| parse_ids(&m, &mut self.players));
         let mut mask = Vec::new();
-        if let Some(m) = row.get::<_, Option<String>>(7)? {
+        if let Some(m) = row.get::<_, Option<String>>(C_MASK)? {
             parse_mask(&m, &mut mask);
         }
-        let score: Option<f64> = row
-            .get::<_, Option<String>>(6)?
-            .and_then(|s| s.trim().parse().ok());
-        let rating_json: Option<String> = row.get(9)?;
-        let pred_pos = rating_json
-            .as_deref()
-            .and_then(|s| json_number(s, "\"predictedPosition\""));
-        let rated = rating_json
-            .as_deref()
-            .is_some_and(|s| json_true(s, "\"inRating\""));
-        let team_id: i64 = row.get(4)?;
-        let n = team_ids.len() as u32;
-        let team = *tidx.entry(team_id).or_insert_with(|| {
-            team_ids.push(team_id);
-            n
-        });
-        let town = town_of(row.get::<_, Option<String>>(13)?);
-        let t = tournaments.last_mut().unwrap();
+        let score: Option<f64> = row.get::<_, Option<String>>(C_SCORE)?.and_then(|s| s.trim().parse().ok());
+        let rating_json: Option<String> = row.get(C_RATING)?;
+        let pred_pos = rating_json.as_deref().and_then(|s| json_number(s, "\"predictedPosition\""));
+        let rated = rating_json.as_deref().is_some_and(|s| json_true(s, "\"inRating\""));
+        let team = self.teams.get(row.get(C_TEAM)?);
+        let town = self.town(row.get(C_TEAM_TOWN)?);
+        let position = row.get::<_, Option<f64>>(C_POSITION)?.unwrap_or(0.0);
+        let Some(t) = self.tournaments.last_mut() else { return Ok(()) };
         t.n_q = t.n_q.max(mask.len());
-        let position = row.get::<_, Option<f64>>(5)?.unwrap_or(0.0);
         let venue = t.id;
-        t.teams.push(TeamResult {
-            team,
-            position,
-            venue,
-            venue_position: position,
-            score,
-            pred_pos,
-            rated,
-            town,
-            base: Vec::new(),
-            members,
-            mask,
-        });
+        let base = Vec::new();
+        t.teams.push(TeamResult { team, position, venue, venue_position: position, score, pred_pos, rated, town, base, members, mask });
+        Ok(())
     }
-    tournaments.retain(|t| !t.teams.is_empty());
-    if cfg.data.merge_cities {
-        merge_cities(&mut tournaments, cfg.data.merge_days);
-    }
-    let rosters = base_rosters(&conn);
-    for t in tournaments.iter_mut() {
-        let day = t.day;
-        for r in t.teams.iter_mut() {
-            let team = team_ids[r.team as usize];
-            r.base = r
-                .members
-                .iter()
-                .map(|&m| {
-                    rosters
-                        .get(&(team, player_ids[m as usize]))
-                        .is_some_and(|v| v.iter().any(|&(a, b)| day >= a && day <= b))
-                })
-                .collect();
+
+    fn finish(mut self, conn: &Connection) -> Arena {
+        self.tournaments.retain(|t| !t.teams.is_empty());
+        if self.cfg.data.merge_cities {
+            merge_cities(&mut self.tournaments, self.cfg.data.merge_days);
+        }
+        let rosters = base_rosters(conn);
+        for t in self.tournaments.iter_mut() {
+            mark_base(t, &rosters, &self.teams.ids, &self.players.ids);
+            if t.n_q == 0 {
+                t.n_q = t.n_q_declared;
+            }
+        }
+        Arena {
+            tournaments: self.tournaments,
+            player_ids: self.players.ids,
+            editor_ids: self.editors.ids,
+            team_ids: self.teams.ids,
+            towns: self.towns.ids,
         }
     }
-    for t in tournaments.iter_mut() {
-        if t.n_q == 0 {
-            t.n_q = t.n_q_declared;
-        }
+}
+
+/// Whether each member of each result was on the team's base roster that day.
+fn mark_base(t: &mut Tournament, rosters: &Rosters, team_ids: &[i64], player_ids: &[i64]) {
+    let day = t.day;
+    for r in t.teams.iter_mut() {
+        let team = team_ids[r.team as usize];
+        let on = |&m: &u32| rosters.get(&(team, player_ids[m as usize])).is_some_and(|v| v.iter().any(|&(a, b)| day >= a && day <= b));
+        r.base = r.members.iter().map(on).collect();
     }
-    Ok(Arena {
-        tournaments,
-        player_ids,
-        editor_ids,
-        team_ids,
-        towns: wnames,
-    })
 }

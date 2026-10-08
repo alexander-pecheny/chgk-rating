@@ -5,6 +5,7 @@
 use chgk_rating::data::Format;
 use chgk_rating::output::Writer;
 use chgk_rating::team_event::TeamEvent;
+use chgk_rating::output::TournamentMetrics;
 use chgk_rating::util::{avg_ranks, civil_from_days, days_from_civil, format_date, parse_date, spearman};
 use rayon::prelude::*;
 use rusqlite::Connection;
@@ -626,19 +627,8 @@ fn run_tournament(t: &Tour, arena: &Arena, st: &mut State, w: &Writer) -> rusqli
         .map(|e| (e.forecast_place, e.actual_place))
         .unzip();
     let n_obs: u64 = qs_of.iter().map(|q| q.len() as u64).sum();
-    w.tournament_metrics(
-        t.id,
-        &date,
-        t.kind,
-        weight,
-        t.res.len(),
-        qv.len(),
-        n_obs,
-        None,
-        None,
-        spearman(&fp, &ap),
-        None,
-        Some(hardness),
-    )?;
+    let field = TournamentMetrics::field(t.id, &date, t.kind, weight, t.res.len(), qv.len());
+    let sp_forecast = spearman(&fp, &ap);
+    w.tournament_metrics(&TournamentMetrics { n_obs, sp_forecast, truedl: Some(hardness), ..field })?;
     Ok(())
 }

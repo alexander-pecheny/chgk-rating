@@ -7,6 +7,17 @@ use crate::team_event::TeamEvent;
 use crate::question_model::{realised_strength, Players, QParams};
 use rayon::prelude::*;
 
+const DAYS_PER_YEAR: f64 = 365.25;
+/// The package size `beta` is quoted for.
+const BASE_PACKAGE: usize = 36;
+/// Floors that keep a ratio finite.
+const SMALL: f64 = 1e-9;
+const TINY: f64 = 1e-12;
+/// At most this share of a team's evidence leaves in one tournament.
+const MAX_LOST: f64 = 0.9;
+/// A player's evidence for a team is forgotten below this.
+const MIN_EVIDENCE: f64 = 0.01;
+
 /// Roster estimate of a lineup and its variance; DESIGN 4.1.
 /// `z` holds theta_i + aff_i,t and `var` the matching player variances.
 pub fn roster_estimate(z: &[f64], var: &[f64], cfg: &Config) -> (f64, f64) {
@@ -50,7 +61,7 @@ impl TeamState {
         self.ev.iter().map(|(_, e, _)| *e).sum()
     }
     pub fn sigma_at(&self, day: i32, _cfg: &Config) -> f64 {
-        let dt = ((day - self.last_day).max(0) as f64) / 365.25;
+        let dt = ((day - self.last_day).max(0) as f64) / DAYS_PER_YEAR;
         (self.var + self.vol * self.vol * dt).sqrt()
     }
 }
@@ -114,41 +125,16 @@ impl Teams {
             fplace[i] = (k + 1) as f64;
         }
         let tm = &cfg.team;
-        let n_q = if t.n_q == 0 { 36 } else { t.n_q };
-        let beta_t = tm.beta * (36.0 / n_q as f64).sqrt();
+        let n_q = if t.n_q == 0 { BASE_PACKAGE } else { t.n_q };
+        let beta_t = tm.beta * (BASE_PACKAGE as f64 / n_q as f64).sqrt();
         let scale = if n > 1 { tm.nu.min((n - 1) as f64) / (n - 1) as f64 } else { 0.0 };
         let si = pair_stats(&es, beta_t, scale, cfg);
         let first_place = es.iter().map(|e| e.place).fold(f64::INFINITY, f64::min);
         let step = Step { t, shift: players.shift_cum, beta_t, scale, first_place };
         let mut out = Vec::with_capacity(n);
         for (k, e) in es.iter().enumerate() {
-            let (s_pair, i_pair, expected_place) = si[k];
-            let mut ev = TeamEvent {
-                d_place: f64::NAN,
-                d_pull: f64::NAN,
-                team: e.idx as u32,
-                c: e.c,
-                delta_l: e.delta,
-                x: e.x,
-                forecast: e.forecast,
-                forecast_place: fplace[k],
-                expected_place,
-                actual_place: e.place,
-                pred_place: t.teams[e.ri].pred_pos,
-                s_r: e.sr.map_or(f64::NAN, |p| p.0 + tm.roster_bias),
-                sigma_before: e.var.sqrt(),
-                sigma_after: e.var.sqrt(),
-                evidence: e.evidence,
-                gap_days: e.gap_days,
-                var_diff: e.var_diff,
-                lost_prev: e.lost_prev,
-                rated: e.rated,
-                z: e.z,
-                s_pair,
-                i_pair,
-                mu_before: e.mu_before,
-                mu_after: f64::NAN,
-            };
+            let (s_pair, i_pair, _) = si[k];
+            let mut ev = event(e, si[k], fplace[k], t, cfg);
             if let Some(st) = self.state[e.idx].as_mut() {
                 ev.mu_after = update(st, e, s_pair, i_pair, &step, cfg);
                 ev.sigma_after = st.var.sqrt();
@@ -172,47 +158,82 @@ impl Teams {
         params: &[QParams],
         cfg: &Config,
     ) -> Option<Entry> {
-        let (tm, shift, idx) = (&cfg.team, players.shift_cum, r.team as usize);
-        let sr = (!r.members.is_empty()).then(|| {
-            let z: Vec<f64> =
-                r.members.iter().map(|&i| players.theta(i as usize) + players.affinity(i as usize, vbar)).collect();
-            let var: Vec<f64> = r.members.iter().map(|&i| players.state[i as usize].var).collect();
-            roster_estimate(&z, &var, cfg)
-        });
-        let mut gap_days = -1;
-        let mut var_diff = 0.0;
-        match &mut self.state[idx] {
-            Some(s) => {
-                gap_days = (t.day - s.last_day).max(0);
-                var_diff = s.vol * s.vol * gap_days as f64 / 365.25;
-                s.var += var_diff;
-            }
+        let idx = r.team as usize;
+        let sr = (!r.members.is_empty()).then(|| lineup_estimate(r, players, vbar, cfg));
+        let (gap_days, var_diff) = match &mut self.state[idx] {
+            Some(s) => age(s, t.day),
             None => {
                 let (s_r, v) = sr?;
                 // An unrated result never opens a state; it stands in the field
                 // at its lineup.
                 if !r.rated {
-                    return Some(Entry::unrated(ri, idx, r, sr, s_r + tm.roster_bias, v));
+                    return Some(Entry::unrated(ri, idx, r, sr, s_r + cfg.team.roster_bias, v));
                 }
-                self.state[idx] = Some(TeamState {
-                    mu_raw: s_r + tm.roster_bias + shift,
-                    var: v + tm.sigma_new_team * tm.sigma_new_team,
-                    core_raw: s_r + shift,
-                    ev: Vec::new(),
-                    last_day: t.day,
-                    lost_prev: 0.0,
-                    vol: tm.tau_t,
-                });
+                self.state[idx] = Some(TeamState::open(s_r, v, players.shift_cum, t.day, cfg));
+                (-1, 0.0)
             }
-        }
-        let s = self.state[idx].as_ref()?;
-        let e_tot = s.evidence();
-        let c = if e_tot <= 0.0 {
-            1.0
-        } else {
-            r.members.iter().filter_map(|i| s.ev.iter().find(|(j, _, _)| j == i)).map(|(_, e, _)| *e).sum::<f64>()
-                / e_tot
         };
+        let s = self.state[idx].as_ref()?;
+        let mut e = Entry::of(s, r, sr, players.shift_cum, cfg);
+        (e.ri, e.idx, e.gap_days, e.var_diff) = (ri, idx, gap_days, var_diff);
+        e.real = realised(r, params, cfg);
+        // Against the team's own strength `x = mu + delta`, not the blended forecast.
+        let x = e.mu_before + e.delta;
+        e.z = e.real.map(|real| (real - x) / (s.var + cfg.team.sigma_model * cfg.team.sigma_model).sqrt());
+        Some(e)
+    }
+}
+
+/// The roster estimate of a lineup and its variance, from the players' state.
+fn lineup_estimate(r: &TeamResult, players: &Players, vbar: &[f64], cfg: &Config) -> (f64, f64) {
+    let z: Vec<f64> = r.members.iter().map(|&i| players.theta(i as usize) + players.affinity(i as usize, vbar)).collect();
+    let var: Vec<f64> = r.members.iter().map(|&i| players.state[i as usize].var).collect();
+    roster_estimate(&z, &var, cfg)
+}
+
+/// The variance a team gains for the time since its last game, as `(days,
+/// variance added)`.
+fn age(s: &mut TeamState, day: i32) -> (i32, f64) {
+    let gap_days = (day - s.last_day).max(0);
+    let var_diff = s.vol * s.vol * gap_days as f64 / DAYS_PER_YEAR;
+    s.var += var_diff;
+    (gap_days, var_diff)
+}
+
+/// The realised strength of a result, from the questions it took.
+fn realised(r: &TeamResult, params: &[QParams], cfg: &Config) -> Option<f64> {
+    if r.mask.is_empty() {
+        return None;
+    }
+    let hits = r.mask.iter().filter(|&&y| y == CORRECT).count() as f64;
+    realised_strength(params, &r.mask, hits, cfg)
+}
+
+impl TeamState {
+    /// A new team at its first lineup, as uncertain as a new team is.
+    fn open(s_r: f64, v: f64, shift: f64, day: i32, cfg: &Config) -> TeamState {
+        let tm = &cfg.team;
+        TeamState {
+            mu_raw: s_r + tm.roster_bias + shift,
+            var: v + tm.sigma_new_team * tm.sigma_new_team,
+            core_raw: s_r + shift,
+            ev: Vec::new(),
+            last_day: day,
+            lost_prev: 0.0,
+            vol: tm.tau_t,
+        }
+    }
+}
+
+impl Entry {
+    /// A result of a team with a state: how much of the team's evidence its
+    /// lineup carries, the lineup offset, and the forecast that blends the two.
+    /// The caller fills in the position in the field and the realised strength.
+    fn of(s: &TeamState, r: &TeamResult, sr: Option<(f64, f64)>, shift: f64, cfg: &Config) -> Entry {
+        let tm = &cfg.team;
+        let e_tot = s.evidence();
+        let own: f64 = r.members.iter().filter_map(|i| s.ev.iter().find(|(j, _, _)| j == i)).map(|(_, e, _)| *e).sum();
+        let c = if e_tot <= 0.0 { 1.0 } else { own / e_tot };
         let mu = s.mu_raw - shift;
         let delta = sr.map_or(0.0, |(v, _)| v - (s.core_raw - shift));
         let x = mu + delta;
@@ -223,16 +244,9 @@ impl Teams {
             }
             None => x,
         };
-        let real = (!r.mask.is_empty())
-            .then(|| {
-                let hits = r.mask.iter().filter(|&&y| y == CORRECT).count() as f64;
-                realised_strength(params, &r.mask, hits, cfg)
-            })
-            .flatten();
-        let z = real.map(|real| (real - x) / (s.var + tm.sigma_model * tm.sigma_model).sqrt());
-        Some(Entry {
-            ri,
-            idx,
+        Entry {
+            ri: 0,
+            idx: 0,
             // An unrated lineup stands in the field at its forecast strength.
             x: if r.rated { x } else { forecast },
             c,
@@ -244,17 +258,15 @@ impl Teams {
             score: r.score,
             var: s.var,
             evidence: e_tot,
-            gap_days,
-            var_diff,
+            gap_days: 0,
+            var_diff: 0.0,
             lost_prev: s.lost_prev,
             rated: r.rated,
-            real,
-            z,
-        })
+            real: None,
+            z: None,
+        }
     }
-}
 
-impl Entry {
     fn unrated(ri: usize, idx: usize, r: &TeamResult, sr: Option<(f64, f64)>, x: f64, var: f64) -> Entry {
         Entry {
             ri,
@@ -276,6 +288,36 @@ impl Entry {
             real: None,
             z: None,
         }
+    }
+}
+
+/// The row of one result, as it stood before the update.
+fn event(e: &Entry, (s_pair, i_pair, expected_place): (f64, f64, f64), forecast_place: f64, t: &Tournament, cfg: &Config) -> TeamEvent {
+    TeamEvent {
+        d_place: f64::NAN,
+        d_pull: f64::NAN,
+        team: e.idx as u32,
+        c: e.c,
+        delta_l: e.delta,
+        x: e.x,
+        forecast: e.forecast,
+        forecast_place,
+        expected_place,
+        actual_place: e.place,
+        pred_place: t.teams[e.ri].pred_pos,
+        s_r: e.sr.map_or(f64::NAN, |p| p.0 + cfg.team.roster_bias),
+        sigma_before: e.var.sqrt(),
+        sigma_after: e.var.sqrt(),
+        evidence: e.evidence,
+        gap_days: e.gap_days,
+        var_diff: e.var_diff,
+        lost_prev: e.lost_prev,
+        rated: e.rated,
+        z: e.z,
+        s_pair,
+        i_pair,
+        mu_before: e.mu_before,
+        mu_after: f64::NAN,
     }
 }
 
@@ -330,8 +372,8 @@ fn update(st: &mut TeamState, e: &Entry, s_pair: f64, i_pair: f64, step: &Step, 
     }
     st.var /= tm.forget.powf(t.weight * e.c);
     if tm.surprise_z0 > 0.0 {
-        let i_raw = i_pair / step.scale.max(1e-12);
-        let z_raw = (s_pair * beta_t / i_pair.max(1e-9)) / (st.var + beta_t * beta_t / i_raw.max(1e-9)).sqrt();
+        let i_raw = i_pair / step.scale.max(TINY);
+        let z_raw = (s_pair * beta_t / i_pair.max(SMALL)) / (st.var + beta_t * beta_t / i_raw.max(SMALL)).sqrt();
         let down = !tm.surprise_down_only || z_raw < 0.0;
         if down && z_raw.abs() > tm.surprise_z0 {
             st.var *= (z_raw / tm.surprise_z0).powi(2).min(tm.surprise_max);
@@ -361,7 +403,7 @@ fn update(st: &mut TeamState, e: &Entry, s_pair: f64, i_pair: f64, step: &Step, 
     }
     st.mu_raw += d;
     st.var = (1.0 / prec).max(tm.sigma_floor * tm.sigma_floor);
-    let z = (s_pair * beta_t / i_pair.max(1e-9)) / (e.var + 1.0 / obs_prec.max(1e-12)).sqrt();
+    let z = (s_pair * beta_t / i_pair.max(SMALL)) / (e.var + 1.0 / obs_prec.max(TINY)).sqrt();
     let (lo, hi) = (tm.v_min.ln(), tm.v_max.ln());
     let lv = st.vol.ln();
     st.vol = (lv + tm.v_eta * (if z.abs() > 1.0 { hi } else { lo } - lv)).exp();
@@ -399,7 +441,7 @@ fn absorb_lineup(st: &mut TeamState, e: &Entry, members: &[u32], step: &Step, cf
     }
     st.lost_prev = 0.0;
     if e_tot > 0.0 {
-        let l = (lost / e_tot).clamp(0.0, 0.9);
+        let l = (lost / e_tot).clamp(0.0, MAX_LOST);
         st.var /= (1.0 - l).powf(tm.gamma);
         st.lost_prev = l;
     }
@@ -408,7 +450,7 @@ fn absorb_lineup(st: &mut TeamState, e: &Entry, members: &[u32], step: &Step, cf
     if let Some((_, v)) = e.sr {
         st.var = st.var.min(v + tm.sigma_new_team * tm.sigma_new_team);
     }
-    st.ev.retain(|(_, x, _)| *x > 0.01);
+    st.ev.retain(|(_, x, _)| *x > MIN_EVIDENCE);
     if let Some((v, _)) = e.sr {
         let w_add = weight * members.len() as f64;
         st.core_raw = (st.core_raw * e_tot + (v + step.shift) * w_add) / (e_tot + w_add);

@@ -19,6 +19,8 @@
 const CUTS: [f64; 4] = [6400.0, 6900.0, 7400.0, 7900.0];
 /// Difficulties kept per bucket; a new one displaces the oldest.
 const CAP: usize = 4096;
+/// A bucket stands on its own from this many difficulties.
+const SAMPLE: usize = 256;
 
 pub struct Difficulties {
     buckets: Vec<Vec<f64>>,
@@ -51,7 +53,7 @@ impl Difficulties {
             return &[];
         }
         let b = &self.buckets[bucket_of(strength)];
-        if b.len() >= 256 {
+        if b.len() >= SAMPLE {
             return b;
         }
         // Too thin to stand on its own: fall back to the fullest neighbour.

@@ -1,46 +1,89 @@
+//! Dates as days since 1970-01-01, a seeded random stream, ranks and a CSV
+//! reader: the small things every module needs and none owns.
+
+// The civil-calendar arithmetic of Howard Hinnant's `days_from_civil`, in
+// 400-year eras that start on 1 March, so the leap day ends the year.
+const DAYS_PER_ERA: i32 = 146_097;
+const YEARS_PER_ERA: i32 = 400;
+/// Days from 0000-03-01 to 1970-01-01.
+const EPOCH_SHIFT: i32 = 719_468;
+const DAYS_PER_YEAR: i32 = 365;
+/// Leap-year corrections inside an era: every 4th year, but not every 100th.
+const LEAP_EVERY: i32 = 4;
+const NO_LEAP_EVERY: i32 = 100;
+/// Day-of-era corrections that turn a day count back into a year of the era.
+const DAYS_PER_4Y_LESS_1: i32 = 1460;
+const DAYS_PER_100Y_LESS_1: i32 = 36_524;
+/// Months from March: the day of year of month `mp` is `(153 mp + 2) / 5`.
+const MONTH_SPAN: i32 = 153;
+const MONTH_ROUND: i32 = 2;
+const MONTH_PARTS: i32 = 5;
+const MARCH: i32 = 3;
+const MONTHS: i32 = 12;
+/// `m + 9` mod 12 counts months from March.
+const MARCH_OFFSET: i32 = 9;
+const FEBRUARY: u32 = 2;
+
+const SECONDS_PER_DAY: u64 = 86_400;
+const DAYS_PER_WEEK: i32 = 7;
+
+/// The Weyl increment and the two multipliers of splitmix64.
+const GOLDEN_GAMMA: u64 = 0x9E37_79B9_7F4A_7C15;
+const MIX_A: u64 = 0xBF58_476D_1CE4_E5B9;
+const MIX_B: u64 = 0x94D0_49BB_1331_11EB;
+const SHIFT_A: u32 = 30;
+const SHIFT_B: u32 = 27;
+const SHIFT_C: u32 = 31;
+/// The 53 bits of an f64 mantissa, taken from the top of a 64-bit draw.
+const MANTISSA_SHIFT: u32 = 11;
+const MANTISSA: f64 = (1u64 << 53) as f64;
+const BIT_SHIFT: u32 = 33;
+/// Keeps `ln u` finite in the Box-Muller draw.
+const LN_GUARD: f64 = 1e-12;
+const BOX_MULLER: f64 = -2.0;
+
+/// Spearman needs three pairs before a correlation means anything.
+const MIN_SPEARMAN: usize = 3;
+
+/// `YYYY-MM-DD` at fixed offsets.
+const YEAR_DIGITS: (usize, usize) = (0, 4);
+const MONTH_DIGITS: (usize, usize) = (5, 7);
+const DAY_DIGITS: (usize, usize) = (8, 10);
+const DECIMAL: i32 = 10;
+
 pub fn days_from_civil(y: i32, m: u32, d: u32) -> i32 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = y - era * 400;
-    let mp = (m as i32 + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + d as i32 - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
+    let y = if m <= FEBRUARY { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - (YEARS_PER_ERA - 1) } / YEARS_PER_ERA;
+    let yoe = y - era * YEARS_PER_ERA;
+    let mp = (m as i32 + MARCH_OFFSET) % MONTHS;
+    let doy = (MONTH_SPAN * mp + MONTH_ROUND) / MONTH_PARTS + d as i32 - 1;
+    let doe = yoe * DAYS_PER_YEAR + yoe / LEAP_EVERY - yoe / NO_LEAP_EVERY + doy;
+    era * DAYS_PER_ERA + doe - EPOCH_SHIFT
 }
 
 pub fn civil_from_days(z: i32) -> (i32, u32, u32) {
-    let z = z + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if m <= 2 { y + 1 } else { y }, m, d)
+    let z = z + EPOCH_SHIFT;
+    let era = if z >= 0 { z } else { z - (DAYS_PER_ERA - 1) } / DAYS_PER_ERA;
+    let doe = z - era * DAYS_PER_ERA;
+    let yoe = (doe - doe / DAYS_PER_4Y_LESS_1 + doe / DAYS_PER_100Y_LESS_1 - doe / (DAYS_PER_ERA - 1)) / DAYS_PER_YEAR;
+    let y = yoe + era * YEARS_PER_ERA;
+    let doy = doe - (DAYS_PER_YEAR * yoe + yoe / LEAP_EVERY - yoe / NO_LEAP_EVERY);
+    let mp = (MONTH_PARTS * doy + MONTH_ROUND) / MONTH_SPAN;
+    let d = (doy - (MONTH_SPAN * mp + MONTH_ROUND) / MONTH_PARTS + 1) as u32;
+    let m = if mp < MONTHS - MARCH { mp + MARCH } else { mp - MARCH_OFFSET } as u32;
+    (if m <= FEBRUARY { y + 1 } else { y }, m, d)
 }
 
+/// The day of a `YYYY-MM-DD` date; anything after the tenth byte is ignored.
 pub fn parse_date(s: &str) -> Option<i32> {
     let b = s.as_bytes();
-    if b.len() < 10 {
+    if b.len() < DAY_DIGITS.1 {
         return None;
     }
-    let num = |a: usize, z: usize| -> Option<i32> {
-        let mut v = 0i32;
-        for &c in &b[a..z] {
-            if !c.is_ascii_digit() {
-                return None;
-            }
-            v = v * 10 + (c - b'0') as i32;
-        }
-        Some(v)
+    let num = |(a, z): (usize, usize)| -> Option<i32> {
+        b[a..z].iter().try_fold(0i32, |v, &c| c.is_ascii_digit().then(|| v * DECIMAL + (c - b'0') as i32))
     };
-    Some(days_from_civil(
-        num(0, 4)?,
-        num(5, 7)? as u32,
-        num(8, 10)? as u32,
-    ))
+    Some(days_from_civil(num(YEAR_DIGITS)?, num(MONTH_DIGITS)? as u32, num(DAY_DIGITS)? as u32))
 }
 
 pub fn format_date(day: i32) -> String {
@@ -50,56 +93,73 @@ pub fn format_date(day: i32) -> String {
 
 /// Today in UTC as `YYYY-MM-DD`, from the system clock.
 pub fn today_utc() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    format_date((secs / 86_400) as i32)
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    format_date((secs / SECONDS_PER_DAY) as i32)
 }
 
 /// 1970-01-01 was a Thursday, so Thursdays are exactly the days divisible by 7.
 pub fn next_thursday(day: i32) -> i32 {
-    day + ((7 - day.rem_euclid(7)) % 7)
+    day + ((DAYS_PER_WEEK - day.rem_euclid(DAYS_PER_WEEK)) % DAYS_PER_WEEK)
 }
 
 /// The last Thursday on or before `day`, which is the last release of a window
 /// that ends there.
 pub fn last_thursday(day: i32) -> i32 {
-    day - day.rem_euclid(7)
+    day - day.rem_euclid(DAYS_PER_WEEK)
 }
 
+/// The splitmix64 finaliser: a bijection of `u64` that scatters nearby inputs.
+pub fn mix64(mut z: u64) -> u64 {
+    z = (z ^ (z >> SHIFT_A)).wrapping_mul(MIX_A);
+    z = (z ^ (z >> SHIFT_B)).wrapping_mul(MIX_B);
+    z ^ (z >> SHIFT_C)
+}
+
+/// One number from a pair, the same on every run: `mix64(a·γ + b)`.
+pub fn mix_pair(a: u64, b: u64) -> u64 {
+    mix64(a.wrapping_mul(GOLDEN_GAMMA).wrapping_add(b))
+}
+
+/// Two `u32` as one `u64` key, `a` in the high half.
+pub fn pack(a: u32, b: u32) -> u64 {
+    ((a as u64) << u32::BITS) | b as u64
+}
+
+/// splitmix64, seeded.
 pub struct Rng(u64);
 
 impl Rng {
     pub fn new(seed: u64) -> Self {
-        Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1)
+        Rng(seed.wrapping_mul(GOLDEN_GAMMA) | 1)
     }
     pub fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
+        self.0 = self.0.wrapping_add(GOLDEN_GAMMA);
+        mix64(self.0)
     }
     pub fn bit(&mut self) -> u8 {
-        (self.next_u64() >> 33) as u8 & 1
+        (self.next_u64() >> BIT_SHIFT) as u8 & 1
     }
+    /// Uniform on `[0, 1)`.
+    pub fn uniform(&mut self) -> f64 {
+        (self.next_u64() >> MANTISSA_SHIFT) as f64 / MANTISSA
+    }
+    /// Standard normal, by Box-Muller.
     pub fn normal(&mut self) -> f64 {
-        let u = (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64;
-        let v = (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64;
-        (-2.0 * (u + 1e-12).ln()).sqrt() * (std::f64::consts::TAU * v).cos()
+        let u = self.uniform();
+        let v = self.uniform();
+        (BOX_MULLER * (u + LN_GUARD).ln()).sqrt() * (std::f64::consts::TAU * v).cos()
     }
 }
 
 /// Spearman correlation, tie-corrected. None when either side is constant.
 pub fn spearman(a: &[f64], b: &[f64]) -> Option<f64> {
-    if a.len() < 3 || a.len() != b.len() {
+    if a.len() < MIN_SPEARMAN || a.len() != b.len() {
         return None;
     }
     let (ra, rb) = (avg_ranks(a), avg_ranks(b));
     let n = a.len() as f64;
     let (ma, mb) = (ra.iter().sum::<f64>() / n, rb.iter().sum::<f64>() / n);
-    let mut num = 0.0;
-    let (mut da, mut db) = (0.0, 0.0);
+    let (mut num, mut da, mut db) = (0.0, 0.0, 0.0);
     for (x, y) in ra.iter().zip(&rb) {
         num += (x - ma) * (y - mb);
         da += (x - ma) * (x - ma);
@@ -111,27 +171,21 @@ pub fn spearman(a: &[f64], b: &[f64]) -> Option<f64> {
 /// Minimal CSV reader: strips a BOM, honours double quotes, drops the header.
 pub fn csv_rows(path: &str) -> std::io::Result<Vec<Vec<String>>> {
     let text = std::fs::read_to_string(path)?;
-    let mut out = Vec::new();
-    for line in text.trim_start_matches('\u{feff}').lines() {
-        let line = line.trim_end_matches('\r');
-        if line.is_empty() {
-            continue;
+    let lines = text.trim_start_matches('\u{feff}').lines().map(|l| l.trim_end_matches('\r'));
+    Ok(lines.filter(|l| !l.is_empty()).skip(1).map(csv_line).collect())
+}
+
+fn csv_line(line: &str) -> Vec<String> {
+    let (mut row, mut cell, mut quoted) = (Vec::new(), String::new(), false);
+    for c in line.chars() {
+        match c {
+            '"' => quoted = !quoted,
+            ',' if !quoted => row.push(std::mem::take(&mut cell)),
+            _ => cell.push(c),
         }
-        let (mut row, mut cell, mut quoted) = (Vec::new(), String::new(), false);
-        for c in line.chars() {
-            match c {
-                '"' => quoted = !quoted,
-                ',' if !quoted => row.push(std::mem::take(&mut cell)),
-                _ => cell.push(c),
-            }
-        }
-        row.push(cell);
-        out.push(row);
     }
-    if !out.is_empty() {
-        out.remove(0);
-    }
-    Ok(out)
+    row.push(cell);
+    row
 }
 
 /// Average ranks of `key` ascending, ties sharing the mean of their places.
@@ -139,17 +193,27 @@ pub fn avg_ranks(key: &[f64]) -> Vec<f64> {
     let mut o: Vec<usize> = (0..key.len()).collect();
     o.sort_by(|&a, &b| key[a].total_cmp(&key[b]));
     let mut r = vec![0.0; key.len()];
-    let mut i = 0;
-    while i < o.len() {
-        let mut j = i;
-        while j + 1 < o.len() && key[o[j + 1]] == key[o[i]] {
-            j += 1;
-        }
+    for (i, j) in tie_runs(&o, |a, b| key[a] == key[b]) {
         let avg = (i + j) as f64 / 2.0 + 1.0;
         for &k in &o[i..=j] {
             r[k] = avg;
         }
-        i = j + 1;
     }
     r
+}
+
+/// The runs `(first, last)` of consecutive positions of `order` whose items are
+/// `same`, in order.
+pub fn tie_runs(order: &[usize], same: impl Fn(usize, usize) -> bool) -> Vec<(usize, usize)> {
+    let mut runs = Vec::new();
+    let mut i = 0;
+    while i < order.len() {
+        let mut j = i;
+        while j + 1 < order.len() && same(order[j + 1], order[i]) {
+            j += 1;
+        }
+        runs.push((i, j));
+        i = j + 1;
+    }
+    runs
 }

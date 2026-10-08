@@ -28,20 +28,13 @@ pub fn qualify(path: &str) -> HashSet<(i64, i64)> {
 
 /// A deterministic tie-break, the same number in `tools/team_ndcg.py`.
 pub fn tiekey(tid: i64, team: i64) -> u64 {
-    let mut x = (tid as u64)
-        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-        .wrapping_add(team as u64);
-    x ^= x >> 30;
-    x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    x ^= x >> 27;
-    x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
-    x ^ (x >> 31)
+    crate::util::mix_pair(tid as u64, team as u64)
 }
 
 /// One tournament: NDCG of the order by `mu` against `place`, cut at `k`. None
 /// when fewer than five teams qualify.
 pub fn score(tid: i64, team: &[i64], mu: &[f64], place: &[f64], k: usize) -> Option<f64> {
-    if team.len() < 5 {
+    if team.len() < crate::ndcg::MIN_FIELD {
         return None;
     }
     let ranks = avg_ranks(place);

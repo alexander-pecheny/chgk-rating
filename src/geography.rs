@@ -24,8 +24,12 @@ pub struct Geography {
     best: HashMap<u32, (u32, u32)>,
 }
 
+/// The two load windows, in days.
+const WEEK: i32 = 7;
+const MONTH: i32 = 30;
+
 fn key(player: u32, town: u32) -> u64 {
-    ((player as u64) << 32) | town as u64
+    crate::util::pack(player, town)
 }
 
 impl Geography {
@@ -48,7 +52,7 @@ impl Geography {
         if !self.on || town == u32::MAX {
             return 0.0;
         }
-        let (mut hit, mut seen) = (0u32, 0u32);
+        let (mut hit, mut seen): (u32, u32) = (0, 0);
         for &p in members {
             if let Some(&(t, _)) = self.best.get(&p) {
                 seen += 1;
@@ -112,8 +116,8 @@ impl PlayerLoad {
         let (mut a, mut b) = (0.0, 0.0);
         for &p in members {
             if let Some(v) = self.days.get(&p) {
-                a += v.iter().filter(|&&d| d >= day - 7 && d < day).count() as f64;
-                b += v.iter().filter(|&&d| d >= day - 30 && d < day).count() as f64;
+                a += v.iter().filter(|&&d| d >= day - WEEK && d < day).count() as f64;
+                b += v.iter().filter(|&&d| d >= day - MONTH && d < day).count() as f64;
             }
         }
         let n = members.len() as f64;
@@ -129,7 +133,7 @@ impl PlayerLoad {
         for res in &t.teams {
             for &p in &res.members {
                 let v = self.days.entry(p).or_default();
-                v.retain(|&d| d > t.day - 30);
+                v.retain(|&d| d > t.day - MONTH);
                 v.push(t.day);
             }
         }

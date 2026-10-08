@@ -44,22 +44,28 @@ pub struct EditorMemory {
     half_life: f64,
 }
 
+const DAYS_PER_YEAR: f64 = 365.25;
+const HALF: f64 = 0.5;
+/// FNV-1a, for a stable id of an editor set.
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0100_0000_01b3;
+
 fn key(a: u32, b: u32) -> u64 {
-    ((a as u64) << 32) | b as u64
+    crate::util::pack(a, b)
 }
 
 /// One number for a whole set of editors, so a package written by two people is
 /// its own author. Order-independent and stable across runs.
 fn set_id(editors: &[u32]) -> u32 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut h: u64 = FNV_OFFSET;
     let mut v: Vec<u32> = editors.to_vec();
     v.sort_unstable();
     v.dedup();
     for e in v {
         h ^= e as u64;
-        h = h.wrapping_mul(0x0100_0000_01b3);
+        h = h.wrapping_mul(FNV_PRIME);
     }
-    (h ^ (h >> 32)) as u32
+    (h ^ (h >> u32::BITS)) as u32
 }
 
 impl EditorMemory {
@@ -82,7 +88,7 @@ impl EditorMemory {
         if self.half_life <= 0.0 {
             return 1.0;
         }
-        let dt = ((day - last).max(0) as f64) / 365.25;
+        let dt = ((day - last).max(0) as f64) / DAYS_PER_YEAR;
         0.5f64.powf(dt / self.half_life)
     }
 
@@ -118,7 +124,7 @@ impl EditorMemory {
         if !self.on || editors.is_empty() {
             return None;
         }
-        let mut acc = (0.0, 0u32);
+        let mut acc: (f64, u32) = (0.0, 0);
         self.collect(player, team, editors, day, &mut acc);
         (acc.1 > 0).then(|| acc.0 / acc.1 as f64)
     }
@@ -147,7 +153,7 @@ impl EditorMemory {
             }
             return self.player_bonus(0, team, editors, day).unwrap_or(0.0);
         }
-        let mut acc = (0.0, 0u32);
+        let mut acc: (f64, u32) = (0.0, 0);
         for (k, &p) in members.iter().enumerate() {
             if theta[k] < gate {
                 continue;
@@ -202,7 +208,7 @@ impl EditorMemory {
                     let f = if half <= 0.0 {
                         1.0
                     } else {
-                        0.5f64.powf(((t.day - a.last).max(0) as f64) / (365.25 * half))
+                        HALF.powf(((t.day - a.last).max(0) as f64) / (DAYS_PER_YEAR * half))
                     };
                     a.sum *= f;
                     a.n *= f;

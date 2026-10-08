@@ -34,6 +34,33 @@ use rusqlite::types::Value;
 use rusqlite::Connection;
 use std::collections::{HashMap, VecDeque};
 
+const WEEK: i32 = 7;
+/// 1970-01-01, day 0, was a Thursday, which is 4 counting from Sunday.
+const THURSDAY: i32 = 4;
+const QUARTER: i32 = 90;
+const SEPTEMBER: u32 = 9;
+const MONTHS: i32 = 12;
+/// The recent window of surprises and signs, and the top of a lineup.
+const RECENT: usize = 5;
+const TOP: usize = 3;
+const FOURTH: usize = 3;
+/// The field strength the metric weighs by is the mean of its top ten.
+const FIELD_TOP: usize = 10;
+/// Fewer in-person games than this marks a player as new to the table.
+const FEW_IN_PERSON: f64 = 5.0;
+/// The two temperatures and four quantiles the lineup columns are read at.
+const TAU_LOW: f64 = 0.5;
+const TAU_HIGH: f64 = 0.7;
+const QUANTILES: [f64; 4] = [0.0, 0.75, 1.5, 3.0];
+const PERCENT: f64 = 100.0;
+/// Display points within which two lineups count as level.
+const NEAR: f64 = 100.0;
+/// tournament_id, team_id and date come before the features.
+const KEY_COLS: usize = 3;
+/// Rows between commits, and how far past a multiple a field may run.
+const COMMIT_EVERY: u64 = 20_000;
+const COMMIT_SLACK: u64 = 200;
+
 /// How far back the per-player and per-team histories are kept.
 const KEEP_DAYS: i32 = 420;
 const YEAR: i32 = 365;
@@ -103,7 +130,7 @@ fn st_val(s: St, v: &[f64]) -> f64 {
         }
         St::Top3 => {
             f.sort_by(|a, b| b.total_cmp(a));
-            f.iter().take(3).sum::<f64>()
+            f.iter().take(TOP).sum::<f64>()
         }
         St::Bot2 => {
             f.sort_by(f64::total_cmp);
@@ -117,10 +144,6 @@ fn agg(r: &mut Row, name: &str, v: &[f64], sts: &[St]) {
     for &s in sts {
         r.p(|| format!("agg_{name}_{}", st_name(s)), st_val(s, v));
     }
-}
-
-fn key2(a: u32, b: u32) -> u64 {
-    ((a as u64) << 32) | b as u64
 }
 
 /// The team state as it stood before the field was scored. `fit` takes this
@@ -220,7 +243,7 @@ impl Features {
     /// rating rank is over every team with a rated game in the trailing year,
     /// recomputed at most once a week because nothing in it moves faster.
     pub fn pre(&mut self, t: &Tournament, teams: &TeamsS2) -> Pre {
-        if t.day - self.rank_day >= 7 {
+        if t.day - self.rank_day >= WEEK {
             let mut v: Vec<(usize, f64)> = (0..teams.n_teams())
                 .filter_map(|i| {
                     teams
@@ -278,7 +301,8 @@ impl Features {
             let lin = self.player_cols(&mut r, &res.members, players, t.day, cfg);
             self.shape_cols(&mut r, res, &lin, chem, pre.states[ri], field.q_ship[ri], cfg);
             self.team_cols(&mut r, res.team, pre.states[ri], pre.rank[ri], t.day);
-            self.editor_cols(&mut r, res, &lin.theta, edmem, players.ed_gate_theta, &t.editors);
+            let theta: Vec<f64> = lin.iter().map(|m| m.theta).collect();
+            self.editor_cols(&mut r, res, &theta, edmem, players.ed_gate_theta, &t.editors);
             field.field_cols(&mut r, ri);
             self.calendar_cols(&mut r, t, res);
             // The external systems, for diagnosis only.
@@ -305,10 +329,10 @@ impl Features {
     }
 
     fn insert(&mut self, batch: Vec<(i64, i64, String, Vec<f64>)>) -> rusqlite::Result<()> {
-        let holes: String = (4..self.cols + 4).map(|i| format!(",?{i}")).collect();
+        let holes: String = (KEY_COLS + 1..=self.cols + KEY_COLS).map(|i| format!(",?{i}")).collect();
         let mut stmt = self.conn.prepare_cached(&format!("INSERT INTO features VALUES (?1,?2,?3{holes})"))?;
         for (tid, team, date, vals) in batch {
-            let mut v: Vec<Value> = Vec::with_capacity(self.cols + 3);
+            let mut v: Vec<Value> = Vec::with_capacity(self.cols + KEY_COLS);
             v.push(Value::Integer(tid));
             v.push(Value::Integer(team));
             v.push(Value::Text(date));
@@ -317,54 +341,45 @@ impl Features {
             self.rows += 1;
         }
         drop(stmt);
-        if self.rows % 20_000 < 200 {
+        if self.rows % COMMIT_EVERY < COMMIT_SLACK {
             self.conn.execute_batch("COMMIT; BEGIN")?;
         }
         Ok(())
     }
 
-    /// The per-player aggregates over the lineup, and the per-player values
-    /// the later groups read again.
-    fn player_cols(&self, r: &mut Row, members: &[u32], players: &Players, day: i32, cfg: &Config) -> LineupHistory {
-        let mut h = LineupHistory::default();
-        let since = |d: i32, last: i32, n: u32| if n > 0 { (d - last) as f64 } else { f64::NAN };
-        for &m in members {
-            let i = m as usize;
-            let st = &players.state[i];
-            let (a, f) = (players.theta(i), players.phi(i));
-            h.theta.push(a);
-            h.phi.push(f);
-            h.thph.push(a + f);
-            h.sigma.push(players.sigma_at(i, day, cfg));
-            h.games.push(st.games as f64);
-            h.games_ip.push(st.games_ip as f64);
-            h.games_ip365.push(count_since(&self.p_ip_days[i], day - YEAR));
-            h.days_last.push(since(day, st.last_day, st.games));
-            h.days_ip.push(since(day, st.last_ip, st.games_ip));
-            h.vol.push(st.vol);
-            h.first_age.push(if self.p_first[i] > i32::MIN { (day - self.p_first[i]) as f64 } else { f64::NAN });
-            h.share_ip.push(if st.games > 0 { st.games_ip as f64 / st.games as f64 } else { f64::NAN });
-            let s = &self.p_sign[i];
-            h.sign5.push(if s.is_empty() { f64::NAN } else { s.iter().sum::<f64>() / s.len() as f64 });
-            h.d90.push(theta_change(&self.p_theta[i], day - 90, a));
-            h.d365.push(theta_change(&self.p_theta[i], day - YEAR, a));
+    /// The per-player aggregates over the lineup, in the order of
+    /// `PLAYER_COLS`; the members are returned for the later groups.
+    fn player_cols(&self, r: &mut Row, members: &[u32], players: &Players, day: i32, cfg: &Config) -> Vec<Member> {
+        let lin: Vec<Member> = members.iter().map(|&m| self.member(m as usize, players, day, cfg)).collect();
+        for &(name, value, sts) in PLAYER_COLS {
+            let v: Vec<f64> = lin.iter().map(value).collect();
+            agg(r, name, &v, sts);
         }
-        agg(r, "theta", &h.theta, ST_ALL);
-        agg(r, "thetaphi", &h.thph, ST_ALL);
-        agg(r, "sigma", &h.sigma, ST_ALL);
-        agg(r, "games_ip", &h.games_ip, ST_MMMS);
-        agg(r, "days_ip", &h.days_ip, ST_MMMS);
-        agg(r, "phi", &h.phi, ST_MMM);
-        agg(r, "games", &h.games, ST_MMM);
-        agg(r, "games_ip365", &h.games_ip365, ST_MMM);
-        agg(r, "days_last", &h.days_last, ST_MMM);
-        agg(r, "vol", &h.vol, ST_MMM);
-        agg(r, "first_age", &h.first_age, ST_MMM);
-        agg(r, "share_ip", &h.share_ip, ST_MMM);
-        agg(r, "dtheta90", &h.d90, ST_MMM);
-        agg(r, "dtheta365", &h.d365, ST_MMM);
-        agg(r, "sign5", &h.sign5, ST_M);
-        h
+        lin
+    }
+
+    /// One player as the morning of `day` has them.
+    fn member(&self, i: usize, players: &Players, day: i32, cfg: &Config) -> Member {
+        let st = &players.state[i];
+        let since = |last: i32, n: u32| if n > 0 { (day - last) as f64 } else { f64::NAN };
+        let (theta, phi) = (players.theta(i), players.phi(i));
+        let s = &self.p_sign[i];
+        Member {
+            theta,
+            phi,
+            sigma: players.sigma_at(i, day, cfg),
+            games: st.games as f64,
+            games_ip: st.games_ip as f64,
+            games_ip365: count_since(&self.p_ip_days[i], day - YEAR),
+            days_last: since(st.last_day, st.games),
+            days_ip: since(st.last_ip, st.games_ip),
+            vol: st.vol,
+            first_age: if self.p_first[i] > i32::MIN { (day - self.p_first[i]) as f64 } else { f64::NAN },
+            share_ip: if st.games > 0 { st.games_ip as f64 / st.games as f64 } else { f64::NAN },
+            sign5: if s.is_empty() { f64::NAN } else { s.iter().sum::<f64>() / s.len() as f64 },
+            d90: theta_change(&self.p_theta[i], day - QUARTER, theta),
+            d365: theta_change(&self.p_theta[i], day - YEAR, theta),
+        }
     }
 
     /// Who the lineup is made of: its size, how new its players are, how much
@@ -375,7 +390,7 @@ impl Features {
         &self,
         r: &mut Row,
         res: &crate::data::TeamResult,
-        lin: &LineupHistory,
+        lin: &[Member],
         chem: &Chemistry,
         state: Option<TeamState>,
         q: f64,
@@ -388,16 +403,16 @@ impl Features {
             Some(v) if !v.is_empty() => members.iter().filter(|m| v.contains(m)).count() as f64,
             _ => f64::NAN,
         };
-        let count = |v: &[f64], f: &dyn Fn(f64) -> bool| v.iter().filter(|x| f(**x)).count() as f64;
+        let count = |f: &dyn Fn(&Member) -> bool| lin.iter().filter(|m| f(m)).count() as f64;
         let n_last_rated = in_last(hist.map(|h| &h.last_rated));
         let n_last_ip = in_last(hist.map(|h| &h.last_ip));
         let per_member = |x: f64| if n_m == 0 { f64::NAN } else { x / n_m as f64 };
         let prov = cfg.display.provisional_sigma;
         r.p(|| "shp_size".into(), n_m as f64);
-        r.p(|| "shp_newcomers".into(), count(&lin.sigma, &|s| s > prov));
-        r.p(|| "shp_few_ip".into(), count(&lin.games_ip, &|g| g < 5.0));
-        r.p(|| "shp_sync_only".into(), per_member(count(&lin.games_ip, &|g| g == 0.0)));
-        r.p(|| "shp_no_history".into(), count(&lin.games, &|g| g == 0.0));
+        r.p(|| "shp_newcomers".into(), count(&|m| m.sigma > prov));
+        r.p(|| "shp_few_ip".into(), count(&|m| m.games_ip < FEW_IN_PERSON));
+        r.p(|| "shp_sync_only".into(), per_member(count(&|m| m.games_ip == 0.0)));
+        r.p(|| "shp_no_history".into(), count(&|m| m.games == 0.0));
         r.p(|| "shp_n_last_rated".into(), n_last_rated);
         r.p(|| "shp_share_last_rated".into(), per_member(n_last_rated));
         r.p(|| "shp_n_last_ip".into(), n_last_ip);
@@ -422,7 +437,7 @@ impl Features {
         r.p(|| "tm_r_minus_qbar".into(), field(|s| s.0 - s.1));
         r.p(|| "tm_games".into(), field(|s| s.2));
         r.p(|| "tm_days_since".into(), st.map_or(f64::NAN, |s| (day - s.3) as f64));
-        let surp: Vec<f64> = hist.map(|h| h.surp.iter().rev().take(5).map(|x| x.1).collect()).unwrap_or_default();
+        let surp: Vec<f64> = hist.map(|h| h.surp.iter().rev().take(RECENT).map(|x| x.1).collect()).unwrap_or_default();
         r.p(|| "tm_surp5_mean".into(), st_val(St::Mean, &surp));
         r.p(|| "tm_surp5_sd".into(), st_val(St::Sd, &surp));
         let year = |q: &VecDeque<(i32, f64)>| -> Vec<f64> { q.iter().filter(|x| x.0 >= day - YEAR).map(|x| x.1).collect() };
@@ -453,11 +468,11 @@ impl Features {
         r.p(|| "ed_pairs_ungated".into(), nu);
         let (mut ts, mut tn, mut tc) = (0.0, 0.0, 0.0);
         for &e in editors {
-            if let Some(&(s, c)) = self.te.get(&key2(res.team, e)) {
+            if let Some(&(s, c)) = self.te.get(&crate::util::pack(res.team, e)) {
                 ts += s / c;
                 tn += 1.0;
             }
-            tc += self.te_n.get(&key2(res.team, e)).copied().unwrap_or(0.0);
+            tc += self.te_n.get(&crate::util::pack(res.team, e)).copied().unwrap_or(0.0);
         }
         r.p(|| "ed_team_resid".into(), if tn > 0.0 { ts / tn } else { f64::NAN });
         r.p(|| "ed_team_n".into(), tn);
@@ -468,10 +483,10 @@ impl Features {
     fn calendar_cols(&self, r: &mut Row, t: &Tournament, res: &crate::data::TeamResult) {
         let (year, month, dom) = civil_from_days(t.day);
         // A ChGK season runs from September, so September is month 0.
-        let season_month = ((month as i32 - 9) + 12) % 12;
-        let season_start = crate::util::days_from_civil(if month >= 9 { year } else { year - 1 }, 9, 1);
+        let season_month = ((month as i32 - SEPTEMBER as i32) + MONTHS) % MONTHS;
+        let season_start = crate::util::days_from_civil(if month >= SEPTEMBER { year } else { year - 1 }, SEPTEMBER, 1);
         // 1970-01-01 was a Thursday.
-        let dow = (t.day.rem_euclid(7) + 4) % 7;
+        let dow = (t.day.rem_euclid(WEEK) + THURSDAY) % WEEK;
         r.p(|| "cal_month".into(), month as f64);
         r.p(|| "cal_season_month".into(), season_month as f64);
         r.p(|| "cal_dow".into(), dow as f64);
@@ -519,7 +534,7 @@ impl Features {
         for &(m, g, _) in grads {
             let s = &mut self.p_sign[m as usize];
             s.push_back(g.signum());
-            if s.len() > 5 {
+            if s.len() > RECENT {
                 s.pop_front();
             }
         }
@@ -545,7 +560,7 @@ impl Features {
             h.surp
                 .push_back((t.day, (e.forecast_place - e.actual_place) / n));
             h.place.push_back((t.day, e.actual_place / n));
-            while h.surp.front().is_some_and(|x| x.0 < t.day - KEEP_DAYS) && h.surp.len() > 5 {
+            while h.surp.front().is_some_and(|x| x.0 < t.day - KEEP_DAYS) && h.surp.len() > RECENT {
                 h.surp.pop_front();
             }
             while h.place.front().is_some_and(|x| x.0 < t.day - KEEP_DAYS) {
@@ -557,10 +572,10 @@ impl Features {
             }
             let resid = (e.forecast_place - e.actual_place) / n;
             for &ed in &t.editors {
-                let a = self.te.entry(key2(res.team, ed)).or_insert((0.0, 0.0));
+                let a = self.te.entry(crate::util::pack(res.team, ed)).or_insert((0.0, 0.0));
                 a.0 += resid;
                 a.1 += 1.0;
-                *self.te_n.entry(key2(res.team, ed)).or_insert(0.0) += 1.0;
+                *self.te_n.entry(crate::util::pack(res.team, ed)).or_insert(0.0) += 1.0;
             }
         }
     }
@@ -576,25 +591,44 @@ impl Features {
 /// A team's `(rating, usual lineup, rated games, day of the last rated game)`.
 type TeamState = (f64, f64, f64, i32);
 
-/// The per-player values of one lineup that more than one group reads.
-#[derive(Default)]
-struct LineupHistory {
-    theta: Vec<f64>,
-    phi: Vec<f64>,
-    thph: Vec<f64>,
-    sigma: Vec<f64>,
-    games: Vec<f64>,
-    games_ip: Vec<f64>,
-    games_ip365: Vec<f64>,
-    days_last: Vec<f64>,
-    days_ip: Vec<f64>,
-    vol: Vec<f64>,
-    first_age: Vec<f64>,
-    share_ip: Vec<f64>,
-    sign5: Vec<f64>,
-    d90: Vec<f64>,
-    d365: Vec<f64>,
+/// One member of a lineup as the morning has them.
+struct Member {
+    theta: f64,
+    phi: f64,
+    sigma: f64,
+    games: f64,
+    games_ip: f64,
+    games_ip365: f64,
+    days_last: f64,
+    days_ip: f64,
+    vol: f64,
+    first_age: f64,
+    share_ip: f64,
+    sign5: f64,
+    d90: f64,
+    d365: f64,
 }
+
+type Column = (&'static str, fn(&Member) -> f64, &'static [St]);
+
+/// The per-player columns, each summarised over the lineup.
+const PLAYER_COLS: &[Column] = &[
+    ("theta", |m| m.theta, ST_ALL),
+    ("thetaphi", |m| m.theta + m.phi, ST_ALL),
+    ("sigma", |m| m.sigma, ST_ALL),
+    ("games_ip", |m| m.games_ip, ST_MMMS),
+    ("days_ip", |m| m.days_ip, ST_MMMS),
+    ("phi", |m| m.phi, ST_MMM),
+    ("games", |m| m.games, ST_MMM),
+    ("games_ip365", |m| m.games_ip365, ST_MMM),
+    ("days_last", |m| m.days_last, ST_MMM),
+    ("vol", |m| m.vol, ST_MMM),
+    ("first_age", |m| m.first_age, ST_MMM),
+    ("share_ip", |m| m.share_ip, ST_MMM),
+    ("dtheta90", |m| m.d90, ST_MMM),
+    ("dtheta365", |m| m.d365, ST_MMM),
+    ("sign5", |m| m.sign5, ST_M),
+];
 
 /// One field read once: every lineup on the team scale, the shipped rule's
 /// strength of each, and the summaries of those the field columns read.
@@ -615,14 +649,7 @@ struct FieldCtx {
 impl FieldCtx {
     fn new(t: &Tournament, players: &Players, cfg: &Config, weight: f64) -> FieldCtx {
         let p = &cfg.team.s2;
-        let vbar = players.editor_mean(t);
-        let seat = |&m: &u32| player_rating(players.theta(m as usize) + players.affinity(m as usize, &vbar), cfg);
-        let base: Vec<Vec<f64>> = t.teams.iter().map(|res| res.members.iter().map(seat).collect()).collect();
-        let sigmas: Vec<Vec<f64>> = t
-            .teams
-            .iter()
-            .map(|res| res.members.iter().map(|&m| players.sigma_at(m as usize, t.day, cfg)).collect())
-            .collect();
+        let (base, sigmas) = lineups(t, players, cfg);
         // The shipped rule at the shipped quantile is the field's own ordering,
         // and the field-context features are read off it.
         let ship = |(b, s): (&Vec<f64>, &Vec<f64>)| {
@@ -634,29 +661,9 @@ impl FieldCtx {
         };
         let q_ship: Vec<f64> = base.iter().zip(&sigmas).map(ship).collect();
         let known: Vec<f64> = q_ship.iter().copied().filter(|x| x.is_finite()).collect();
-        let mut sorted = known.clone();
-        sorted.sort_by(|a, b| b.total_cmp(a));
-        let (mean, sd) = if known.is_empty() {
-            (f64::NAN, f64::NAN)
-        } else {
-            let m = known.iter().sum::<f64>() / known.len() as f64;
-            (m, (known.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / known.len() as f64).sqrt())
-        };
-        let k = 10.min(sorted.len());
-        let top10 = if k == 0 { f64::NAN } else { sorted[..k].iter().sum::<f64>() / k as f64 };
-        FieldCtx {
-            first: sorted.first().copied().unwrap_or(f64::NAN),
-            fourth: sorted.get(3).copied().unwrap_or(f64::NAN),
-            base,
-            sigmas,
-            q_ship,
-            known,
-            n_teams: t.teams.len() as f64,
-            weight,
-            mean,
-            sd,
-            top10,
-        }
+        let (mean, sd, top10, first, fourth) = summary(&known);
+        let n_teams = t.teams.len() as f64;
+        FieldCtx { base, sigmas, q_ship, known, n_teams, weight, mean, sd, top10, first, fourth }
     }
 
     /// The lineup's strength under every rule of DESIGN 4.1 at four quantiles.
@@ -666,16 +673,16 @@ impl FieldCtx {
             ("mean", S2Lineup::Mean, 1.0),
             ("best6", S2Lineup::Best6, 1.0),
             ("rost", S2Lineup::Roster, 1.0),
-            ("t05", S2Lineup::Tempered, 0.5),
-            ("t07", S2Lineup::Tempered, 0.7),
+            ("t05", S2Lineup::Tempered, TAU_LOW),
+            ("t07", S2Lineup::Tempered, TAU_HIGH),
         ] {
             let mut pr = p.clone();
             pr.lineup = rule;
             pr.tau = tau;
-            for sc in [0.0, 0.75, 1.5, 3.0] {
+            for sc in QUANTILES {
                 let v =
                     if b.is_empty() { f64::NAN } else { lineup_strength(&discount(b, sg, sc, p.player_scale), &pr) };
-                r.p(|| format!("lin_{rn}_sc{:03}", (sc * 100.0) as i32), v);
+                r.p(|| format!("lin_{rn}_sc{:03}", (sc * PERCENT) as i32), v);
             }
         }
         let sd = if b.is_empty() { f64::NAN } else { roster_sd(&discount(b, sg, p.sigma_c, p.player_scale), sg, p) };
@@ -694,7 +701,7 @@ impl FieldCtx {
         r.p(|| "fld_gap_fourth".into(), q - self.fourth);
         r.p(|| "fld_z".into(), if self.sd > 0.0 { (q - self.mean) / self.sd } else { f64::NAN });
         let near = if q.is_finite() {
-            self.known.iter().filter(|x| (*x - q).abs() <= 100.0).count() as f64 - 1.0
+            self.known.iter().filter(|x| (*x - q).abs() <= NEAR).count() as f64 - 1.0
         } else {
             f64::NAN
         };
@@ -718,6 +725,33 @@ fn target_cols(r: &mut Row, res: &crate::data::TeamResult, e: Option<&TeamEvent>
     r.p(|| "y_n_teams".into(), field.n_teams);
     r.p(|| "y_rated".into(), res.rated as u8 as f64);
     r.p(|| "y_place".into(), res.position);
+}
+
+/// Every lineup on the team scale with its affinity, and each member's sigma.
+fn lineups(t: &Tournament, players: &Players, cfg: &Config) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
+    let vbar = players.editor_mean(t);
+    let seat = |&m: &u32| player_rating(players.theta(m as usize) + players.affinity(m as usize, &vbar), cfg);
+    let sigma = |&m: &u32| players.sigma_at(m as usize, t.day, cfg);
+    let base = t.teams.iter().map(|res| res.members.iter().map(seat).collect()).collect();
+    let sigmas = t.teams.iter().map(|res| res.members.iter().map(sigma).collect()).collect();
+    (base, sigmas)
+}
+
+/// `(mean, sd, mean of the top ten, first, fourth)` of a field's known
+/// lineup strengths; NaN where there are too few.
+fn summary(known: &[f64]) -> (f64, f64, f64, f64, f64) {
+    let mut sorted = known.to_vec();
+    sorted.sort_by(|a, b| b.total_cmp(a));
+    let (mean, sd) = if known.is_empty() {
+        (f64::NAN, f64::NAN)
+    } else {
+        let m = known.iter().sum::<f64>() / known.len() as f64;
+        (m, (known.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / known.len() as f64).sqrt())
+    };
+    let k = FIELD_TOP.min(sorted.len());
+    let top10 = if k == 0 { f64::NAN } else { sorted[..k].iter().sum::<f64>() / k as f64 };
+    let at = |i: usize| sorted.get(i).copied().unwrap_or(f64::NAN);
+    (mean, sd, top10, at(0), at(FOURTH))
 }
 
 /// Each member read at a pessimistic quantile: the affine map of DESIGN 4.1 is
