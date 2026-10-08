@@ -7,14 +7,14 @@
 //! rating, which `player_ratings` has no index for and would not want one for:
 //! 18.7 million rows to serve 26 thousand. Both are computed once here.
 
-use crate::data::{col, columns, Display};
+use crate::data::{col, columns, each, f64_or, i64_or_zero, log, opt_f64, table_exists, text, Display};
+use crate::history::{Current, Listed};
+use crate::results::{Results, TeamLast};
+use crate::schema::{INDEXES, KIND_PLAYER, KIND_TEAM, SCHEMA, VERSION};
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use std::path::Path;
-
-/// Bumped whenever the index grows a table or column the server reads, so a
-/// deploy rebuilds it instead of serving a page with nothing behind it.
-pub const VERSION: &str = "12";
+use std::time::Instant;
 
 /// How names compare when the question is "is this the same name": ignoring the
 /// padding people type and the case they type it in. SQLite's own `lower()` is
@@ -23,470 +23,277 @@ pub fn fold(s: &str) -> String {
     s.trim().to_lowercase()
 }
 
-/// `id -> (name, town)` from a table of names, skipping rows with no name. A
-/// file that is not there, or has no such table, is not an error: it is one
-/// source of names missing, and the caller has others.
-fn read_names(path: &Path, sql: &str) -> HashMap<i64, (String, String)> {
-    let mut out = HashMap::new();
-    let Ok(db) = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-    else {
-        return out;
-    };
-    let Ok(mut st) = db.prepare(sql) else { return out };
-    let Ok(mut rows) = st.query([]) else { return out };
-    while let Ok(Some(x)) = rows.next() {
-        let Ok(id) = x.get::<_, i64>(0) else { continue };
-        let name: String = x.get::<_, Option<String>>(1).unwrap_or_default().unwrap_or_default();
-        let town: String = x.get::<_, Option<String>>(2).unwrap_or_default().unwrap_or_default();
-        if !name.trim().is_empty() {
-            out.insert(id, (name, town));
-        }
-    }
-    out
+/// What `out/ratings.db` offers the server beyond the tables it must have.
+pub struct Reads {
+    pub achieve: bool,
+    pub team_steps: bool,
 }
 
-const SCHEMA: &str = "
-CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
-CREATE TABLE release_ (id INTEGER PRIMARY KEY, date TEXT, shift REAL, shift_cum REAL,
-                       n_players INTEGER, n_teams INTEGER);
-CREATE TABLE player (id INTEGER PRIMARY KEY, name TEXT, games INTEGER, last_date TEXT);
-CREATE TABLE team (id INTEGER PRIMARY KEY, name TEXT, town TEXT, games INTEGER, last_date TEXT);
-CREATE TABLE tournament (id INTEGER PRIMARY KEY, name TEXT, date TEXT, type TEXT, weight REAL,
-                         n_teams INTEGER, n_q INTEGER, n_obs INTEGER, ll_in REAL, ll_cf REAL,
-                         sp_forecast REAL, sp_old REAL, truedl REAL);
-CREATE TABLE player_game (player_id INTEGER, tournament_id INTEGER, team_id INTEGER,
-                          position REAL, score INTEGER);
-CREATE TABLE result_ (tournament_id INTEGER, team_id INTEGER, score INTEGER, name TEXT);
-CREATE TABLE player_rank (rank INTEGER PRIMARY KEY, player_id INTEGER, display REAL, sigma REAL,
-                          games INTEGER, change REAL, provisional INTEGER);
-CREATE TABLE team_rank (rank INTEGER PRIMARY KEY, team_id INTEGER, display REAL, sigma REAL,
-                        evidence REAL, change REAL, provisional INTEGER);
-CREATE TABLE anomaly (rank INTEGER PRIMARY KEY, player_id INTEGER, k REAL, k_f REAL, k_m REAL,
-                      f_gap REAL, f_on INTEGER, f_ip INTEGER, m_gap REAL, m_on INTEGER,
-                      m_ip INTEGER);
-CREATE TABLE venue (tournament_id INTEGER PRIMARY KEY, field_id INTEGER);
-CREATE TABLE base_roster (team_id INTEGER, player_id INTEGER, name TEXT, date_added TEXT);
-CREATE TABLE place_hist (kind INTEGER, id INTEGER, places BLOB, PRIMARY KEY (kind, id)) WITHOUT ROWID;
-CREATE VIRTUAL TABLE player_fts USING fts5(name, tokenize='unicode61 remove_diacritics 0');
-CREATE VIRTUAL TABLE team_fts USING fts5(name, town, aliases, tokenize='unicode61 remove_diacritics 0');
-";
-
-const INDEXES: &str = "
-CREATE INDEX idx_pg_player ON player_game(player_id);
-CREATE INDEX idx_pg_tour ON player_game(tournament_id);
-CREATE INDEX idx_res_tour ON result_(tournament_id, team_id);
-CREATE INDEX idx_prank_player ON player_rank(player_id);
-CREATE INDEX idx_trank_team ON team_rank(team_id);
-CREATE INDEX idx_tour_date ON tournament(date);
-CREATE INDEX idx_anom_player ON anomaly(player_id);
-CREATE INDEX idx_base_team ON base_roster(team_id);
-CREATE INDEX idx_venue_field ON venue(field_id);
-";
-
-/// The ratings database is written once by `fit` and read for ever after, so a
-/// missing index is worth adding in place rather than duplicating the table.
-/// `fit` and `achieve` already create these; this covers a file written before
-/// they did. An older single-column index the composite replaces is dropped, so
-/// the file does not carry both.
-pub fn ensure_ratings_indexes(path: &Path) {
-    let db = Connection::open(path).unwrap_or_else(|e| panic!("open {}: {e}", path.display()));
-    // The running site reads this file while the indexes are written; wait
-    // out its queries rather than fail on the first one.
-    db.busy_timeout(std::time::Duration::from_secs(120)).expect("busy timeout");
-    db.execute_batch(
-        "CREATE TABLE IF NOT EXISTS player_events (tournament_id INTEGER, player_id INTEGER, theta_before REAL, theta_after REAL, sigma_after REAL);
-         CREATE INDEX IF NOT EXISTS idx_player_events_pt ON player_events(player_id, tournament_id);
-         CREATE INDEX IF NOT EXISTS idx_qp_tour ON question_params(tournament_id);
-         CREATE INDEX IF NOT EXISTS idx_player_ratings_pr ON player_ratings(player_id, release_id);
-         CREATE INDEX IF NOT EXISTS idx_team_ratings_tr ON team_ratings(team_id, release_id);
-         CREATE INDEX IF NOT EXISTS idx_team_events_team ON team_events(team_id);
-         CREATE INDEX IF NOT EXISTS idx_team_events_tt ON team_events(tournament_id, team_id);
-         DROP INDEX IF EXISTS idx_player_events_player;
-         DROP INDEX IF EXISTS idx_player_ratings_player;
-         DROP INDEX IF EXISTS idx_team_ratings_team;
-         DROP INDEX IF EXISTS idx_team_events_tid;",
-    )
-    .expect("index out/ratings.db");
-    if crate::data::table_exists(&db, "achieve_values") {
-        db.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_achieve_values_tt ON achieve_values(tournament_id, team_id);
-             DROP INDEX IF EXISTS idx_achieve_values_tid;",
-        )
-        .expect("index achieve_values");
-    }
+/// The three databases and the clock every step reports against.
+pub struct Ctx<'a> {
+    pub r: &'a Connection,
+    pub b: &'a Connection,
+    pub w: &'a Connection,
+    pub d: &'a Display,
+    pub t0: Instant,
 }
 
-pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
-    let t0 = std::time::Instant::now();
-    let r = crate::data::open(ratings);
-    let b = crate::data::open(buff);
+/// The last release: its id and date.
+type Release = (i64, String);
+
+pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display, reads: &Reads) {
+    let (r, b) = (crate::data::open(ratings), crate::data::open(buff));
+    let w = create(out);
+    let c = Ctx { r: &r, b: &b, w: &w, d, t0: Instant::now() };
+    let last = releases(&c);
+    assert!(last.0 > 0, "no releases in {}", ratings.display());
+    let tours = tournaments(&c);
+    venues(&c);
+    let res = crate::results::scan(&c, &tours.date);
+    base_rosters(&c);
+    let players = crate::history::scan(&c, Listed::players(d));
+    let teams = crate::history::scan(&c, Listed::teams(d));
+    player_names(&c, &res, &players.now);
+    team_names(&c, &res, &teams.now);
+    let n = ranks(&c, last.0);
+    meta(&c, &last, n, reads);
+    let rows = crate::anomaly::build(&r, &b, &w, &tours.online);
+    crate::anomaly::write(&w, &rows);
+    log(c.t0, "anomaly scores");
+    crate::history::write(&c, KIND_PLAYER, &players);
+    crate::history::write(&c, KIND_TEAM, &teams);
+    finish(&c, &last, n);
+}
+
+fn create(out: &Path) -> Connection {
     let _ = std::fs::remove_file(out);
     let w = Connection::open(out).unwrap_or_else(|e| panic!("create {}: {e}", out.display()));
     w.execute_batch("PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF;").unwrap();
     w.execute_batch(SCHEMA).unwrap();
     w.execute_batch("BEGIN").unwrap();
+    w
+}
 
-    // ── releases ─────────────────────────────────────────────────────────────
-    let teams_per_release: HashMap<i64, i64> = {
-        let mut st = r
-            .prepare("select release_id, count(*) from team_ratings where listed = 1 group by release_id")
-            .unwrap();
-        let v = st.query_map([], |x| Ok((x.get(0)?, x.get(1)?))).unwrap();
-        v.map(|x| x.unwrap()).collect()
-    };
-    let mut last_release = (0i64, String::new());
-    {
-        let mut st = r
-            .prepare("select id, date, shift, shift_cum, n_players from releases order by date, id")
-            .unwrap();
-        let mut ins = w.prepare("insert into release_ values (?1,?2,?3,?4,?5,?6)").unwrap();
-        let mut rows = st.query([]).unwrap();
-        while let Some(x) = rows.next().unwrap() {
-            let id: i64 = x.get(0).unwrap();
-            let date: String = x.get::<_, Option<String>>(1).unwrap().unwrap_or_default();
-            ins.execute(params![
-                id,
-                date,
-                x.get::<_, Option<f64>>(2).unwrap().unwrap_or(0.0),
-                x.get::<_, Option<f64>>(3).unwrap().unwrap_or(0.0),
-                x.get::<_, Option<i64>>(4).unwrap().unwrap_or(0),
-                teams_per_release.get(&id).copied().unwrap_or(0),
-            ])
-            .unwrap();
-            last_release = (id, date);
-        }
+fn finish(c: &Ctx, last: &Release, (players, teams): (usize, usize)) {
+    c.w.execute_batch("COMMIT").unwrap();
+    c.w.execute_batch(INDEXES).unwrap();
+    log(c.t0, &format!("release {} ({}), {teams} teams, {players} players ranked", last.0, last.1));
+}
+
+/// Every release, with the number of teams listed in it; returns the last.
+fn releases(c: &Ctx) -> Release {
+    let teams = count_by(c.r, "select release_id, count(*) from team_ratings where listed = 1 group by release_id");
+    let mut ins = c.w.prepare("insert into release_ values (?1,?2,?3,?4,?5,?6)").unwrap();
+    let mut last = (0, String::new());
+    each(c.r, "select id, date, shift, shift_cum, n_players from releases order by date, id", |x| {
+        let id: i64 = x.get("id").unwrap();
+        let date = text(x, "date");
+        let n_teams = teams.get(&id).copied().unwrap_or(0);
+        ins.execute(params![id, date, f64_or(x, "shift", 0.0), f64_or(x, "shift_cum", 0.0),
+            i64_or_zero(x, "n_players"), n_teams])
+        .unwrap();
+        last = (id, date);
+    });
+    last
+}
+
+/// `key -> count` from a query of two columns.
+fn count_by(db: &Connection, sql: &str) -> HashMap<i64, i64> {
+    let mut st = db.prepare(sql).unwrap();
+    let v = st.query_map([], |x| Ok((x.get(0)?, x.get(1)?))).unwrap();
+    v.map(|x| x.unwrap()).collect()
+}
+
+/// What the later steps need to know about each rated tournament.
+pub struct Tours {
+    pub date: HashMap<i64, String>,
+    /// Whether it could be played from home, which is what the anomaly score
+    /// of `/anomaly/` is a comparison across.
+    pub online: HashMap<i64, bool>,
+}
+
+const TOURNAMENT_SQL: &str = "select tournament_id as id, date, type, weight, n_teams, n_q, n_obs, \
+    logloss_insample, logloss_crossfit, spearman_forecast, spearman_old_system, truedl from tournament_metrics";
+
+fn tournaments(c: &Ctx) -> Tours {
+    let names = tournament_names(c.b);
+    let mut t = Tours { date: HashMap::new(), online: HashMap::new() };
+    let mut ins = c.w.prepare("insert into tournament values (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)").unwrap();
+    each(c.r, TOURNAMENT_SQL, |x| {
+        let id: i64 = x.get("id").unwrap();
+        let (date, kind) = (text(x, "date"), text(x, "type"));
+        ins.execute(params![id, names.get(&id).cloned().unwrap_or_default(), date, kind,
+            f64_or(x, "weight", 0.0), i64_or_zero(x, "n_teams"), i64_or_zero(x, "n_q"), i64_or_zero(x, "n_obs"),
+            opt_f64(x, "logloss_insample"), opt_f64(x, "logloss_crossfit"), opt_f64(x, "spearman_forecast"),
+            opt_f64(x, "spearman_old_system"), opt_f64(x, "truedl")])
+        .unwrap();
+        t.online.insert(id, kind != "in-person");
+        t.date.insert(id, date);
+    });
+    log(c.t0, &format!("{} tournaments", t.date.len()));
+    t
+}
+
+fn tournament_names(b: &Connection) -> HashMap<i64, String> {
+    let mut out = HashMap::new();
+    each(b, "select id, name from tournaments", |x| {
+        out.insert(x.get("id").unwrap(), text(x, "name"));
+    });
+    out
+}
+
+/// One package played in several cities is one field in the achievement
+/// rating, which records each result's venue and the field it went into. Only
+/// fields of two venues or more are kept: they are the pages that show every
+/// venue at once.
+fn venues(c: &Ctx) {
+    if !table_exists(c.r, "achieve_values") {
+        return;
     }
-    assert!(last_release.0 > 0, "no releases in {}", ratings.display());
+    let mut ins = c.w.prepare("insert or ignore into venue values (?1, ?2)").unwrap();
+    each(c.r, "select distinct tournament_id, field_id from achieve_values where n_venues > 1", |x| {
+        let (t, f): (i64, i64) = (x.get("tournament_id").unwrap(), x.get("field_id").unwrap());
+        ins.execute(params![t, f]).unwrap();
+    });
+}
 
-    // ── tournaments ──────────────────────────────────────────────────────────
-    let mut tour_date: HashMap<i64, String> = HashMap::new();
-    // Whether a tournament could be played from home, which is what the anomaly
-    // score of `/anomaly/` is a comparison across.
-    let mut tour_online: HashMap<i64, bool> = HashMap::new();
-    {
-        let names: HashMap<i64, String> = {
-            let mut st = b.prepare("select id, name from tournaments").unwrap();
-            let v = st
-                .query_map([], |x| {
-                    Ok((x.get(0)?, x.get::<_, Option<String>>(1)?.unwrap_or_default()))
-                })
-                .unwrap();
-            v.map(|x| x.unwrap()).collect()
-        };
-        let mut st = r
-            .prepare(
-                "select tournament_id, date, type, weight, n_teams, n_q, n_obs, logloss_insample, \
-                 logloss_crossfit, spearman_forecast, spearman_old_system, truedl \
-                 from tournament_metrics",
-            )
-            .unwrap();
-        let mut ins = w
-            .prepare("insert into tournament values (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)")
-            .unwrap();
-        let mut rows = st.query([]).unwrap();
-        while let Some(x) = rows.next().unwrap() {
-            let id: i64 = x.get(0).unwrap();
-            let date: String = x.get::<_, Option<String>>(1).unwrap().unwrap_or_default();
-            let kind: String = x.get::<_, Option<String>>(2).unwrap().unwrap_or_default();
-            tour_date.insert(id, date.clone());
-            tour_online.insert(id, kind != "in-person");
-            ins.execute(params![
-                id,
-                names.get(&id).cloned().unwrap_or_default(),
-                date,
-                kind,
-                x.get::<_, Option<f64>>(3).unwrap().unwrap_or(0.0),
-                x.get::<_, Option<i64>>(4).unwrap().unwrap_or(0),
-                x.get::<_, Option<i64>>(5).unwrap().unwrap_or(0),
-                x.get::<_, Option<i64>>(6).unwrap().unwrap_or(0),
-                x.get::<_, Option<f64>>(7).unwrap(),
-                x.get::<_, Option<f64>>(8).unwrap(),
-                x.get::<_, Option<f64>>(9).unwrap(),
-                x.get::<_, Option<f64>>(10).unwrap(),
-                x.get::<_, Option<f64>>(11).unwrap(),
-            ])
-            .unwrap();
-        }
+const ROSTER_SQL: &str = "select s.team_id, s.player_id, p.surname, p.name, \
+    substr(s.date_added,1,10) as added from team_seasons s left join players p on p.id = s.player_id \
+    where s.season_id = (select max(season_id) from team_seasons l where l.team_id = s.team_id) \
+    and (s.date_removed is null or substr(s.date_removed,1,10) > date('now'))";
+
+/// Each team's roster in the latest season it declared one for, less the
+/// players removed by today. The mirror's `team_seasons` holds only the two
+/// current seasons, and a new season's rosters are entered through its first
+/// weeks, so the previous season stands until the team files the next.
+fn base_rosters(c: &Ctx) {
+    let mut ins = c.w.prepare("insert into base_roster values (?1,?2,?3,?4)").unwrap();
+    let mut n = 0;
+    each(c.b, ROSTER_SQL, |x| {
+        let id: i64 = x.get("player_id").unwrap();
+        let full = crate::data::full_name(id, &text(x, "name"), &text(x, "surname"));
+        let team: i64 = x.get("team_id").unwrap();
+        ins.execute(params![team, id, full, x.get::<_, Option<String>>("added").unwrap()]).unwrap();
+        n += 1;
+    });
+    log(c.t0, &format!("{n} base-roster places"));
+}
+
+/// Every player with a game, under the name `buff.players` gives them.
+fn player_names(c: &Ctx, res: &Results, now: &HashMap<i64, Current>) {
+    let mut ins = c.w.prepare("insert into player values (?1,?2,?3,?4,?5,?6,?7,?8)").unwrap();
+    let mut fts = c.w.prepare("insert into player_fts(rowid, name) values (?1,?2)").unwrap();
+    each(c.b, "select id, name, surname from players", |x| {
+        let id: i64 = x.get("id").unwrap();
+        let Some((last, games)) = res.player_last.get(&id) else { return };
+        let full = crate::data::full_name(id, &text(x, "name"), &text(x, "surname"));
+        let n = now.get(&id);
+        ins.execute(params![id, full, games, last, n.map(|n| n.display), n.map(|n| n.sigma),
+            n.map(|n| n.games_365), n.map(|n| n.provisional)])
+        .unwrap();
+        fts.execute(params![id, full]).unwrap();
+    });
+}
+
+/// What a team is called. A result carries the name a team entered that one
+/// tournament under, which is sometimes a joke and sometimes a sponsor, so the
+/// last result is no answer. `buff.teams` is: the mirror fills it nightly from
+/// rating.chgk.info's own team listing, falling back to the latest result for
+/// a team the listing lacks. The last result stays behind it for a team the
+/// mirror has not seen.
+fn team_names(c: &Ctx, res: &Results, now: &HashMap<i64, Current>) {
+    let base = crate::results::read_names(c.b, "select id, name, town from teams");
+    log(c.t0, &format!("{} names from buff.teams", base.len()));
+    let mut ins = c.w.prepare("insert into team values (?1,?2,?3,?4,?5,?6,?7,?8)").unwrap();
+    let mut fts = c.w.prepare("insert into team_fts(rowid, name, town, aliases) values (?1,?2,?3,?4)").unwrap();
+    // How many teams each source of names ends up naming, and how many are now
+    // called something other than what their last result called them.
+    let (mut from_buff, mut renamed) = (0, 0);
+    for (id, last) in &res.team_last {
+        let (name, town) = team_name(base.get(id), last);
+        from_buff += base.contains_key(id) as usize;
+        renamed += (*name != last.name) as usize;
+        let n = now.get(id);
+        ins.execute(params![id, name, town, last.games, last.date, n.map(|n| n.display),
+            n.map(|n| n.sigma), n.map(|n| n.provisional)])
+        .unwrap();
+        fts.execute(params![id, name, town, res.aliases(*id, name)]).unwrap();
     }
-    eprintln!("index: {} tournaments [{:.1}s]", tour_date.len(), t0.elapsed().as_secs_f64());
+    let from_last = res.team_last.len() - from_buff;
+    eprintln!("index: team names — {from_buff} from buff.teams, \
+               {from_last} from the last result; {renamed} differ from the last result");
+}
 
-    // ── merged fields ────────────────────────────────────────────────────────
-    // One package played in several cities is one field in the achievement
-    // rating, which records each result's venue and the field it went into.
-    // Only fields of two venues or more are kept: they are the pages that show
-    // every venue at once.
-    if crate::data::table_exists(&r, "achieve_values") {
-        let mut st = r
-            .prepare("select distinct tournament_id, field_id from achieve_values where n_venues > 1")
-            .unwrap();
-        let mut ins = w.prepare("insert or ignore into venue values (?1, ?2)").unwrap();
-        let mut rows = st.query([]).unwrap();
-        while let Some(x) = rows.next().unwrap() {
-            ins.execute(params![x.get::<_, i64>(0).unwrap(), x.get::<_, i64>(1).unwrap()]).unwrap();
-        }
-    }
+/// The name and town from `buff.teams`, or from the last result when the
+/// mirror lacks the team. An empty town in the source is no reason to lose the
+/// town the team last entered under.
+fn team_name<'a>(base: Option<&'a (String, String)>, last: &'a TeamLast) -> (&'a String, &'a String) {
+    let (name, town) = base.map_or((&last.name, &last.town), |(n, t)| (n, t));
+    (name, if town.trim().is_empty() { &last.town } else { town })
+}
 
-    // ── what a team is called ────────────────────────────────────────────────
-    // A result carries the name a team entered that one tournament under, which
-    // is sometimes a joke and sometimes a sponsor, so the last result is no
-    // answer. `buff.teams` is: the mirror fills it nightly from rating.chgk.info's
-    // own team listing, falling back to the latest result for a team the listing
-    // lacks. The last result stays behind it for a team the mirror has not seen.
-    let base = read_names(buff, "select id, name, town from teams");
-    eprintln!("index: {} names from buff.teams [{:.1}s]", base.len(), t0.elapsed().as_secs_f64());
+/// One row of a ranking table, before it has a rank.
+struct Ranked {
+    id: i64,
+    display: f64,
+    sigma: f64,
+    extra: f64,
+    change: f64,
+    provisional: bool,
+}
 
-    // ── one pass over the results: rosters, team names, scores ───────────────
-    // No index on `tournament_results`, so this is a single scan and everything
-    // that needs it is collected in the same loop.
-    let mut team_last: HashMap<i64, (String, String, String, i64)> = HashMap::new();
-    let mut player_last: HashMap<i64, (String, i64)> = HashMap::new();
-    // Every name a team ever played under, kept as (folded, shown) so the same
-    // name in another case is not filed twice. Which of them is the team's own
-    // is decided below, once; the rest become search aliases.
-    let mut alias: HashMap<i64, Vec<(String, String)>> = HashMap::new();
-    {
-        let mut st = b
-            .prepare(
-                "select id, team_id, team_current_name, team_current_town, questions_total, \
-                 position, team_members from tournament_results",
-            )
-            .unwrap();
-        let mut pg = w.prepare("insert into player_game values (?1,?2,?3,?4,?5)").unwrap();
-        let mut rs = w.prepare("insert into result_ values (?1,?2,?3,?4)").unwrap();
-        let mut rows = st.query([]).unwrap();
-        while let Some(x) = rows.next().unwrap() {
-            let tid: i64 = match x.get(0) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            let Some(date) = tour_date.get(&tid) else { continue };
-            let team_id: i64 = match x.get(1) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            let name: String = x.get::<_, Option<String>>(2).unwrap().unwrap_or_default();
-            let town: String = x.get::<_, Option<String>>(3).unwrap().unwrap_or_default();
-            let score = x
-                .get::<_, Option<String>>(4)
-                .unwrap()
-                .and_then(|s| s.trim().parse::<i64>().ok());
-            let position: Option<f64> = x.get(5).unwrap_or(None);
-            if !name.is_empty() {
-                let e = team_last.entry(team_id).or_insert_with(|| {
-                    (name.clone(), town.clone(), date.clone(), 0)
-                });
-                if *date >= e.2 {
-                    *e = (name.clone(), town, date.clone(), e.3);
-                }
-                e.3 += 1;
-                // A one-off name is still a name people search for.
-                let f = fold(&name);
-                let v = alias.entry(team_id).or_default();
-                if !v.iter().any(|x| x.0 == f) {
-                    v.push((f, name.clone()));
-                }
-            }
-            rs.execute(params![tid, team_id, score, name]).unwrap();
-            if let Some(members) = x.get::<_, Option<String>>(6).unwrap() {
-                if members.len() > 2 {
-                    if let Ok(ids) = serde_json::from_str::<Vec<i64>>(&members) {
-                        for pid in ids {
-                            pg.execute(params![pid, tid, team_id, position, score]).unwrap();
-                            let e = player_last.entry(pid).or_insert((String::new(), 0));
-                            if *date >= e.0 {
-                                e.0 = date.clone();
-                            }
-                            e.1 += 1;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    eprintln!(
-        "index: {} players with games, {} teams [{:.1}s]",
-        player_last.len(),
-        team_last.len(),
-        t0.elapsed().as_secs_f64()
-    );
+/// What a ranking table reads: the entity's table, its id and value columns,
+/// and the figure it shows beside the rating.
+struct RankSpec<'a> {
+    table: &'a str,
+    id: &'a str,
+    value: &'a str,
+    extra: &'a str,
+    a: f64,
+    b: f64,
+}
 
-    // ── base rosters ─────────────────────────────────────────────────────────
-    // Each team's roster in the latest season it declared one for, less the
-    // players removed by today. The mirror's `team_seasons` holds only the two
-    // current seasons, and a new season's rosters are entered through its first
-    // weeks, so the previous season stands until the team files the next.
-    {
-        let mut st = b
-            .prepare(
-                "select s.team_id, s.player_id, p.surname, p.name, substr(s.date_added,1,10) \
-                 from team_seasons s left join players p on p.id = s.player_id \
-                 where s.season_id = (select max(season_id) from team_seasons l \
-                                      where l.team_id = s.team_id) \
-                 and (s.date_removed is null or substr(s.date_removed,1,10) > date('now'))",
-            )
-            .unwrap();
-        let mut ins = w.prepare("insert into base_roster values (?1,?2,?3,?4)").unwrap();
-        let mut rows = st.query([]).unwrap();
-        let mut n = 0;
-        while let Some(x) = rows.next().unwrap() {
-            let id: i64 = x.get(1).unwrap();
-            let sur: String = x.get::<_, Option<String>>(2).unwrap().unwrap_or_default();
-            let first: String = x.get::<_, Option<String>>(3).unwrap().unwrap_or_default();
-            let full = format!("{} {}", first.trim(), sur.trim()).trim().to_string();
-            let full = if full.is_empty() { format!("Игрок {id}") } else { full };
-            ins.execute(params![x.get::<_, i64>(0).unwrap(), id, full, x.get::<_, Option<String>>(4).unwrap()])
-                .unwrap();
-            n += 1;
-        }
-        eprintln!("index: {n} base-roster places [{:.1}s]", t0.elapsed().as_secs_f64());
-    }
-
-    // ── names ────────────────────────────────────────────────────────────────
-    {
-        let mut st = b.prepare("select id, name, surname from players").unwrap();
-        let mut ins = w.prepare("insert into player values (?1,?2,?3,?4)").unwrap();
-        let mut fts = w.prepare("insert into player_fts(rowid, name) values (?1,?2)").unwrap();
-        let mut rows = st.query([]).unwrap();
-        while let Some(x) = rows.next().unwrap() {
-            let id: i64 = x.get(0).unwrap();
-            let Some((last, games)) = player_last.get(&id) else { continue };
-            let first: String = x.get::<_, Option<String>>(1).unwrap().unwrap_or_default();
-            let sur: String = x.get::<_, Option<String>>(2).unwrap().unwrap_or_default();
-            let full = format!("{} {}", first.trim(), sur.trim()).trim().to_string();
-            let full = if full.is_empty() { format!("Игрок {id}") } else { full };
-            ins.execute(params![id, full, games, last]).unwrap();
-            fts.execute(params![id, full]).unwrap();
-        }
-        let mut ins = w.prepare("insert into team values (?1,?2,?3,?4,?5)").unwrap();
-        let mut fts = w
-            .prepare("insert into team_fts(rowid, name, town, aliases) values (?1,?2,?3,?4)")
-            .unwrap();
-        // How many teams each source of names ends up naming, and how many are
-        // now called something other than what their last result called them.
-        let (mut from_buff, mut from_last, mut renamed) = (0, 0, 0);
-        for (id, (last_name, last_town, last, games)) in &team_last {
-            let (name, town) = match base.get(id) {
-                Some((n, t)) => {
-                    from_buff += 1;
-                    (n, t)
-                }
-                None => {
-                    from_last += 1;
-                    (last_name, last_town)
-                }
-            };
-            // An empty town in the source is no reason to lose the town the team
-            // last entered under.
-            let town = if town.trim().is_empty() { last_town } else { town };
-            if name != last_name {
-                renamed += 1;
-            }
-            // Every other name the team has played under, so a search for the
-            // one-off still lands on the team.
-            let f = fold(name);
-            let aliases = alias
-                .get(id)
-                .map(|v| {
-                    v.iter()
-                        .filter(|x| x.0 != f)
-                        .map(|x| x.1.as_str())
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
-                .unwrap_or_default();
-            ins.execute(params![id, name, town, games, last]).unwrap();
-            fts.execute(params![id, name, town, aliases]).unwrap();
-        }
-        eprintln!(
-            "index: team names — {from_buff} from buff.teams, \
-             {from_last} from the last result; {renamed} differ from the last result"
-        );
-    }
-
-    // ── the two ranking tables of the last release ───────────────────────────
-    let pf = change_factor(&r, "player_ratings", last_release.0, d.b_player);
-    let tf = change_factor(&r, "team_ratings", last_release.0, d.b_team);
-    let ranked = |table: &str, id_col: &str, value: &str, extra: &str, factor: f64, b: f64, a: f64|
-     -> Vec<(i64, f64, f64, f64, f64, bool)> {
-        let have = columns(&r, table);
-        let sql = format!(
-            "select {id_col}, {value}, sigma, {extra}, {}, {} from {table} where release_id = ?1",
-            col(&have, "change"),
-            col(&have, "display"),
-        );
-        let mut st = r.prepare(&sql).unwrap();
-        let mut rows = st.query([last_release.0]).unwrap();
-        let mut out = Vec::new();
-        while let Some(x) = rows.next().unwrap() {
-            let id: i64 = x.get(0).unwrap();
-            let raw: f64 = x.get::<_, Option<f64>>(1).unwrap().unwrap_or(0.0);
-            let sigma: f64 = x.get::<_, Option<f64>>(2).unwrap().unwrap_or(0.0);
-            let extra: f64 = x.get::<_, Option<f64>>(3).unwrap().unwrap_or(0.0);
-            let change: Option<f64> = x.get(4).unwrap();
-            let display: f64 = x.get::<_, Option<f64>>(5).unwrap().unwrap_or(a + b * raw);
-            out.push((
-                id,
-                display,
-                b.abs() * sigma,
-                extra,
-                factor * change.unwrap_or(0.0),
-                sigma > d.provisional_sigma,
-            ));
-        }
-        // Settled ratings first, then by rating: the published order.
-        out.sort_by(|x, y| x.5.cmp(&y.5).then(y.1.partial_cmp(&x.1).unwrap()));
-        out
-    };
-
-    let prows = ranked(
-        "player_ratings", "player_id", "theta", "games_365", pf, d.b_player, d.a_player,
-    );
-    let mut ins = w.prepare("insert into player_rank values (?1,?2,?3,?4,?5,?6,?7)").unwrap();
+/// The two ranking tables of the last release; returns how many players and
+/// teams they list.
+fn ranks(c: &Ctx, release: i64) -> (usize, usize) {
+    let d = c.d;
+    let p = RankSpec { table: "player_ratings", id: "player_id", value: "theta", extra: "games_365", a: d.a_player, b: d.b_player };
+    let t = RankSpec { table: "team_ratings", id: "team_id", value: "mu", extra: "evidence", a: d.a_team, b: d.b_team };
+    let (prows, trows) = (ranked(c, &p, release), ranked(c, &t, release));
+    let mut ins = c.w.prepare("insert into player_rank values (?1,?2,?3,?4,?5,?6,?7)").unwrap();
     for (i, x) in prows.iter().enumerate() {
-        ins.execute(params![i as i64 + 1, x.0, x.1, x.2, x.3 as i64, x.4, x.5 as i64]).unwrap();
+        ins.execute(params![i as i64 + 1, x.id, x.display, x.sigma, x.extra as i64, x.change, x.provisional as i64]).unwrap();
     }
-    drop(ins);
-    let trows = ranked(
-        "team_ratings", "team_id", "mu", "evidence", tf, d.b_team, d.a_team,
-    );
-    let mut ins = w.prepare("insert into team_rank values (?1,?2,?3,?4,?5,?6,?7)").unwrap();
+    let mut ins = c.w.prepare("insert into team_rank values (?1,?2,?3,?4,?5,?6,?7)").unwrap();
     for (i, x) in trows.iter().enumerate() {
-        ins.execute(params![i as i64 + 1, x.0, x.1, x.2, x.3, x.4, x.5 as i64]).unwrap();
+        ins.execute(params![i as i64 + 1, x.id, x.display, x.sigma, x.extra, x.change, x.provisional as i64]).unwrap();
     }
-    drop(ins);
+    (prows.len(), trows.len())
+}
 
-    for (k, v) in [
-        ("index_version", VERSION.to_string()),
-        ("release_id", last_release.0.to_string()),
-        ("release_date", last_release.1.clone()),
-        ("n_player_rank", prows.len().to_string()),
-        ("n_team_rank", trows.len().to_string()),
-        ("a_team", d.a_team.to_string()),
-        ("b_team", d.b_team.to_string()),
-        ("a_player", d.a_player.to_string()),
-        ("b_player", d.b_player.to_string()),
-        ("s2", (d.s2 as u8).to_string()),
-    ] {
-        w.execute("insert into meta values (?1,?2)", params![k, v]).unwrap();
-    }
-
-    let rows = crate::anomaly::build(&r, &b, &w, &tour_online);
-    crate::anomaly::write(&w, &rows);
-    eprintln!("index: anomaly scores [{:.1}s]", t0.elapsed().as_secs_f64());
-
-    place_history(&r, &w, "player_ratings", "player_id", "theta", 0, d.a_player, d.b_player, d);
-    place_history(&r, &w, "team_ratings", "team_id", "mu", 1, d.a_team, d.b_team, d);
-
-    w.execute_batch("COMMIT").unwrap();
-    w.execute_batch(INDEXES).unwrap();
-    eprintln!(
-        "index: release {} ({}), {} teams, {} players ranked [{:.1}s]",
-        last_release.0,
-        last_release.1,
-        trows.len(),
-        prows.len(),
-        t0.elapsed().as_secs_f64()
+/// The release's rows of one ratings table in the published order: settled
+/// ratings first, then by rating.
+fn ranked(c: &Ctx, s: &RankSpec, release: i64) -> Vec<Ranked> {
+    let have = columns(c.r, s.table);
+    let factor = change_factor(c.r, s.table, release, s.b);
+    let sql = format!(
+        "select {} as id, {} as raw, sigma, {} as extra, {} as change, {} as display from {} where release_id = {release}",
+        s.id, s.value, s.extra, col(&have, "change"), col(&have, "display"), s.table
     );
+    let mut out = Vec::new();
+    each(c.r, &sql, |x| {
+        let sigma = f64_or(x, "sigma", 0.0);
+        out.push(Ranked {
+            id: x.get("id").unwrap(),
+            display: f64_or(x, "display", s.a + s.b * f64_or(x, "raw", 0.0)),
+            sigma: s.b.abs() * sigma,
+            extra: f64_or(x, "extra", 0.0),
+            change: factor * f64_or(x, "change", 0.0),
+            provisional: sigma > c.d.provisional_sigma,
+        });
+    });
+    out.sort_by(|x, y| x.provisional.cmp(&y.provisional).then(y.display.partial_cmp(&x.display).unwrap()));
+    out
 }
 
 /// `change` is a delta of the internal value, so it needs the display factor —
@@ -494,15 +301,12 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display) {
 /// scale never reach 1; on a published scale of thousands they routinely do, so
 /// the largest one in the table says which this is.
 fn change_factor(db: &Connection, table: &str, release: i64, b: f64) -> f64 {
-    if !columns(db, table).contains("change") || b <= 10.0 {
+    const SCALED: f64 = 10.0;
+    if !columns(db, table).contains("change") || b <= SCALED {
         return 1.0;
     }
     let biggest: Option<f64> = db
-        .query_row(
-            &format!("select max(abs(change)) from {table} where release_id = ?1"),
-            [release],
-            |r| r.get(0),
-        )
+        .query_row(&format!("select max(abs(change)) from {table} where release_id = ?1"), [release], |r| r.get(0))
         .unwrap_or(None);
     match biggest {
         Some(x) if x > 1.0 => 1.0,
@@ -510,70 +314,26 @@ fn change_factor(db: &Connection, table: &str, release: i64, b: f64) -> f64 {
     }
 }
 
-/// Where each entity stood in the published table at every release it appeared
-/// in, stored as one blob per entity in release order — the same order the
-/// chart reads its rating history in, so the two series line up by index.
-///
-/// The rows come back in insertion order, which is release order, because `fit`
-/// writes one release at a time and never revisits one. That is what makes this
-/// a single streaming pass over 18.7 million rows instead of a sort over them.
-#[allow(clippy::too_many_arguments)]
-fn place_history(
-    r: &Connection,
-    w: &Connection,
-    table: &str,
-    id_col: &str,
-    value: &str,
-    kind: i64,
-    a: f64,
-    b: f64,
-    d: &Display,
-) {
-    let have = columns(r, table);
-    let sql = format!(
-        "select release_id, {id_col}, {value}, sigma, {} from {table}",
-        col(&have, "display")
-    );
-    let mut st = r.prepare(&sql).unwrap();
-    let mut rows = st.query([]).unwrap();
-
-    let mut out: HashMap<i64, Vec<u8>> = HashMap::new();
-    let mut cur = i64::MIN;
-    let mut batch: Vec<(i64, f64, bool)> = Vec::new();
-    let mut done: std::collections::HashSet<i64> = std::collections::HashSet::new();
-    // Settled ratings first, then by rating: the order the published table uses.
-    let flush = |batch: &mut Vec<(i64, f64, bool)>, out: &mut HashMap<i64, Vec<u8>>| {
-        batch.sort_by(|x, y| x.2.cmp(&y.2).then(y.1.partial_cmp(&x.1).unwrap()));
-        for (i, (id, _, _)) in batch.iter().enumerate() {
-            out.entry(*id).or_default().extend_from_slice(&(i as u32 + 1).to_le_bytes());
-        }
-        batch.clear();
-    };
-    while let Some(x) = rows.next().unwrap() {
-        let rel: i64 = x.get(0).unwrap();
-        if rel != cur {
-            flush(&mut batch, &mut out);
-            if !done.insert(cur) && cur != i64::MIN {
-                eprintln!("warning: release {cur} is not contiguous; places may be wrong");
-            }
-            cur = rel;
-        }
-        let raw: f64 = x.get::<_, Option<f64>>(2).unwrap().unwrap_or(0.0);
-        let sigma: f64 = x.get::<_, Option<f64>>(3).unwrap().unwrap_or(0.0);
-        let display: f64 = x.get::<_, Option<f64>>(4).unwrap().unwrap_or(a + b * raw);
-        batch.push((x.get(1).unwrap(), display, sigma > d.provisional_sigma));
+/// The meta table: the release, the display maps and what the server may read.
+fn meta(c: &Ctx, last: &Release, (players, teams): (usize, usize), reads: &Reads) {
+    let d = c.d;
+    let flag = |b: bool| (b as u8).to_string();
+    for (k, v) in [
+        ("index_version", VERSION.to_string()),
+        ("release_id", last.0.to_string()),
+        ("release_date", last.1.clone()),
+        ("n_player_rank", players.to_string()),
+        ("n_team_rank", teams.to_string()),
+        ("a_team", d.a_team.to_string()),
+        ("b_team", d.b_team.to_string()),
+        ("a_player", d.a_player.to_string()),
+        ("b_player", d.b_player.to_string()),
+        ("player_phi", d.player_phi.to_string()),
+        ("provisional_sigma", d.provisional_sigma.to_string()),
+        ("s2", flag(d.s2)),
+        ("achieve", flag(reads.achieve)),
+        ("team_steps", flag(reads.team_steps)),
+    ] {
+        c.w.execute("insert into meta values (?1,?2)", params![k, v]).unwrap();
     }
-    flush(&mut batch, &mut out);
-
-    let mut ins = w.prepare("insert into place_hist values (?1,?2,?3)").unwrap();
-    for (id, blob) in &out {
-        ins.execute(params![kind, id, blob]).unwrap();
-    }
-    eprintln!("index: place history for {} entries of {table}", out.len());
-}
-
-/// The version the index at `path` was built with, or nothing if it cannot say.
-pub fn version(path: &Path) -> Option<String> {
-    let db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
-    db.query_row("select value from meta where key = 'index_version'", [], |r| r.get(0)).ok()
 }

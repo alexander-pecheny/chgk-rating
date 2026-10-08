@@ -1,16 +1,38 @@
-use rusqlite::{Connection, OpenFlags};
+//! Reading the two inputs: the config's display maps, and rows out of SQLite
+//! with the defaults every table here wants for a missing value.
+
+use chgk_rating::config::{Config, TeamEngine};
+use rusqlite::{Connection, OpenFlags, Row, RowIndex};
 use std::collections::HashSet;
 use std::path::Path;
 
+/// The published scale and what the site needs to know about the run.
 pub struct Display {
     pub a_team: f64,
     pub b_team: f64,
     pub a_player: f64,
     pub b_player: f64,
     pub provisional_sigma: f64,
+    /// How much of the format effect the published player number carries.
+    pub player_phi: f64,
     /// Model S2 publishes no team uncertainty, only the provisional flag, so the
     /// pages that would show a band or a plus-minus show rated games instead.
     pub s2: bool,
+}
+
+/// The `[display]` section of the run's config, which `fit` published with.
+pub fn read_display(path: &Path) -> Display {
+    let c = Config::load(&path.to_string_lossy()).unwrap_or_else(|e| panic!("config {e}"));
+    let d = c.display;
+    Display {
+        a_team: d.a_team,
+        b_team: d.b_team,
+        a_player: d.a_player,
+        b_player: d.b_player,
+        provisional_sigma: d.provisional_sigma,
+        player_phi: d.player_phi,
+        s2: c.team.engine == TeamEngine::S2,
+    }
 }
 
 /// Whether a table exists, for pages that read an optional one.
@@ -18,7 +40,7 @@ pub fn table_exists(db: &Connection, table: &str) -> bool {
     !columns(db, table).is_empty()
 }
 
-/// Column names a table actually has, so the server survives the schema growing
+/// Column names a table actually has, so the index survives the schema growing
 /// `display`, `change` or `date` under it.
 pub fn columns(db: &Connection, table: &str) -> HashSet<String> {
     let mut out = HashSet::new();
@@ -46,21 +68,43 @@ pub fn open(path: &Path) -> Connection {
         .unwrap_or_else(|e| panic!("open {}: {e}", path.display()))
 }
 
-pub fn read_display(path: &Path) -> Display {
-    let txt = std::fs::read_to_string(path).unwrap_or_default();
-    let v: toml::Value = txt.parse().unwrap_or(toml::Value::Table(Default::default()));
-    let g = |k: &str, d: f64| {
-        v.get("display")
-            .and_then(|t| t.get(k))
-            .and_then(|x| x.as_float())
-            .unwrap_or(d)
-    };
-    Display {
-        a_team: g("a_team", 0.0),
-        b_team: g("b_team", 1.0),
-        a_player: g("a_player", 0.0),
-        b_player: g("b_player", 1.0),
-        provisional_sigma: g("provisional_sigma", 0.3),
-        s2: v.get("team").and_then(|t| t.get("engine")).and_then(|x| x.as_str()) == Some("s2"),
+/// Runs `sql` and hands every row to `f`.
+pub fn each(db: &Connection, sql: &str, mut f: impl FnMut(&Row)) {
+    let mut st = db.prepare(sql).unwrap_or_else(|e| panic!("{sql}: {e}"));
+    let mut rows = st.query([]).unwrap();
+    while let Some(x) = rows.next().unwrap() {
+        f(x);
     }
+}
+
+/// A nullable column, read as the type it must be.
+pub fn opt_f64<I: RowIndex>(x: &Row, i: I) -> Option<f64> {
+    x.get(i).unwrap()
+}
+
+pub fn f64_or<I: RowIndex>(x: &Row, i: I, d: f64) -> f64 {
+    opt_f64(x, i).unwrap_or(d)
+}
+
+pub fn i64_or_zero<I: RowIndex>(x: &Row, i: I) -> i64 {
+    x.get::<_, Option<i64>>(i).unwrap().unwrap_or(0)
+}
+
+pub fn text<I: RowIndex>(x: &Row, i: I) -> String {
+    x.get::<_, Option<String>>(i).unwrap().unwrap_or_default()
+}
+
+/// A player's name as the site shows it: first name, then surname, or a
+/// placeholder with the id when the source has neither.
+pub fn full_name(id: i64, first: &str, sur: &str) -> String {
+    let full = format!("{} {}", first.trim(), sur.trim()).trim().to_string();
+    if full.is_empty() {
+        format!("Игрок {id}")
+    } else {
+        full
+    }
+}
+
+pub fn log(t0: std::time::Instant, what: &str) {
+    eprintln!("index: {what} [{:.1}s]", t0.elapsed().as_secs_f64());
 }
