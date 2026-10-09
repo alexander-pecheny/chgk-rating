@@ -49,6 +49,7 @@ fn own_lineup(r: &Res) -> bool {
 fn perf_of(r: &Res, k: &Knobs) -> (f64, f64, f64) {
     let (s, p) = (r.perf_s + k.shift, r.perf_p);
     let v = match k.perf {
+        "strength_place" if r.place > 0.0 && k.fallback && !s.is_finite() => p,
         "strength_place" if r.place > 0.0 => s / r.place.powf(k.place_pow),
         "place" => p,
         "mix" if s.is_finite() && p.is_finite() => k.mix * s + (1.0 - k.mix) * p,
@@ -70,7 +71,9 @@ fn format_weight(format: char, k: &Knobs) -> f64 {
 /// The field weight and the field strength it was read from.
 fn field_weight(f: &Field, k: &Knobs) -> (f64, f64) {
     let sum: f64 = f.top_q.iter().take(k.field_k).map(|x| x.max(0.0)).sum();
-    let s = sum / k.field_k.max(1) as f64;
+    let seats = if k.field_pad { k.field_k } else { f.top_q.len().clamp(1, k.field_k) };
+    let s = sum / seats.max(1) as f64;
+    let size = if k.field_pad { 1.0 } else { (seats as f64 / k.field_k as f64).powf(k.size_pow) };
     if k.field_gamma == 0.0 {
         return (1.0, s);
     }
@@ -87,7 +90,7 @@ fn field_weight(f: &Field, k: &Knobs) -> (f64, f64) {
     } else if k.field_ref <= k.field_zero {
         1.0
     } else {
-        ((s - k.field_zero) / (k.field_ref - k.field_zero)).max(0.0).powf(k.field_gamma).min(1.0)
+        ((s - k.field_zero) / (k.field_ref - k.field_zero)).max(0.0).powf(k.field_gamma).min(1.0) * size
     };
     (w.max(k.field_min.min(1.0)), s)
 }

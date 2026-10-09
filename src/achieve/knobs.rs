@@ -34,6 +34,14 @@ pub struct Knobs {
     pub field_ref: f64,
     pub field_gamma: f64,
     pub field_min: f64,
+    /// "anchors": read a field of fewer than `field_k` lineups over the empty
+    /// seats too, at 0, when set; over its own lineups when not, and then
+    /// times (lineups / field_k)^size_pow for the field's size.
+    pub field_pad: bool,
+    pub size_pow: f64,
+    /// "strength_place": a result with no per-question data, and so no
+    /// score-based strength, falls back on its place-based strength.
+    pub fallback: bool,
     /// "sum" mode, in person: (the sum of every lineup's strength / sum_ref)
     /// ^ sum_gamma, uncapped, so a field the size of the biggest festivals
     /// weighs about 1 and a bigger or stronger one more.
@@ -115,6 +123,9 @@ const DEFAULT: Knobs = Knobs {
     field_ref: 10000.0,
     field_gamma: 1.0,
     field_min: 0.0,
+    field_pad: true,
+    size_pow: 0.0,
+    fallback: false,
     sum_ref: 1_000_000.0,
     sum_gamma: 0.5,
     scale: 1.0,
@@ -157,7 +168,7 @@ impl Default for Knobs {
 /// Every knob by key, in the order the site lists the rules.
 pub const KNOBS: &[&str] = &[
     "top_x", "min_slots", "freeze", "perf", "place_pow", "mix", "shift", "w_sync", "w_strict", "w_async",
-    "field_mode", "scale", "sum_ref", "sum_gamma", "field_k", "field_zero", "field_ref", "field_gamma", "field_min",
+    "field_mode", "scale", "sum_ref", "sum_gamma", "field_k", "field_zero", "field_ref", "field_gamma", "field_min", "field_pad", "size_pow", "fallback",
     "country_pow", "country_min", "town_pow", "town_min", "country_ref", "town_ref", "geo_cap", "fade", "loss_ip",
     "loss_sync", "full_days", "zero_days", "half_life", "sync_full", "sync_zero", "sync_half_life", "tail_days",
     "slow_k", "slow_ref", "base_rule", "grace", "active_days", "overlap_k", "overlap_by", "win_bonus",
@@ -187,6 +198,9 @@ impl Knobs {
             "field_ref" => self.field_ref.to_string(),
             "field_gamma" => self.field_gamma.to_string(),
             "field_min" => self.field_min.to_string(),
+            "field_pad" => (self.field_pad as u8).to_string(),
+            "size_pow" => self.size_pow.to_string(),
+            "fallback" => (self.fallback as u8).to_string(),
             "country_pow" => self.country_pow.to_string(),
             "country_min" => self.country_min.to_string(),
             "town_pow" => self.town_pow.to_string(),
@@ -255,6 +269,9 @@ impl Knobs {
             "field_ref" => self.field_ref = x,
             "field_gamma" => self.field_gamma = x,
             "field_min" => self.field_min = x,
+            "field_pad" => self.field_pad = x != 0.0,
+            "size_pow" => self.size_pow = x,
+            "fallback" => self.fallback = x != 0.0,
             "country_pow" => self.country_pow = x,
             "country_min" => self.country_min = (x as usize).max(1),
             "town_pow" => self.town_pow = x,

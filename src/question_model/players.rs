@@ -336,18 +336,34 @@ impl Players {
         }
     }
 
-    /// Gives players their first appearance a prior on the current gauge.
+    /// Gives players their first appearance a prior on the current gauge:
+    /// `mu_new`, moved `seed_w` of the way to their rated teammates' mean.
     pub fn seed(&mut self, t: &Tournament, cfg: &Config) {
-        let start = cfg.player.mu_new + self.shift_cum;
-        for &i in t.teams.iter().flat_map(|team| &team.members) {
-            let s = &mut self.state[i as usize];
-            if !s.seen {
-                s.seen = true;
-                s.theta_raw = start;
-                s.theta_fast = start;
-                s.last_day = t.day;
+        for team in &t.teams {
+            let start = self.newcomer_start(&team.members, cfg);
+            for &i in &team.members {
+                let s = &mut self.state[i as usize];
+                if !s.seen {
+                    s.seen = true;
+                    s.theta_raw = start;
+                    s.theta_fast = start;
+                    s.last_day = t.day;
+                }
             }
         }
+    }
+
+    fn newcomer_start(&self, members: &[u32], cfg: &Config) -> f64 {
+        let flat = cfg.player.mu_new + self.shift_cum;
+        if cfg.player.seed_w == 0.0 {
+            return flat;
+        }
+        let rated: Vec<f64> = members.iter().map(|&i| &self.state[i as usize]).filter(|s| s.seen).map(|s| s.theta_raw).collect();
+        if rated.is_empty() {
+            return flat;
+        }
+        let mean = rated.iter().sum::<f64>() / rated.len() as f64;
+        flat + cfg.player.seed_w * (mean - flat)
     }
 
     /// One Kalman step per player from this tournament's gradients, then the

@@ -322,7 +322,7 @@ impl<'a> Sweep<'a> {
     fn recentre(&mut self, day: i32) -> f64 {
         let cfg = self.cfg;
         self.activity.expire_before(day - cfg.gauge.window_days);
-        let shift = gauge::shift(self.players, &self.activity, cfg.gauge.n_est);
+        let shift = gauge::shift(self.players, &self.activity, &cfg.gauge);
         self.players.shift_cum += shift;
         if cfg.question.aff_strength == AffStrength::Gate || cfg.team.s2.ed_gate > 0.0 {
             let mut panel: Vec<f64> = (0..self.arena.n_players())
@@ -380,11 +380,34 @@ impl<'a> Sweep<'a> {
         self.mem.absorb(t, events, params);
         let collect = t.format == Format::InPerson && t.day >= self.zfrom;
         let steered = steer(grads, events, t, cfg);
+        let floor = self.floored(t, events);
         self.players.absorb(t, steered.as_deref().unwrap_or(grads), &mut self.ed_seen, collect, cfg);
         self.players.shrink_to_lineups(t, cfg);
+        for (i, before) in floor {
+            let s = &mut self.players.state[i as usize];
+            s.theta_raw = s.theta_raw.max(before);
+        }
         for &(i, _, info) in grads {
             self.activity.push(t.day, i, t.weight * info);
         }
+    }
+}
+
+impl Sweep<'_> {
+    /// Under `player.shrink_keeps_floor`, every member of a lineup the
+    /// direction rule protects, with the strength they came in with.
+    fn floored(&self, t: &Tournament, events: &[TeamEvent]) -> Vec<(u32, f64)> {
+        let cfg = self.cfg;
+        if !(cfg.player.shrink_keeps_floor && cfg.question.rel_place) {
+            return Vec::new();
+        }
+        let held: HashMap<u32, bool> = events
+            .iter()
+            .filter(|e| e.actual_place > 0.0 && e.forecast_place > 0.0)
+            .map(|e| (e.team, e.forecast_place >= e.actual_place))
+            .collect();
+        let members = t.teams.iter().filter(|r| held.get(&r.team) == Some(&true)).flat_map(|r| &r.members);
+        members.map(|&m| (m, self.players.state[m as usize].theta_raw)).collect()
     }
 }
 

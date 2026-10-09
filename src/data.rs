@@ -191,8 +191,8 @@ fn parse_mask(s: &str, out: &mut Vec<u8>) {
 /// editors and question count played one package in several cities, so they
 /// are one field. Each group is folded into its lowest id, provided every
 /// result carries a score, and re-ranked by it, ties sharing the mean place.
-fn merge_cities(ts: &mut Vec<Tournament>, days: i32) {
-    let into = merge_targets(ts, days);
+fn merge_cities(ts: &mut Vec<Tournament>, days: i32, min_corr: f64, venue_drop: bool) {
+    let into = merge_targets(ts, days, min_corr);
     let mut merged = vec![false; ts.len()];
     for (k, first) in into.iter().enumerate() {
         let Some(first) = *first else { continue };
@@ -202,7 +202,7 @@ fn merge_cities(ts: &mut Vec<Tournament>, days: i32) {
         merged[first] = true;
     }
     for (t, _) in ts.iter_mut().zip(&merged).filter(|(_, &m)| m) {
-        rescore(t);
+        rescore(t, venue_drop);
     }
     let folded = into.iter().filter(|x| x.is_some()).count();
     let groups = merged.iter().filter(|&&m| m).count();
@@ -211,7 +211,7 @@ fn merge_cities(ts: &mut Vec<Tournament>, days: i32) {
 }
 
 /// For every tournament, the earlier one of its group it folds into, if any.
-fn merge_targets(ts: &[Tournament], days: i32) -> Vec<Option<usize>> {
+fn merge_targets(ts: &[Tournament], days: i32, min_corr: f64) -> Vec<Option<usize>> {
     let mut key_of: HashMap<(Vec<u32>, usize), Vec<(i32, usize)>> = HashMap::new();
     let mut into = vec![None; ts.len()];
     for (k, t) in ts.iter().enumerate() {
@@ -222,7 +222,8 @@ fn merge_targets(ts: &[Tournament], days: i32) -> Vec<Option<usize>> {
         let mut ed = t.editors.clone();
         ed.sort_unstable();
         let firsts = key_of.entry((ed, t.n_q)).or_default();
-        match firsts.iter().find(|&&(d, _)| (t.day - d).abs() <= days) {
+        let same_package = |f: usize| min_corr <= 0.0 || one_package(&ts[f], t, min_corr);
+        match firsts.iter().find(|&&(d, f)| (t.day - d).abs() <= days && same_package(f)) {
             Some(&(_, first)) => into[k] = Some(first),
             None => firsts.push((t.day, k)),
         }
@@ -232,14 +233,11 @@ fn merge_targets(ts: &[Tournament], days: i32) -> Vec<Option<usize>> {
 
 /// A question dropped at any venue is dropped at all of them, and the scores
 /// are recounted and re-ranked, so every venue plays for the same questions.
-fn rescore(t: &mut Tournament) {
+/// Under `venue_drop` a question is dropped only where a whole venue skipped
+/// it; otherwise any team's skip drops it for everyone.
+fn rescore(t: &mut Tournament, venue_drop: bool) {
     let nq = t.teams.iter().map(|r| r.mask.len()).max().unwrap_or(0);
-    let mut drop = vec![false; nq];
-    for r in t.teams.iter().filter(|r| !r.mask.is_empty()) {
-        for (q, d) in drop.iter_mut().enumerate() {
-            *d |= r.mask.get(q).is_none_or(|&y| y == SKIP);
-        }
-    }
+    let drop = if venue_drop { venue_drops(t, nq) } else { any_drops(t, nq) };
     for r in t.teams.iter_mut().filter(|r| !r.mask.is_empty()) {
         r.mask.resize(nq, SKIP);
         r.mask.iter_mut().zip(&drop).filter(|(_, &d)| d).for_each(|(y, _)| *y = SKIP);
@@ -251,6 +249,57 @@ fn rescore(t: &mut Tournament) {
         let level = s.iter().filter(|&&y| y == x).count() as f64;
         r.position = above + (level + 1.0) * HALF;
     }
+}
+
+fn skipped(r: &TeamResult, q: usize) -> bool {
+    r.mask.get(q).is_none_or(|&y| y == SKIP)
+}
+
+fn any_drops(t: &Tournament, nq: usize) -> Vec<bool> {
+    let masked: Vec<&TeamResult> = t.teams.iter().filter(|r| !r.mask.is_empty()).collect();
+    (0..nq).map(|q| masked.iter().any(|r| skipped(r, q))).collect()
+}
+
+/// The questions some venue as a whole did not play.
+fn venue_drops(t: &Tournament, nq: usize) -> Vec<bool> {
+    let mut by_venue: HashMap<i64, Vec<&TeamResult>> = HashMap::new();
+    for r in t.teams.iter().filter(|r| !r.mask.is_empty()) {
+        by_venue.entry(r.venue).or_default().push(r);
+    }
+    (0..nq).map(|q| by_venue.values().any(|v| v.iter().all(|r| skipped(r, q)))).collect()
+}
+
+/// Whether `b` played the same package as `a`: no team at both, and take
+/// rates per question that correlate at least `min_corr`.
+fn one_package(a: &Tournament, b: &Tournament, min_corr: f64) -> bool {
+    let teams: std::collections::HashSet<u32> = a.teams.iter().map(|r| r.team).collect();
+    if b.teams.iter().any(|r| teams.contains(&r.team)) {
+        return false;
+    }
+    let (ra, rb) = (take_rates(a), take_rates(b));
+    let pairs: Vec<(f64, f64)> = ra.iter().zip(&rb).filter_map(|(x, y)| Some(((*x)?, (*y)?))).collect();
+    pearson(&pairs).is_some_and(|c| c >= min_corr)
+}
+
+/// Each question's share of the teams that answered it, among those that played it.
+fn take_rates(t: &Tournament) -> Vec<Option<f64>> {
+    let rate = |q: usize| {
+        let played: Vec<u8> = t.teams.iter().filter_map(|r| r.mask.get(q).copied()).filter(|&y| y != SKIP).collect();
+        (!played.is_empty()).then(|| played.iter().filter(|&&y| y == CORRECT).count() as f64 / played.len() as f64)
+    };
+    (0..t.n_q).map(rate).collect()
+}
+
+fn pearson(xy: &[(f64, f64)]) -> Option<f64> {
+    let n = xy.len() as f64;
+    if xy.len() < MIN_CORR_QUESTIONS {
+        return None;
+    }
+    let (mx, my) = (xy.iter().map(|p| p.0).sum::<f64>() / n, xy.iter().map(|p| p.1).sum::<f64>() / n);
+    let cov: f64 = xy.iter().map(|(x, y)| (x - mx) * (y - my)).sum();
+    let vx: f64 = xy.iter().map(|(x, _)| (x - mx) * (x - mx)).sum();
+    let vy: f64 = xy.iter().map(|(_, y)| (y - my) * (y - my)).sum();
+    (vx > 0.0 && vy > 0.0).then(|| cov / (vx * vy).sqrt())
 }
 
 /// The roster history `tools/fetch/prep_gg_inputs.py` writes from chgk.gg's dump, and
@@ -328,6 +377,8 @@ const SEASON_END: usize = 2;
 const ROSTER_ADDED: usize = 3;
 const ROSTER_REMOVED: usize = 4;
 const HALF: f64 = 0.5;
+/// A correlation of take rates needs this many questions to mean anything.
+const MIN_CORR_QUESTIONS: usize = 10;
 
 pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error> {
     let conn = Connection::open_with_flags(&cfg.data.db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
@@ -457,7 +508,8 @@ impl<'a> Loader<'a> {
     fn finish(mut self, conn: &Connection) -> Arena {
         self.tournaments.retain(|t| !t.teams.is_empty());
         if self.cfg.data.merge_cities {
-            merge_cities(&mut self.tournaments, self.cfg.data.merge_days);
+            let d = &self.cfg.data;
+            merge_cities(&mut self.tournaments, d.merge_days, d.merge_min_corr, d.merge_venue_drop);
         }
         let rosters = base_rosters(conn);
         for t in self.tournaments.iter_mut() {

@@ -1,3 +1,4 @@
+use crate::config::Gauge;
 use crate::question_model::Players;
 
 /// Rolling window of rated games, used both for the gauge and for the listing rule.
@@ -40,19 +41,24 @@ impl Activity {
     }
 }
 
-/// Mean theta of the established players; DESIGN 3.5.
-pub fn shift(players: &Players, activity: &Activity, n_est: u32) -> f64 {
+/// Mean theta of the established players; DESIGN 3.5. Nothing moves when the
+/// group is smaller than `min_panel`, and the move is held to `max_shift`.
+pub fn shift(players: &Players, activity: &Activity, g: &Gauge) -> f64 {
     let mut sum = 0.0;
     let mut n: u32 = 0;
     for (i, &c) in activity.count.iter().enumerate() {
-        if c >= n_est {
+        if c >= g.n_est {
             sum += players.theta(i);
             n += 1;
         }
     }
-    if n == 0 {
-        0.0
+    if n == 0 || n < g.min_panel {
+        return 0.0;
+    }
+    let mean = sum / n as f64;
+    if g.max_shift > 0.0 {
+        mean.clamp(-g.max_shift, g.max_shift)
     } else {
-        sum / n as f64
+        mean
     }
 }

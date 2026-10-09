@@ -501,6 +501,16 @@ pub struct Data {
     /// Saturday in Europe is Friday in California. 0 is the same day only.
     #[serde(default)]
     pub merge_days: i32,
+    /// A field joins a group only when its per-question take rates correlate
+    /// with the group's first field's at least this well, and no team played
+    /// both: one package played in several cities, not two packages by the
+    /// same editors. 0 merges on editors, question count and dates alone.
+    #[serde(default)]
+    pub merge_min_corr: f64,
+    /// A question is dropped from a merged field only when a whole venue did
+    /// not play it; one team's missing answer stays that team's.
+    #[serde(default)]
+    pub merge_venue_drop: bool,
     /// Weight of one of those tournaments, on top of its format weight.
     #[serde(default = "one")]
     pub w_unrated: f64,
@@ -691,6 +701,16 @@ pub struct Player {
     pub info_scale: f64,
     /// Fraction of the gap to the lineup mean each member is pulled after a tournament.
     pub teammate_shrink: f64,
+    /// Under `question.rel_place`, a lineup at or above its forecast place
+    /// cannot lose from the tournament; when set, the pull towards the
+    /// lineup's mean that follows is not allowed to undo that.
+    #[serde(default)]
+    pub shrink_keeps_floor: bool,
+    /// A newcomer starts this share of the way from `mu_new` to the mean of
+    /// the lineup's players who already have a rating; 0 starts every newcomer
+    /// at `mu_new`, however strong the table they join.
+    #[serde(default)]
+    pub seed_w: f64,
     /// Volatility bounds and adaptation rate; `tau_p` is the starting volatility.
     pub v_min: f64,
     pub v_max: f64,
@@ -740,6 +760,15 @@ fn c0() -> f64 {
 pub struct Gauge {
     pub n_est: u32,
     pub window_days: i32,
+    /// The week's shift is taken only from a reference group of at least this
+    /// many established players; a smaller one leaves the scale where it was.
+    /// 0 takes it from any group, which is how 2021's lockdown moved every
+    /// rating by 1722 points when the group shrank to seven players.
+    #[serde(default)]
+    pub min_panel: u32,
+    /// The largest shift one release may make, in theta; 0 is no limit.
+    #[serde(default)]
+    pub max_shift: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
