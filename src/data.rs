@@ -152,9 +152,21 @@ impl<K: std::hash::Hash + Eq + Clone> Interner<K> {
     }
 }
 
-/// Every run of digits in `s` as an id, interned.
-fn parse_ids(s: &str, ids: &mut Interner<i64>) -> Vec<u32> {
-    s.split(|c: char| !c.is_ascii_digit()).filter(|x| !x.is_empty()).filter_map(|x| x.parse().ok()).map(|v| ids.get(v)).collect()
+/// Every run of digits in `s` as an id, read through `alias` and interned.
+fn parse_ids(s: &str, ids: &mut Interner<i64>, alias: &HashMap<i64, i64>) -> Vec<u32> {
+    let id = |v: i64| alias.get(&v).copied().unwrap_or(v);
+    s.split(|c: char| !c.is_ascii_digit()).filter(|x| !x.is_empty()).filter_map(|x| x.parse().ok()).map(|v| ids.get(id(v))).collect()
+}
+
+/// `alias_id -> player_id` from `data.player_aliases`; empty when none is named.
+fn aliases(path: &str) -> HashMap<i64, i64> {
+    if path.is_empty() {
+        return HashMap::new();
+    }
+    let pair = |r: &Vec<String>| Some((r.first()?.trim().parse().ok()?, r.get(1)?.trim().parse().ok()?));
+    let m: HashMap<i64, i64> = crate::util::csv_rows(path).unwrap_or_default().iter().filter_map(pair).collect();
+    eprintln!("{} player aliases from {path}", m.len());
+    m
 }
 
 /// Pulls one numeric field out of the old system's per-result JSON blob.
@@ -435,6 +447,8 @@ struct Loader<'a> {
     /// towns the teams are registered in.
     towns: Interner<String>,
     names: HashMap<i64, String>,
+    alias: HashMap<i64, i64>,
+    no_alias: HashMap<i64, i64>,
     tournaments: Vec<Tournament>,
 }
 
@@ -447,6 +461,8 @@ impl<'a> Loader<'a> {
             teams: Interner::new(),
             towns: Interner::new(),
             names: town_names(TOWNS),
+            alias: aliases(&cfg.data.player_aliases),
+            no_alias: HashMap::new(),
             tournaments: Vec::new(),
         }
     }
@@ -473,7 +489,7 @@ impl<'a> Loader<'a> {
         if weight <= 0.0 {
             return Ok(None);
         }
-        let editors = row.get::<_, Option<String>>(C_EDITORS)?.map_or(Vec::new(), |e| parse_ids(&e, &mut self.editors));
+        let editors = row.get::<_, Option<String>>(C_EDITORS)?.map_or(Vec::new(), |e| parse_ids(&e, &mut self.editors, &self.no_alias));
         // Tournaments whose results carry no mask still need a question count
         // for the pairwise scale; the tournament row declares it.
         let declared = row.get::<_, Option<String>>(C_QUESTIONS)?;
@@ -485,7 +501,7 @@ impl<'a> Loader<'a> {
 
     /// One result of the current tournament.
     fn result(&mut self, row: &rusqlite::Row) -> rusqlite::Result<()> {
-        let members = row.get::<_, Option<String>>(C_MEMBERS)?.map_or(Vec::new(), |m| parse_ids(&m, &mut self.players));
+        let members = row.get::<_, Option<String>>(C_MEMBERS)?.map_or(Vec::new(), |m| parse_ids(&m, &mut self.players, &self.alias));
         let mut mask = Vec::new();
         if let Some(m) = row.get::<_, Option<String>>(C_MASK)? {
             parse_mask(&m, &mut mask);

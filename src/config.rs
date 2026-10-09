@@ -511,6 +511,10 @@ pub struct Data {
     /// not play it; one team's missing answer stays that team's.
     #[serde(default)]
     pub merge_venue_drop: bool,
+    /// A CSV of `alias_id,player_id`: one person entered under two ids, whose
+    /// games under `alias_id` count as `player_id`'s. Empty reads none.
+    #[serde(default)]
+    pub player_aliases: String,
     /// Weight of one of those tournaments, on top of its format weight.
     #[serde(default = "one")]
     pub w_unrated: f64,
