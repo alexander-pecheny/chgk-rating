@@ -114,6 +114,20 @@ fn pins_of(cfg: &Config) -> Vec<Pin> {
     pins
 }
 
+/// The variance a player's strength gains over `dt` years without a game:
+/// the volatility's random walk, plus `player.tau_gap` per year of the
+/// absence beyond the first, so a player back after years away is no longer
+/// held to the estimate of their last season.
+fn drift(s: &PlayerState, dt: f64, cfg: &Config) -> f64 {
+    let base = s.vol * s.vol * dt;
+    let g = cfg.player.tau_gap;
+    if g > 0.0 && dt > 1.0 {
+        base + g * g * (dt - 1.0)
+    } else {
+        base
+    }
+}
+
 /// Years from `from` to `to`, never negative.
 fn years(from: i32, to: i32) -> f64 {
     ((to - from).max(0) as f64) / DAYS_PER_YEAR
@@ -274,7 +288,7 @@ impl Players {
             let established = s.games >= SCHEDULE_ESTABLISHED;
             return if established { SCHEDULE_SIGMA.0 } else { SCHEDULE_SIGMA.1 };
         }
-        (s.var + s.vol * s.vol * years(s.last_day, day)).sqrt()
+        (s.var + drift(s, years(s.last_day, day), cfg)).sqrt()
     }
 
     /// The vector a player's affinity is read against: the pinned format
@@ -322,6 +336,109 @@ impl Players {
         self.shift_cum = 0.0;
         self.shift_pub = 0.0;
         self.zstat = (0.0, 0.0, 0.0);
+    }
+
+    /// `player.team_joint`: for each player, the sum over the other members of
+    /// their lineup of `var * information`, each `var` diffused to today.
+    fn teammate_precision(&self, t: &Tournament, grads: &[(u32, f64, f64)], cfg: &Config) -> HashMap<u32, f64> {
+        let info: HashMap<u32, f64> = grads.iter().map(|&(i, _, f)| (i, f)).collect();
+        let k = t.weight * cfg.player.info_scale;
+        let mut out = HashMap::new();
+        for r in &t.teams {
+            let part: Vec<(u32, f64)> = r
+                .members
+                .iter()
+                .filter_map(|&i| {
+                    let f = *info.get(&i)?;
+                    let s = &self.state[i as usize];
+                    let v = s.var + drift(s, years(s.last_day, t.day), cfg);
+                    Some((i, v * (k * f).max(cfg.numeric.info_floor)))
+                })
+                .collect();
+            let total: f64 = part.iter().map(|p| p.1).sum();
+            for (i, x) in part {
+                out.insert(i, total - x);
+            }
+        }
+        out
+    }
+
+    /// `player.places`: one field without answer masks, read from its places.
+    /// Returns each moved player with the information they took, for the
+    /// gauge's activity record.
+    pub fn absorb_places(&mut self, t: &Tournament, cfg: &Config) -> Vec<(u32, f64)> {
+        let s2 = &cfg.team.s2;
+        let tau = s2.tau.max(1e-3);
+        // Pairwise logit per unit of theta: ln 10 / D on the display scale.
+        let c = std::f64::consts::LN_10 / s2.d * s2.player_scale;
+        let vbar = self.editor_mean(t);
+        let teams: Vec<&crate::data::TeamResult> =
+            t.teams.iter().filter(|r| r.position > 0.0 && !r.members.is_empty()).collect();
+        let n = teams.len();
+        if n < 2 {
+            return Vec::new();
+        }
+        // Diffuse every member to today first, so the field is read at today's spread.
+        for r in &teams {
+            for &i in &r.members {
+                let s = &mut self.state[i as usize];
+                s.var += drift(s, years(s.last_day, t.day), cfg);
+                s.last_day = t.day;
+            }
+        }
+        // Each lineup's strength, its softmax weights and its variance.
+        let lines: Vec<(f64, Vec<f64>, f64)> = teams
+            .iter()
+            .map(|r| {
+                let xs: Vec<f64> = r.members.iter().map(|&i| self.theta(i as usize) + self.affinity(i as usize, &vbar)).collect();
+                let mx = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let e: Vec<f64> = xs.iter().map(|&x| ((x - mx) / tau).exp()).collect();
+                let sum: f64 = e.iter().sum();
+                let l = mx + tau * (sum.ln() - 6f64.ln());
+                let w: Vec<f64> = e.iter().map(|x| x / sum).collect();
+                let v: f64 = r.members.iter().zip(&w).map(|(&i, &wi)| wi * wi * self.state[i as usize].var).sum();
+                (l, w, v)
+            })
+            .collect();
+        let k = t.weight * cfg.player.places_eff / (n - 1) as f64;
+        let max = cfg.numeric.theta_max_step;
+        let mut out = Vec::new();
+        for (a, r) in teams.iter().enumerate() {
+            let (mut sc, mut inf) = (0.0, 0.0);
+            for (b, rb) in teams.iter().enumerate().filter(|&(b, _)| b != a) {
+                let p = 1.0 / (1.0 + (c * (lines[b].0 - lines[a].0)).exp());
+                let w = match r.position.partial_cmp(&rb.position) {
+                    Some(std::cmp::Ordering::Less) => 1.0,
+                    Some(std::cmp::Ordering::Greater) => 0.0,
+                    _ => 0.5,
+                };
+                sc += c * (w - p);
+                inf += c * c * p * (1.0 - p);
+            }
+            let (g, info) = (sc * k, inf * k);
+            let (_, w, v) = &lines[a];
+            let den = 1.0 + info * v;
+            for (&i, &wi) in r.members.iter().zip(w) {
+                let s = &mut self.state[i as usize];
+                let pv = wi * s.var;
+                s.theta_raw += (pv * g / den).clamp(-max, max);
+                s.var -= pv * pv * info / den;
+                out.push((i, wi * wi * info));
+            }
+        }
+        out
+    }
+
+    /// `player.places_handoff_var`: the hand-off from the places-only years.
+    /// Every player already seen keeps `theta`, restarts at this variance and
+    /// the starting volatility, and their format columns go back to the prior,
+    /// as the warm start's restart does, but from the past alone.
+    pub fn handoff(&mut self, var: f64, cfg: &Config) {
+        self.reset_pins(cfg);
+        for s in self.state.iter_mut().filter(|s| s.seen) {
+            s.var = var;
+            s.vol = cfg.player.tau_p;
+        }
     }
 
     /// `player.burn_reset_phi`: every pinned format column back to zero at
@@ -398,9 +515,11 @@ impl Players {
             HashMap::new()
         };
         let mut ed_grad = vec![0.0; self.free];
+        let extra = if cfg.player.team_joint { self.teammate_precision(t, grads, cfg) } else { HashMap::new() };
         for &(i, g, info) in grads {
             let s = &mut self.state[i as usize];
-            let obs = Obs { g, info, dt: years(s.last_day, t.day) };
+            let ex = extra.get(&i).copied().unwrap_or(0.0);
+            let obs = Obs { g, info, dt: years(s.last_day, t.day), extra: ex };
             let joint = cfg.player.phi_joint && step.active_pins() && cfg.player.update == PUpdate::Kalman;
             let z = if joint { step.joint(s, &obs, &self.pins, cfg) } else { step.theta(s, &obs, cfg) };
             if let Some(z) = z {
@@ -458,6 +577,9 @@ struct Obs {
     g: f64,
     info: f64,
     dt: f64,
+    /// `player.team_joint`: the teammates' `var * information`, which a
+    /// joint step adds to the denominator. 0 is the separate step.
+    extra: f64,
 }
 
 /// What every player's step in one tournament shares.
@@ -504,12 +626,21 @@ impl Step {
             s.theta_raw += step * self.weight * o.g;
             return None;
         }
-        s.var += s.vol * s.vol * o.dt;
+        s.var += drift(s, o.dt, cfg);
         let prior = s.var;
         let ieff = self.weight * o.info * p.info_scale;
-        let prec = 1.0 / prior + ieff.max(cfg.numeric.info_floor);
-        s.theta_raw += (self.weight * p.info_scale * o.g / prec).clamp(-Step::max_step(cfg), Step::max_step(cfg));
-        s.var = 1.0 / prec;
+        if o.extra > 0.0 {
+            // The joint step of `player.team_joint`: the lineup's other
+            // uncertain members share the same surprise.
+            let i = ieff.max(cfg.numeric.info_floor);
+            let den = 1.0 + prior * i + o.extra;
+            s.theta_raw += (prior * self.weight * p.info_scale * o.g / den).clamp(-Step::max_step(cfg), Step::max_step(cfg));
+            s.var = prior - prior * prior * i / den;
+        } else {
+            let prec = 1.0 / prior + ieff.max(cfg.numeric.info_floor);
+            s.theta_raw += (self.weight * p.info_scale * o.g / prec).clamp(-Step::max_step(cfg), Step::max_step(cfg));
+            s.var = 1.0 / prec;
+        }
         if ieff <= cfg.numeric.info_floor {
             return None;
         }
@@ -535,7 +666,7 @@ impl Step {
     fn joint(&self, s: &mut PlayerState, o: &Obs, pins: &[Pin], cfg: &Config) -> Option<f64> {
         let p = &cfg.player;
         let max = Step::max_step(cfg);
-        s.var += s.vol * s.vol * o.dt;
+        s.var += drift(s, o.dt, cfg);
         let tau2 = p.tau_phi * p.tau_phi;
         let active: Vec<usize> = (0..self.n_pin).filter(|&k| self.vbar[k] != 0.0).collect();
         for &k in &active {
@@ -588,14 +719,17 @@ impl Step {
         let p = &cfg.player;
         let tau2 = p.tau_phi * p.tau_phi;
         let max = Step::max_step(cfg);
+        // `player.phi_share_v`: the format columns see this share of the
+        // evidence, small while `theta` is still unsettled.
+        let r = if p.phi_share_v > 0.0 { p.phi_share_v / (p.phi_share_v + s.var) } else { 1.0 };
         for k in (0..self.n_pin).filter(|&k| self.vbar[k] != 0.0) {
             let own = p.tau_phi_own && pins[k] == Pin::InPerson && s.games_ip > 0;
             let dt = if own { years(s.last_ip, self.day) } else { o.dt };
             let av = &mut s.aff_var[k];
             *av += tau2 * dt;
-            let ieff = self.weight * o.info * p.info_scale;
+            let ieff = r * self.weight * o.info * p.info_scale;
             let prec = 1.0 / *av + ieff.max(cfg.numeric.info_floor);
-            let step = self.vbar[k] * self.weight * p.info_scale * o.g / prec;
+            let step = r * self.vbar[k] * self.weight * p.info_scale * o.g / prec;
             s.aff[k] = (s.aff[k] + step.clamp(-max, max)).clamp(-self.pin_clamp[k], self.pin_clamp[k]);
             *av = 1.0 / prec;
         }

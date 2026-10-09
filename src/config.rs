@@ -194,6 +194,11 @@ pub struct S2 {
     /// Years after which an entry of the editor memory counts for half. 0 never
     /// forgets, which is round 3's rule.
     pub ed_half_life: f64,
+    /// The editor memory learns only from fields on or after this date, so
+    /// the forecasts of a burn-in that starts from unplaced players do not
+    /// stay in it for good. Empty is every field. Measured with a 2005 start
+    /// and changes nothing: -0.0035 against -0.0036 without it.
+    pub ed_from: String,
     /// What the memory is keyed on: each `(player, editor)` pair, the
     /// `(team, editor)` pair, or the player against the whole set of a
     /// tournament's editors.
@@ -369,6 +374,7 @@ const S2_DEFAULT: S2 = S2 {
     ed_min_n: 2.0,
     ed_gate: 0.0,
     ed_half_life: 0.0,
+    ed_from: String::new(),
     ed_key: EdKey::PlayerEditor,
     ed_phi: 0.0,
     rank_rule: RankRule::Mean,
@@ -760,6 +766,56 @@ pub struct Player {
     /// at 0.25 and -0.0007 +/- 0.0011 at 0.1.
     #[serde(default)]
     pub phi_gate_var: f64,
+    /// A tournament with no answer mask, which the question model cannot
+    /// read, moves the players by its places instead: each lineup's strength
+    /// by the tempered roster rule of `team.s2`, its surprise as wins over the
+    /// field less the expected ones at the pairwise scale of `team.s2.D`, and
+    /// one joint Kalman step for its members, shared by their uncertainty.
+    /// Only `theta` moves. With `data.from` before the masks begin, this
+    /// places the players before the question model starts. Off ignores them.
+    /// Measured from 2005 against the one-pass burn-in from 2013 and off:
+    /// every variant loses on tune, -0.0012 +/- 0.0012 at best (all fields
+    /// read by places until 2013, hand-off at variance 1), although it gains
+    /// +0.0017 on test. A 2005 start without it loses -0.0036.
+    #[serde(default)]
+    pub places: bool,
+    /// One joint step for a lineup's members: each takes `var_i g_i` over
+    /// `1 + Σ_j var_j I_j` summed over the whole lineup instead of over
+    /// themselves alone, so a lineup of unplaced players shares one surprise
+    /// rather than each taking all of it, and a placed teammate of a newcomer
+    /// moves little. Off is the separate steps. Measured and off: -0.0033 +/-
+    /// 0.0013 on tune.
+    #[serde(default)]
+    pub team_joint: bool,
+    /// Extra diffusion of `theta` per year of a player's absence beyond the
+    /// first. 0 is off. Measured and off: -0.0018 +/- 0.0007 on tune at 0.2.
+    #[serde(default)]
+    pub tau_gap: f64,
+    /// The format columns learn from `v / (v + var)` of each tournament's
+    /// evidence, `var` being `theta`'s: little while `theta` is unsettled.
+    /// 0 is off. On the one-pass burn-in, tune against the burn-in is -0.0011
+    /// at 0.2, -0.0001 at 0.05, +0.0015 +/- 0.0011 at 0.02, +0.0006 at 0.01
+    /// and +0.0014 at 0.005; 0.02 is +0.0017 +/- 0.0014 on test. Under the
+    /// two-pass warm start it costs -0.0009 on tune: it repairs the cold start,
+    /// not the model.
+    #[serde(default)]
+    pub phi_share_v: f64,
+    /// How many independent pairwise results one field is worth, before the
+    /// format weight.
+    #[serde(default = "places_eff")]
+    pub places_eff: f64,
+    /// Only fields before this date move players by places; empty is all.
+    #[serde(default)]
+    pub places_until: String,
+    /// Before `places_until`, read every field by its places, masked or not,
+    /// and leave the question model's player step out.
+    #[serde(default)]
+    pub places_masked: bool,
+    /// At `places_until`, every player already seen restarts at this variance,
+    /// the starting volatility and the prior format columns, keeping `theta`:
+    /// the warm start's restart, made from the past alone. 0 is no hand-off.
+    #[serde(default)]
+    pub places_handoff_var: f64,
     /// Volatility floor of the second, fast estimate of the same strength. It
     /// takes the same Kalman step against the same gradient and forgets far
     /// faster; only the forecast reads it, through `team.s2.k_fast`. 0 is off.
@@ -776,6 +832,10 @@ pub struct Player {
 
 fn tau_phi() -> f64 {
     0.05
+}
+
+fn places_eff() -> f64 {
+    5.0
 }
 
 fn eta0() -> f64 {

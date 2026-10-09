@@ -91,6 +91,8 @@ pub struct Memories {
     pub edmem: EditorMemory,
     pub geo: Geography,
     pub load: PlayerLoad,
+    /// `team.s2.ed_from`.
+    ed_from: i32,
 }
 
 impl Memories {
@@ -102,6 +104,7 @@ impl Memories {
             edmem: EditorMemory::new(s2.editor_memory != 0.0 || s2.ed_phi != 0.0, s2.ed_min_n, s2.ed_key, s2.ed_half_life),
             geo: Geography::new(s2.home_bonus != 0.0 || s2.home_team_bonus != 0.0),
             load: PlayerLoad::new(s2.load_7 != 0.0 || s2.load_30 != 0.0),
+            ed_from: parse_date(&s2.ed_from).unwrap_or(i32::MIN),
         }
     }
 
@@ -126,7 +129,7 @@ impl Memories {
             }
         }
         self.chem.absorb(t);
-        if self.edmem.on() && in_person {
+        if self.edmem.on() && in_person && t.day >= self.ed_from {
             let n = events.len().max(1) as f64;
             let res: Vec<(usize, f64)> = events
                 .iter()
@@ -243,6 +246,8 @@ pub fn run(arena: &Arena, cfg: &Config, opts: Options, obs: &mut dyn Observer) -
         let mut sweep = Sweep::new(arena, cfg, opts, &mut players, last);
         let mut stopped = false;
         let mut reset = cfg.player.burn_reset_phi;
+        let places_until = parse_date(&cfg.player.places_until).unwrap_or(i32::MAX);
+        let mut handoff = cfg.player.places_handoff_var > 0.0;
         for (n, t) in arena.tournaments.iter().enumerate() {
             // An unobserved pass exists only for its snapshot, and nothing it
             // does after `warm_until` reaches the next one: it stops there, so
@@ -251,6 +256,10 @@ pub fn run(arena: &Arena, cfg: &Config, opts: Options, obs: &mut dyn Observer) -
                 snap = sweep.players.snapshot();
                 stopped = true;
                 break;
+            }
+            if handoff && t.day >= places_until {
+                sweep.players.handoff(cfg.player.places_handoff_var, cfg);
+                handoff = false;
             }
             if reset && t.day >= publish_from {
                 sweep.players.reset_pins(cfg);
@@ -288,6 +297,8 @@ struct Sweep<'a> {
     to_day: i32,
     /// The first day whose in-person fields feed the residual statistics.
     zfrom: i32,
+    /// `player.places` reads no field on or after this day.
+    places_until: i32,
 }
 
 impl<'a> Sweep<'a> {
@@ -308,6 +319,7 @@ impl<'a> Sweep<'a> {
             next_rel: next_thursday(from_day),
             to_day,
             zfrom: parse_date("2018-01-01").unwrap_or(0),
+            places_until: parse_date(&cfg.player.places_until).unwrap_or(i32::MAX),
         }
     }
 
@@ -400,6 +412,17 @@ impl<'a> Sweep<'a> {
     fn learn(&mut self, t: &Tournament, grads: &[(u32, f64, f64)], events: &[TeamEvent], params: &[QParams]) {
         let cfg = self.cfg;
         self.mem.absorb(t, events, params);
+        let p = &cfg.player;
+        let by_places =
+            p.places && t.day < self.places_until && (p.places_masked || t.teams.iter().all(|r| r.mask.is_empty()));
+        if by_places {
+            for (i, info) in self.players.absorb_places(t, cfg) {
+                self.activity.push(t.day, i, info);
+            }
+            if p.places_masked {
+                return;
+            }
+        }
         let collect = t.format == Format::InPerson && t.day >= self.zfrom;
         let steered = steer(grads, events, t, cfg);
         let floor = self.floored(t, events);
