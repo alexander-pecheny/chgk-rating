@@ -23,6 +23,8 @@ const MONTHS: i32 = 12;
 /// `m + 9` mod 12 counts months from March.
 const MARCH_OFFSET: i32 = 9;
 const FEBRUARY: u32 = 2;
+/// Counting months from March as 0, January is 10.
+const JANUARY_FROM_MARCH: i32 = 10;
 
 const SECONDS_PER_DAY: u64 = 86_400;
 const DAYS_PER_WEEK: i32 = 7;
@@ -70,7 +72,7 @@ pub fn civil_from_days(z: i32) -> (i32, u32, u32) {
     let doy = doe - (DAYS_PER_YEAR * yoe + yoe / LEAP_EVERY - yoe / NO_LEAP_EVERY);
     let mp = (MONTH_PARTS * doy + MONTH_ROUND) / MONTH_SPAN;
     let d = (doy - (MONTH_SPAN * mp + MONTH_ROUND) / MONTH_PARTS + 1) as u32;
-    let m = if mp < MONTHS - MARCH { mp + MARCH } else { mp - MARCH_OFFSET } as u32;
+    let m = if mp < JANUARY_FROM_MARCH { mp + MARCH } else { mp - MARCH_OFFSET } as u32;
     (if m <= FEBRUARY { y + 1 } else { y }, m, d)
 }
 
@@ -216,4 +218,33 @@ pub fn tie_runs(order: &[usize], same: impl Fn(usize, usize) -> bool) -> Vec<(us
         i = j + 1;
     }
     runs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dates_round_trip() {
+        for day in -80_000..80_000 {
+            let (y, m, d) = civil_from_days(day);
+            assert_eq!(days_from_civil(y, m, d), day, "{y}-{m}-{d}");
+            assert_eq!(parse_date(&format_date(day)), Some(day));
+        }
+    }
+
+    #[test]
+    fn known_dates() {
+        assert_eq!(parse_date("1970-01-01"), Some(0));
+        assert_eq!(format_date(0), "1970-01-01");
+        assert_eq!(format_date(17_137), "2016-12-02");
+        assert_eq!(format_date(11_016), "2000-02-29");
+        assert_eq!(next_thursday(0), 0);
+        assert_eq!(next_thursday(1), 7);
+    }
+
+    #[test]
+    fn ranks_share_ties() {
+        assert_eq!(avg_ranks(&[3.0, 1.0, 3.0, 2.0]), vec![3.5, 1.0, 3.5, 2.0]);
+    }
 }
