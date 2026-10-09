@@ -290,14 +290,16 @@ struct RankSpec<'a> {
     extra: &'a str,
     a: f64,
     b: f64,
+    /// Rank by the rating less this many sigmas; 0 settled first, by rating.
+    sigmas: f64,
 }
 
 /// The two ranking tables of the last release; returns how many players and
 /// teams they list.
 fn ranks(c: &Ctx, release: i64) -> (usize, usize) {
     let d = c.d;
-    let p = RankSpec { table: "player_ratings", id: "player_id", value: "theta", extra: "games_365", a: d.a_player, b: d.b_player };
-    let t = RankSpec { table: "team_ratings", id: "team_id", value: "mu", extra: "evidence", a: d.a_team, b: d.b_team };
+    let p = RankSpec { table: "player_ratings", id: "player_id", value: "theta", extra: "games_365", a: d.a_player, b: d.b_player, sigmas: d.rank_sigmas };
+    let t = RankSpec { table: "team_ratings", id: "team_id", value: "mu", extra: "evidence", a: d.a_team, b: d.b_team, sigmas: 0.0 };
     let (prows, trows) = (ranked(c, &p, release), ranked(c, &t, release));
     let mut ins = c.w.prepare("insert into player_rank values (?1,?2,?3,?4,?5,?6,?7)").unwrap();
     for (i, x) in prows.iter().enumerate() {
@@ -334,7 +336,12 @@ fn ranked(c: &Ctx, s: &RankSpec, release: i64) -> Vec<Ranked> {
             provisional: sigma > c.d.provisional_sigma,
         });
     });
-    out.sort_by(|x, y| x.provisional.cmp(&y.provisional).then(y.display.total_cmp(&x.display)).then(x.id.cmp(&y.id)));
+    if s.sigmas > 0.0 {
+        let low = |x: &Ranked| x.display - s.sigmas * x.sigma;
+        out.sort_by(|x, y| low(y).total_cmp(&low(x)).then(x.id.cmp(&y.id)));
+    } else {
+        out.sort_by(|x, y| x.provisional.cmp(&y.provisional).then(y.display.total_cmp(&x.display)).then(x.id.cmp(&y.id)));
+    }
     out
 }
 
@@ -372,6 +379,7 @@ fn meta(c: &Ctx, last: &Release, (players, teams): (usize, usize), reads: &Reads
         ("b_player", d.b_player.to_string()),
         ("player_phi", d.player_phi.to_string()),
         ("provisional_sigma", d.provisional_sigma.to_string()),
+        ("rank_sigmas", d.rank_sigmas.to_string()),
         ("s2", flag(d.s2)),
         ("achieve", flag(reads.achieve)),
         ("team_steps", flag(reads.team_steps)),

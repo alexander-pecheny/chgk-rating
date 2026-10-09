@@ -276,6 +276,9 @@ var RU = Strings{
 	Players: PlayersStrings{
 		Col: PlayersColStrings{
 			GamesYear: func() string { return "Игр за год" },
+			PlaceTitle: func(k string) string {
+				return fmt.Sprintf("Место — по рейтингу за вычетом %s неопределённостей: игрок, о котором известно мало, стоит не выше, чем позволяют его результаты", k)
+			},
 		},
 		Lede: func(date string, n int, firm string) string {
 			return fmt.Sprintf("Релиз от %s. В таблице %d %s, из них %s с установившимся рейтингом. Индивидуальный рейтинг — оценка из модели вопросов, без лестничных правил.", date, n, core.Plural("ru", n, "игрок", "игрока", "игроков"), firm)

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 
 	"ratingweb/ui"
 )
@@ -47,6 +49,8 @@ type rankLine struct {
 	rank  int64
 	prov  bool
 	cells []ui.Item
+	// ranked is a provisional line that keeps its place in a single ranking.
+	ranked bool
 }
 
 // rankRows are the table's rows, with the band before the first provisional
@@ -54,7 +58,7 @@ type rankLine struct {
 func rankRows(lines []rankLine, split bool, splitText string, cols int) []ui.Item {
 	var out []ui.Item
 	for _, l := range lines {
-		if l.prov && !split {
+		if l.prov && !l.ranked && !split {
 			split = true
 			band := textCell(splitText, ui.Colspan(itoa(int64(cols))))
 			out = append(out, ui.Trow(ui.SplitRow(), ui.ProvRow(), band))
@@ -67,11 +71,12 @@ func rankRows(lines []rankLine, split bool, splitText string, cols int) []ui.Ite
 // rankRow is a provisional rating without a rank, or a ranked one.
 func rankRow(l rankLine) ui.Node {
 	rank := itoa(l.rank)
-	if l.prov {
+	unranked := l.prov && !l.ranked
+	if unranked {
 		rank = dash
 	}
 	tr := append([]ui.Item{numCell(rank)}, l.cells...)
-	if l.prov {
+	if unranked {
 		tr = append(tr, ui.ProvRow())
 	}
 	return ui.Trow(tr...)
@@ -131,7 +136,7 @@ func (s *site) teamLine(r teamRank) rankLine {
 		spread = numCell(fmt.Sprintf("%.0f", num(r.evi)), ui.Faint())
 	}
 	name := nameCell(teamHref(r.id), teamName(r.name, r.id), provMark(r.prov), town(str(r.town)))
-	return rankLine{r.rank, r.prov, []ui.Item{name, numCell(disp(num(r.display)), ui.Bold()), spread, changeCell(r.change)}}
+	return rankLine{rank: r.rank, prov: r.prov, cells: []ui.Item{name, numCell(disp(num(r.display)), ui.Bold()), spread, changeCell(r.change)}}
 }
 
 func (s *site) playerTable(page int) (string, []ui.Item, error) {
@@ -141,27 +146,35 @@ func (s *site) playerTable(page int) (string, []ui.Item, error) {
 	if err = errors.Join(err, err2); err != nil {
 		return "", nil, err
 	}
+	single := s.q.sc.rankSigmas > 0
 	lines := make([]rankLine, len(rows))
 	for i, r := range rows {
 		lines[i] = playerLine(r)
+		lines[i].ranked = single
 	}
-	firstProv := 0
-	if firm < s.nPlayers {
-		firstProv = firm/pageSize + 1
+	sec := p.framed(rankTable(playerCols(s.q.sc.rankSigmas), lines, p.lo >= firm, S.Players.ProvSplit()))
+	if !single {
+		firstProv := 0
+		if firm < s.nPlayers {
+			firstProv = firm/pageSize + 1
+		}
+		sec = append([]ui.Item{provToggle(hiddenOf(lines), firstProv, p.page)}, sec...)
 	}
-	sec := append([]ui.Item{provToggle(hiddenOf(lines), firstProv, p.page)},
-		p.framed(rankTable(playerCols(), lines, p.lo >= firm, S.Players.ProvSplit()))...)
 	lede := head(ui.Text(S.Players.Lede(s.releaseDate, s.nPlayers, itoa(int64(firm)))))
 	return p.title(S.Common.Nav.Players()), []ui.Item{lede, ui.Section(sec...)}, nil
 }
 
-func playerCols() []ui.Item {
-	return []ui.Item{numCol(S.Common.Col.Place()), nameCol(S.Common.Col.Player()), numCol(S.Common.Col.Rating()),
+func playerCols(rankSigmas float64) []ui.Item {
+	place := numCol(S.Common.Col.Place())
+	if rankSigmas > 0 {
+		place = numCol(S.Common.Col.Place(), S.Players.Col.PlaceTitle(strings.Replace(strconv.FormatFloat(rankSigmas, 'f', -1, 64), ".", ",", 1)))
+	}
+	return []ui.Item{place, nameCol(S.Common.Col.Player()), numCol(S.Common.Col.Rating()),
 		numCol("±", S.Common.Col.SigmaTitle()), numCol(S.Players.Col.GamesYear()), numCol(S.Common.Col.Change(), S.Common.Col.ChangePlayerTitle())}
 }
 
 func playerLine(r playerRank) rankLine {
-	return rankLine{r.rank, r.prov, []ui.Item{
+	return rankLine{rank: r.rank, prov: r.prov, cells: []ui.Item{
 		nameCell(playerHref(r.id), playerName(r.name, r.id), provMark(r.prov)),
 		numCell(disp(num(r.display)), ui.Bold()),
 		numCell(disp(num(r.sigma)), ui.Faint()),

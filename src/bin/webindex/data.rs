@@ -15,6 +15,8 @@ pub struct Display {
     pub provisional_sigma: f64,
     /// How much of the format effect the published player number carries.
     pub player_phi: f64,
+    /// Players are ranked by the rating less this many sigmas; 0 settled first.
+    pub rank_sigmas: f64,
     /// Model S2 publishes no team uncertainty, only the provisional flag, so the
     /// pages that would show a band or a plus-minus show rated games instead.
     pub s2: bool,
@@ -31,6 +33,7 @@ pub fn read_display(path: &Path) -> Display {
         b_player: d.b_player,
         provisional_sigma: d.provisional_sigma,
         player_phi: d.player_phi,
+        rank_sigmas: d.rank_sigmas,
         s2: c.team.engine == TeamEngine::S2,
     }
 }

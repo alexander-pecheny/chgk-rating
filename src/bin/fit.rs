@@ -179,6 +179,9 @@ struct Fit<'a> {
     prev_d: Vec<f64>,
     /// The published scale at the previous release.
     shift_pub: f64,
+    /// Nothing before this day is written; the releases before it are skipped.
+    publish_from: i32,
+    skipped: i64,
     prev_t: Vec<f64>,
     /// The lineup of this tournament and the state the forecast read this
     /// morning, before the update moves it.
@@ -199,6 +202,8 @@ impl<'a> Fit<'a> {
             prev_p: vec![f64::NAN; arena.n_players()],
             prev_d: vec![f64::NAN; arena.n_players()],
             shift_pub: 0.0,
+            publish_from: parse_date(&cfg.data.publish_from).unwrap_or(i32::MIN),
+            skipped: 0,
             prev_t: vec![f64::NAN; arena.n_teams()],
             before: Vec::new(),
         })
@@ -224,7 +229,7 @@ impl Observer for Fit<'_> {
             f.emit(t, self.arena, m.players, &m.memories.chem, &m.memories.edmem, &pre, m.events, cfg)?;
         }
         self.before = self.lineup_states(m);
-        if t.train_only {
+        if t.train_only || t.day < self.publish_from {
             return Ok(());
         }
         let qs: Vec<(f64, f64, f64)> = m.params.iter().map(|p| (p.b, p.a(), p.m())).collect();
@@ -260,7 +265,7 @@ impl Observer for Fit<'_> {
             f.absorb_teams(t, e.events);
             f.absorb_players(t, e.grads, e.players);
         }
-        if !t.train_only {
+        if !t.train_only && t.day >= self.publish_from {
             let rows: Vec<PlayerEvent> = std::mem::take(&mut self.before)
                 .into_iter()
                 .map(|(i, b)| PlayerEvent {
@@ -285,7 +290,14 @@ impl Observer for Fit<'_> {
 
     fn release(&mut self, r: &Release) -> pass::Result<()> {
         let (cfg, arena) = (self.cfg, self.arena);
-        if r.id % CHECKPOINT_EVERY == 0 {
+        if r.day < self.publish_from {
+            // Still collecting: the scale moves, nothing is written.
+            self.skipped = r.id;
+            self.shift_pub = r.players.shift_pub;
+            return Ok(());
+        }
+        let id = r.id - self.skipped;
+        if id % CHECKPOINT_EVERY == 0 {
             self.w.checkpoint()?;
         }
         let listed: Vec<usize> = (0..arena.n_players()).filter(|&i| r.activity.count[i] > 0).collect();
@@ -299,8 +311,8 @@ impl Observer for Fit<'_> {
         // itself unless `gauge.publish_step` holds it back.
         let moved = r.players.shift_pub - std::mem::replace(&mut self.shift_pub, r.players.shift_pub);
         let shift = if cfg.gauge.publish_step > 0.0 { moved } else { r.shift };
-        self.w.release(r.id, &format_date(r.day), shift, r.players.shift_pub, listed.len())?;
-        if !cfg.data.write_rows(r.id, r.last) {
+        self.w.release(id, &format_date(r.day), shift, r.players.shift_pub, listed.len())?;
+        if !cfg.data.write_rows(id, r.last) {
             return Ok(());
         }
         let since = |now: f64, prev: &mut f64| {
@@ -317,7 +329,7 @@ impl Observer for Fit<'_> {
             let delta = since(chgk_rating::display::player(theta, cfg), &mut self.prev_d[i]);
             prows.push((arena.player_ids[i], theta, r.players.sigma_at(i, r.day, cfg), r.activity.count[i], change, delta));
         }
-        self.w.player_ratings(r.id, &prows, |t| chgk_rating::display::player(t, cfg))?;
+        self.w.player_ratings(id, &prows, |t| chgk_rating::display::player(t, cfg))?;
         let trows: Vec<(i64, f64, f64, f64, f64, f64)> = r
             .teams
             .rows(r.day, cfg.gauge.window_days, cfg, r.players.shift_cum)
@@ -328,7 +340,7 @@ impl Observer for Fit<'_> {
                 (arena.team_ids[i], mu, sigma, core, evidence, change)
             })
             .collect();
-        self.w.team_ratings(r.id, &trows, |m| chgk_rating::display::team(m, cfg))?;
+        self.w.team_ratings(id, &trows, |m| chgk_rating::display::team(m, cfg))?;
         Ok(())
     }
 }

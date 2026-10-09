@@ -19,6 +19,9 @@ passes = 2
 # question is dropped only where a whole venue skipped it.
 merge_min_corr = 0.5
 merge_venue_drop = true
+# One person entered under two ids that rating.chgk.info has since merged;
+# tools/fetch/player_merges.py rebuilds the list from the official API.
+player_aliases = "data/player_aliases.csv"
 # The tournaments the official system leaves out, for the player side only: they
 # move theta and phi, open no team state, write no team event and enter no
 # metric. Measured and off: +0.0002 +/- 0.0018 on tune and -0.0037 +/- 0.0019 on
@@ -325,6 +328,9 @@ provisional_sigma = 0.3
 # theta + phi, the strength at an in-person table, which is the number the
 # external player tables mean. The forecast never reads this.
 player_phi = 1.0
+# The player table ranks everyone by the rating less 2.75 sigma, the lower
+# 0.3% bound, so a provisional rating sits where its evidence allows.
+rank_sigmas = 2.75
 
 [numeric]
 newton_iters = 12

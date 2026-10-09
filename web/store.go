@@ -46,6 +46,9 @@ type scale struct {
 	playerPhi float64
 	// provSigma is the uncertainty above which a rating is provisional.
 	provSigma float64
+	// rankSigmas is how many sigmas below the rating the player table ranks
+	// by; above 0 every player has a place, provisional or not.
+	rankSigmas float64
 }
 
 func (c scale) team(mu float64) float64 { return c.aTeam + c.bTeam*mu }
@@ -80,7 +83,7 @@ func (st *store) readMeta() error {
 		return f
 	}
 	st.sc = scale{aTeam: num("a_team"), bTeam: num("b_team"), aPlayer: num("a_player"), bPlayer: num("b_player"),
-		playerPhi: num("player_phi"), provSigma: num("provisional_sigma")}
+		playerPhi: num("player_phi"), provSigma: num("provisional_sigma"), rankSigmas: num("rank_sigmas")}
 	st.achieve, st.teamSteps, st.s2 = num("achieve") != 0, num("team_steps") != 0, num("s2") != 0
 	return err
 }

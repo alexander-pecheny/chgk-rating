@@ -522,6 +522,11 @@ pub struct Data {
     /// `0` means the last release only.
     pub rows_every: i64,
     pub passes: usize,
+    /// Nothing before this date is published: the tournaments before it only
+    /// teach the model, and the first release on or after it is release 1.
+    /// Empty publishes from `from`.
+    #[serde(default)]
+    pub publish_from: String,
 }
 
 fn today() -> String {
@@ -860,6 +865,12 @@ pub struct Display {
     /// `theta + phi`, the strength at one. The forecast never reads this.
     #[serde(default)]
     pub player_phi: f64,
+    /// The player table ranks everyone, provisional or not, by the rating less
+    /// this many standard deviations, so a rating resting on little evidence
+    /// stands where its lower bound puts it; the number shown is the rating
+    /// itself. 0 lists the settled players first, by rating.
+    #[serde(default)]
+    pub rank_sigmas: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
