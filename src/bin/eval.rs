@@ -866,16 +866,22 @@ impl Ours {
 fn ndcg_lines(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     let table = ndcg::weights(&arg("--weights").unwrap_or_else(|| ndcg::WEIGHTS.into()));
     let w = (!flag("--unweighted")).then_some(&table);
-    let windows = [("tune", ndcg::TUNE), ("test", ndcg::TEST)];
+    // `--window FROM:TO` scores that one window in place of tune and test.
+    let own: Option<(String, String)> =
+        arg("--window").and_then(|w| w.split_once(':').map(|(a, b)| (a.to_string(), b.to_string())));
+    let windows: Vec<(&str, (&str, &str))> = match &own {
+        Some((a, b)) => vec![("window", (a.as_str(), b.as_str()))],
+        None => vec![("tune", ndcg::TUNE), ("test", ndcg::TEST)],
+    };
     let mut scored = Vec::new();
-    for (name, (from, to)) in windows {
+    for &(name, (from, to)) in &windows {
         let v = ndcg::per_tournament(conn, from, to)?;
         print_window(name, &v, w);
         scored.push(v);
     }
     if let Some(other) = arg("--paired") {
         let o = Connection::open_with_flags(&other, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        for (v, (name, (from, to))) in scored.iter().zip(windows) {
+        for (v, &(name, (from, to))) in scored.iter().zip(&windows) {
             let ov = ndcg::per_tournament(&o, from, to)?;
             let (se, d) = ndcg::paired_se(v, &ov, w, BOOT, |s| s.ndcg);
             let (se3, d3) = ndcg::paired_se(v, &ov, w, BOOT, |s| s.ndcg3);
