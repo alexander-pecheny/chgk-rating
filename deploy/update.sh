@@ -78,6 +78,19 @@ if ! ./target/release/achieve --publish out/ratings.db >> out/achieve.log 2>&1; 
 fi
 log "achieve done: $(tail -n 1 out/achieve.log)"
 
+# Our reimplementations of the other systems, for the forecast comparison on
+# tournament pages. A failure here costs that comparison, not the update.
+log "rivals"
+today=$(date -u '+%Y-%m-%d')
+mkdir -p out/ext
+for r in "ext_fun --as-of $today" "ext_gg --to $today --rows-every 0" "ext_quest --to $today"; do
+    # shellcheck disable=SC2086
+    if ! ./target/release/$r >> out/rivals.log 2>&1; then
+        log "rival ${r%% *} failed, see out/rivals.log; its comparison keeps yesterday's numbers"
+    fi
+done
+log "rivals done"
+
 # The serving index: names, rosters, ranking tables and anomaly scores. It is
 # built beside the old one and renamed in, so the running site never reads half
 # of it.

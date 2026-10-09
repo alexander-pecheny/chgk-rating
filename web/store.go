@@ -33,6 +33,8 @@ type store struct {
 	achieve bool
 	// teamSteps is set when team_events splits a step into placement and pull.
 	teamSteps bool
+	// cleanFrom is the first day of the clean test window; empty for none.
+	cleanFrom string
 	// s2 is set for the published team engine, which carries no team
 	// uncertainty: pages show rated games where they would show a ±.
 	s2 bool
@@ -85,6 +87,7 @@ func (st *store) readMeta() error {
 	st.sc = scale{aTeam: num("a_team"), bTeam: num("b_team"), aPlayer: num("a_player"), bPlayer: num("b_player"),
 		playerPhi: num("player_phi"), provSigma: num("provisional_sigma"), rankSigmas: num("rank_sigmas")}
 	st.achieve, st.teamSteps, st.s2 = num("achieve") != 0, num("team_steps") != 0, num("s2") != 0
+	st.cleanFrom, _ = st.meta("clean_from")
 	return err
 }
 

@@ -331,6 +331,9 @@ player_phi = 1.0
 # The player table ranks everyone by the rating less 2.75 sigma, the lower
 # 0.3% bound, so a provisional rating sits where its evidence allows.
 rank_sigmas = 2.75
+# No rule was chosen on a tournament after the test window of src/ndcg.rs
+# closed; tournament pages from this day show every system's forecast NDCG.
+clean_from = "2026-08-28"
 
 [numeric]
 newton_iters = 12

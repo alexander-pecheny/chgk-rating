@@ -127,8 +127,34 @@ func (s *site) tournamentBody(id int64, ids []int64, venues []venue) ([]ui.Item,
 	if q := questionStrip(qs); q != nil {
 		out = append(out, q)
 	}
+	fc, err := s.q.forecastQuality(id)
+	if err != nil {
+		return nil, err
+	}
+	if q := forecastSection(fc, s.q.cleanFrom); q != nil {
+		out = append(out, q)
+	}
 	f, err := s.field(ids, venues)
 	return append(out, f), err
+}
+
+// forecastSection is every system's forecast quality on this tournament, in
+// the clean test window only; none outside it.
+func forecastSection(rows []forecastRow, from string) ui.Node {
+	if len(rows) == 0 {
+		return nil
+	}
+	names := map[string]string{"ours": S.Tournament.Forecast.Ours(), "old": S.Tournament.Forecast.Old(), "fun": S.Tournament.Forecast.Fun(), "gg": S.Tournament.Forecast.Gg(), "quest": S.Tournament.Forecast.Quest()}
+	body := make([]ui.Item, len(rows))
+	for i, r := range rows {
+		name := names[r.system]
+		if name == "" {
+			name = r.system
+		}
+		body[i] = ui.Trow(textCell(name), numCell(fmt.Sprintf("%.3f", r.ndcg)), numCell(fmt.Sprintf("%.3f", r.ndcg3)), numCell(itoa(r.n)))
+	}
+	header := []ui.Item{nameCol(S.Tournament.Forecast.ColSystem()), numCol("NDCG"), numCol("NDCG@3"), numCol(S.Tournament.Forecast.ColTeams())}
+	return section(S.Tournament.Forecast.Title(), table(header, body...), ui.Hint(ui.Text(S.Tournament.Forecast.Hint(from))))
 }
 
 // The question strip's bars run from barMin to barMin+barSpan percent tall.

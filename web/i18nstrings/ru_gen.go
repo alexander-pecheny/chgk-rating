@@ -143,7 +143,7 @@ var RU = Strings{
 				return "Rated tournaments from 1 January 2013 count. For individual ratings the format enters as a weight: in-person tournaments 1, strict synchronous 2/3, synchronous 1/2; team ratings use the weights above. Asynchronous tournaments are never rated. Marathons are excluded."
 			},
 			Players: func() string {
-				return "The player table includes players who played at least one rated tournament in the last 365 days."
+				return "The player table includes players who played at least one rated tournament in the last 365 days. A player entered under two ids that rating.chgk.info has since merged counts as one."
 			},
 			Title: func() string { return "Which tournaments count" },
 		},
@@ -161,7 +161,7 @@ var RU = Strings{
 				return "The forecast for a tournament is separate from the rating and takes no part in the update. A team's forecast strength is the strength of the lineup it fielded, computed from individual ratings, each player read 1.5 uncertainties below their estimate, so an unknown player counts for less than a known one of the same rating; the forecast places are the order of the field by that strength. About tomorrow, the lineup knows more than the accumulated team rating: on in-person tournaments of the last two seasons this forecast beats both the team rating and the forecast of the old system."
 			},
 			Quality: func() string {
-				return "The tournament page shows the forecast next to the result. Forecast quality is measured two ways and compared with the other systems: by Spearman rank correlation over the whole field, and by a top-weighted measure that counts a swap at the first places for far more than one deep in the table, averaged over tournaments with the strong fields counting most. The same measures are computed for the forecasts of rating.chgk.fun, chgk.quest, chgk.gg and the old system, as we reimplement them."
+				return "The tournament page shows the forecast next to the result. Forecast quality is measured two ways and compared with the other systems: by Spearman rank correlation over the whole field, and by a top-weighted measure that counts a swap at the first places for far more than one deep in the table, averaged over tournaments with the strong fields counting most. For tournaments from 28 August 2026, on which no rule of this rating was chosen, the tournament page also shows the same measure for the old system's own forecast and for rating.chgk.fun, chgk.quest and chgk.gg as we reimplement them."
 			},
 			Title: func() string { return "Forecast" },
 		},
@@ -238,7 +238,7 @@ var RU = Strings{
 		},
 		Uncertainty: MethodUncertaintyStrings{
 			Body: func() string {
-				return "Players carry a ± next to the rating: the root-mean-square uncertainty of the estimate. A rating with a large one is provisional. The width is driven by the player's own volatility. A steady, predictable history squeezes it towards the floor and a run of results unlike the past opens it again. It also grows with the time since the player's last game, at the rate of the player's own volatility."
+				return "Players carry a ± next to the rating: the root-mean-square uncertainty of the estimate. A rating with a large one is provisional. The width is driven by the player's own volatility. A steady, predictable history squeezes it towards the floor and a run of results unlike the past opens it again. It also grows with the time since the player's last game, at the rate of the player's own volatility. The player table ranks everyone, provisional or not, by the rating less 2.75 uncertainties, its lower 0.3% bound, so a rating resting on little evidence stands no higher than that evidence allows; the number shown is the rating itself."
 			},
 			Title: func() string { return "Uncertainty" },
 		},
@@ -442,6 +442,19 @@ var RU = Strings{
 			WinnerTitle: func() string {
 				return "Победитель не теряет очков: возвращённая разница"
 			},
+		},
+		Forecast: TournamentForecastStrings{
+			ColSystem: func() string { return "Система" },
+			ColTeams:  func() string { return "Команд" },
+			Fun:       func() string { return "rating.chgk.fun" },
+			Gg:        func() string { return "chgk.gg" },
+			Hint: func(from string) string {
+				return fmt.Sprintf("NDCG: насколько порядок прогноза совпал с итоговыми местами, с бо́льшим весом у первых мест; 1 — полное совпадение. Считается для турниров с %s: ни одно правило этого рейтинга не подбиралось на них. Старая система — её собственный прогноз; rating.chgk.fun, chgk.gg и chgk.quest — наши реализации их правил.", from)
+			},
+			Old:   func() string { return "Старая система (rating.chgk.info)" },
+			Ours:  func() string { return "Этот рейтинг" },
+			Quest: func() string { return "chgk.quest" },
+			Title: func() string { return "Качество прогноза" },
 		},
 		LlNone: func() string {
 			return "Ответы по вопросам этого турнира не разобраны, поэтому log-loss не считался."

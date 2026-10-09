@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! webindex [--ratings out/ratings.db] [--buff buff.db] [--config config.toml]
-//!          [--out out/web.db] [--rebuild]
+//!          [--ext out/ext] [--out out/web.db] [--rebuild]
 //! ```
 //!
 //! The index is rebuilt only when it is missing, was built by another
@@ -14,6 +14,7 @@
 
 mod anomaly;
 mod data;
+mod forecasts;
 mod history;
 mod index;
 mod results;
@@ -24,6 +25,7 @@ use std::path::{Path, PathBuf};
 struct Args {
     ratings: PathBuf,
     buff: PathBuf,
+    ext: PathBuf,
     config: PathBuf,
     out: PathBuf,
     rebuild: bool,
@@ -34,6 +36,7 @@ fn args() -> Args {
     let mut v = Args {
         ratings: "out/ratings.db".into(),
         buff: "buff.db".into(),
+        ext: "out/ext".into(),
         config: "config.toml".into(),
         out: "out/web.db".into(),
         rebuild: false,
@@ -43,6 +46,7 @@ fn args() -> Args {
         match x.as_str() {
             "--ratings" => v.ratings = next().into(),
             "--buff" => v.buff = next().into(),
+            "--ext" => v.ext = next().into(),
             "--config" => v.config = next().into(),
             "--out" => v.out = next().into(),
             "--rebuild" => v.rebuild = true,
@@ -80,7 +84,7 @@ fn main() {
     let mut tmp = a.out.clone().into_os_string();
     tmp.push(".tmp");
     let tmp = PathBuf::from(tmp);
-    index::build(&a.ratings, &a.buff, &tmp, &d, &index::Reads { achieve, team_steps });
+    index::build(&a.ratings, &a.buff, &a.ext, &tmp, &d, &index::Reads { achieve, team_steps });
     std::fs::rename(&tmp, &a.out)
         .unwrap_or_else(|e| panic!("rename {} to {}: {e}", tmp.display(), a.out.display()));
     eprintln!("index: wrote {}", a.out.display());

@@ -871,6 +871,11 @@ pub struct Display {
     /// itself. 0 lists the settled players first, by rating.
     #[serde(default)]
     pub rank_sigmas: f64,
+    /// The first day of the clean test window: no rule was chosen on a
+    /// tournament after it. Tournament pages from this day show every
+    /// system's forecast quality. Empty shows none.
+    #[serde(default)]
+    pub clean_from: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

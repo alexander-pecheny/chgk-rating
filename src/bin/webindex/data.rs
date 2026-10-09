@@ -17,6 +17,8 @@ pub struct Display {
     pub player_phi: f64,
     /// Players are ranked by the rating less this many sigmas; 0 settled first.
     pub rank_sigmas: f64,
+    /// The first day of the clean test window; empty for none.
+    pub clean_from: String,
     /// Model S2 publishes no team uncertainty, only the provisional flag, so the
     /// pages that would show a band or a plus-minus show rated games instead.
     pub s2: bool,
@@ -34,6 +36,7 @@ pub fn read_display(path: &Path) -> Display {
         provisional_sigma: d.provisional_sigma,
         player_phi: d.player_phi,
         rank_sigmas: d.rank_sigmas,
+        clean_from: d.clean_from,
         s2: c.team.engine == TeamEngine::S2,
     }
 }

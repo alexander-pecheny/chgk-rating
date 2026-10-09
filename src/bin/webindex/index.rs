@@ -41,7 +41,7 @@ pub struct Ctx<'a> {
 /// The last release: its id and date.
 type Release = (i64, String);
 
-pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display, reads: &Reads) {
+pub fn build(ratings: &Path, buff: &Path, ext: &Path, out: &Path, d: &Display, reads: &Reads) {
     let (r, b) = (crate::data::open(ratings), crate::data::open(buff));
     let w = create(out);
     let c = Ctx { r: &r, b: &b, w: &w, d, t0: Instant::now() };
@@ -50,6 +50,7 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display, reads: &Reads
     let tours = tournaments(&c);
     venues(&c);
     field_scores(&c);
+    crate::forecasts::build(&c, ext, &d.clean_from);
     let res = crate::results::scan(&c, &tours.date);
     base_rosters(&c);
     let players = crate::history::scan(&c, Listed::players(d));
@@ -380,6 +381,7 @@ fn meta(c: &Ctx, last: &Release, (players, teams): (usize, usize), reads: &Reads
         ("player_phi", d.player_phi.to_string()),
         ("provisional_sigma", d.provisional_sigma.to_string()),
         ("rank_sigmas", d.rank_sigmas.to_string()),
+        ("clean_from", d.clean_from.clone()),
         ("s2", flag(d.s2)),
         ("achieve", flag(reads.achieve)),
         ("team_steps", flag(reads.team_steps)),

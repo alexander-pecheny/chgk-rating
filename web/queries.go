@@ -436,6 +436,22 @@ func (st *store) questions(id int64) ([]question, error) {
 	return all[question](st.db, "select q, b from question_params where tournament_id = ? order by q", id)
 }
 
+// forecastRow is one system's forecast quality on one tournament.
+type forecastRow struct {
+	system      string
+	ndcg, ndcg3 float64
+	n           int64
+}
+
+func (r *forecastRow) fields() []any { return []any{&r.system, &r.ndcg, &r.ndcg3, &r.n} }
+
+// forecastQuality is every system's NDCG on a tournament of the clean window,
+// ours first and the rest best first.
+func (st *store) forecastQuality(id int64) ([]forecastRow, error) {
+	return all[forecastRow](st.db, `select system, ndcg, ndcg3, n_teams from x.forecast_ndcg where tournament_id = ?
+		order by system != 'ours', ndcg desc`, id)
+}
+
 // fieldRow is one team's line in a tournament's field.
 type fieldRow struct {
 	team                   int64

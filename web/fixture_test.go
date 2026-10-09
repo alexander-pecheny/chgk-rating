@@ -52,6 +52,7 @@ CREATE TABLE team_rank (rank INTEGER PRIMARY KEY, team_id INTEGER, display REAL,
 CREATE TABLE anomaly (rank INTEGER PRIMARY KEY, player_id INTEGER, k REAL, k_f REAL, k_m REAL,
                       f_gap REAL, f_on INTEGER, f_ip INTEGER, m_gap REAL, m_on INTEGER, m_ip INTEGER);
 CREATE TABLE venue (tournament_id INTEGER PRIMARY KEY, field_id INTEGER);
+CREATE TABLE forecast_ndcg (tournament_id INTEGER, system TEXT, ndcg REAL, ndcg3 REAL, n_teams INTEGER, PRIMARY KEY (tournament_id, system)) WITHOUT ROWID;
 CREATE TABLE field_score (tournament_id INTEGER, team_id INTEGER, score INTEGER, PRIMARY KEY (tournament_id, team_id)) WITHOUT ROWID;
 CREATE TABLE base_roster (team_id INTEGER, player_id INTEGER, name TEXT, date_added TEXT);
 CREATE TABLE place_hist (kind INTEGER, id INTEGER, places BLOB, PRIMARY KEY (kind, id)) WITHOUT ROWID;
@@ -59,7 +60,7 @@ CREATE VIRTUAL TABLE player_fts USING fts5(name);
 CREATE VIRTUAL TABLE team_fts USING fts5(name, town, aliases);
 INSERT INTO meta VALUES ('index_version', '` + indexVersion + `'), ('release_id', '2'), ('release_date', '2026-09-03'),
   ('n_player_rank', '2'), ('n_team_rank', '2'), ('a_team', '0'), ('b_team', '1000'), ('a_player', '0'),
-  ('b_player', '1000'), ('player_phi', '1'), ('provisional_sigma', '0.3'), ('rank_sigmas', '0'), ('s2', '1'), ('achieve', '0'),
+  ('b_player', '1000'), ('player_phi', '1'), ('provisional_sigma', '0.3'), ('rank_sigmas', '0'), ('clean_from', ''), ('s2', '1'), ('achieve', '0'),
   ('team_steps', '1');
 INSERT INTO release_ VALUES (1, '2026-08-27', 0, 0, 2, 2), (2, '2026-09-03', 0.01, 0.01, 2, 2);
 INSERT INTO player VALUES (100, 'Анна Иванова', 1, '2026-09-01', 500, 100, 1, 0),
