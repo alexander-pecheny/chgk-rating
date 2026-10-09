@@ -290,6 +290,7 @@ impl Observer for Fit<'_> {
 
     fn release(&mut self, r: &Release) -> pass::Result<()> {
         let (cfg, arena) = (self.cfg, self.arena);
+        dump_state(r, arena, cfg)?;
         if r.day < self.publish_from {
             // Still collecting: the scale moves, nothing is written.
             self.skipped = r.id;
@@ -429,4 +430,40 @@ fn release_diagnostics(r: &Release, listed: &[usize], cfg: &Config) {
     }
     let rated = listed.iter().filter(|&&i| players.sigma_at(i, r.day, cfg) <= cfg.display.provisional_sigma).count();
     println!("players rated {rated}/{} ({:.0}%)", listed.len(), 100.0 * rated as f64 / listed.len() as f64);
+}
+
+/// `--dump-state PREFIX --dump-days D1,D2`: every seen player's state at the
+/// first release on or after each day, as `PREFIX_D.tsv`. A research output;
+/// it changes nothing the fit writes.
+fn dump_state(r: &Release, arena: &Arena, cfg: &Config) -> pass::Result<()> {
+    use std::io::Write;
+    let (Some(prefix), Some(days)) = (arg("--dump-state"), arg("--dump-days")) else { return Ok(()) };
+    for d in days.split(',') {
+        let Some(day) = parse_date(d) else { continue };
+        if !(r.day >= day && r.day - 7 < day) {
+            continue;
+        }
+        let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{prefix}_{d}.tsv"))?);
+        let p = r.players;
+        writeln!(f, "# release {} shift_cum {:.6} ed_gate {:.6}", format_date(r.day), p.shift_cum, p.ed_gate_theta)?;
+        writeln!(f, "player\ttheta\tvar\tvol\tsigma\tphi\tphi_var\tgames\tgames_ip\tlast_day\tact")?;
+        for (i, s) in p.state.iter().enumerate().filter(|(_, s)| s.seen) {
+            writeln!(
+                f,
+                "{}\t{:.6}\t{:.6}\t{:.5}\t{:.5}\t{:.6}\t{:.6}\t{}\t{}\t{}\t{}",
+                arena.player_ids[i],
+                p.theta(i),
+                s.var,
+                s.vol,
+                p.sigma_at(i, r.day, cfg),
+                p.phi(i),
+                s.aff_var.first().copied().unwrap_or(0.0),
+                s.games,
+                s.games_ip,
+                format_date(s.last_day),
+                r.activity.count[i]
+            )?;
+        }
+    }
+    Ok(())
 }
