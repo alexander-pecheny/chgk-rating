@@ -49,9 +49,15 @@ var RU = Strings{
 			Title:  func() string { return "История рейтинга" },
 		},
 		Col: CommonColStrings{
-			After:           func() string { return "Стало" },
-			Before:          func() string { return "Было" },
-			Change:          func() string { return "Изменение" },
+			After:  func() string { return "Стало" },
+			Before: func() string { return "Было" },
+			Change: func() string { return "Изменение" },
+			ChangePlayerTitle: func() string {
+				return "За неделю, вместе с недельным сдвигом шкалы и поправкой за очные игры"
+			},
+			ChangeTeamTitle: func() string {
+				return "За неделю: прибавка от новых результатов минус угасание старых. Без новых результатов рейтинг каждую неделю немного снижается"
+			},
 			Date:            func() string { return "Дата" },
 			Difficulty:      func() string { return "Сложность" },
 			DifficultyTitle: func() string { return "Сложность пакета" },

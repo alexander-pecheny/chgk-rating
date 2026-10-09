@@ -122,7 +122,7 @@ func (s *site) teamCols() []ui.Item {
 		spread = numCol(S.Teams.Col.Results(), S.Teams.Col.ResultsTitle())
 	}
 	return []ui.Item{numCol(S.Common.Col.Place()), nameCol(S.Common.Col.Team()), numCol(S.Common.Col.Rating()),
-		spread, numCol(S.Common.Col.Change())}
+		spread, numCol(S.Common.Col.Change(), S.Common.Col.ChangeTeamTitle())}
 }
 
 func (s *site) teamLine(r teamRank) rankLine {
@@ -157,7 +157,7 @@ func (s *site) playerTable(page int) (string, []ui.Item, error) {
 
 func playerCols() []ui.Item {
 	return []ui.Item{numCol(S.Common.Col.Place()), nameCol(S.Common.Col.Player()), numCol(S.Common.Col.Rating()),
-		numCol("±", S.Common.Col.SigmaTitle()), numCol(S.Players.Col.GamesYear()), numCol(S.Common.Col.Change())}
+		numCol("±", S.Common.Col.SigmaTitle()), numCol(S.Players.Col.GamesYear()), numCol(S.Common.Col.Change(), S.Common.Col.ChangePlayerTitle())}
 }
 
 func playerLine(r playerRank) rankLine {
