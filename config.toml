@@ -76,9 +76,14 @@ aff_s_max = 5.0
 aff_gate = 0.0
 # Relative player updates (DESIGN 4.9): each lineup is judged against the
 # lineups of similar expected score in its own field, under a Gaussian kernel
-# of rel_h expected answers, and a winning lineup's players never lose points.
+# of rel_h expected answers. Its forecast place sets the direction of every
+# member's step: at or above it the players cannot lose, below it they cannot
+# gain. A rule of fairness, not of accuracy: against the winner-only rule it
+# is tune +0.0011 (se 0.0011), test -0.0014 (se 0.0015). rel_winner is the
+# special case for first place and is not read while rel_place is on.
 rel_h = 12.0
 rel_winner = true
+rel_place = true
 
 [player]
 mu_new = -1.0
