@@ -12,7 +12,12 @@ w_async = 0.0
 # releases and their listed counts stay weekly. 1 is every release, 0 the last one only.
 # This is the only config that keeps the history; the research configs use 0.
 rows_every = 1
-passes = 2
+# One pass from 2013. Nothing before publish_from is published: 2013-2015 only
+# teach the model where players stand. The two-pass warm start it replaces
+# forecast better (+0.003 test NDCG) but published early tables that used
+# knowledge from 2016.
+passes = 1
+publish_from = "2016-01-01"
 # City merges (read by the achievement rating only): fields join when their
 # per-question take rates correlate at 0.5 or more and no team played both,
 # so the 2017 World Championship's four stages are no longer one field; and a

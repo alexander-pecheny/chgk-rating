@@ -140,7 +140,7 @@ var RU = Strings{
 	Method: MethodStrings{
 		Count: MethodCountStrings{
 			Formats: func() string {
-				return "Rated tournaments from 1 January 2013 count. For individual ratings the format enters as a weight: in-person tournaments 1, strict synchronous 2/3, synchronous 1/2; team ratings use the weights above. Asynchronous tournaments are never rated. Marathons are excluded."
+				return "Rated tournaments from 1 January 2013 count; those before 2016 inform the ratings but no release is published for them. For individual ratings the format enters as a weight: in-person tournaments 1, strict synchronous 2/3, synchronous 1/2; team ratings use the weights above. Asynchronous tournaments are never rated. Marathons are excluded."
 			},
 			Players: func() string {
 				return "The player table includes players who played at least one rated tournament in the last 365 days. A player entered under two ids that rating.chgk.info has since merged counts as one."
@@ -192,7 +192,7 @@ var RU = Strings{
 		},
 		Publication: MethodPublicationStrings{
 			Body: func() string {
-				return "Tournaments are processed in date order and releases come out on Thursdays. The first years are processed twice: once to find where each player stands, then again from 2013 with those players already at their strength, so the early tables do not start everyone from zero. Every morning the whole history is recomputed from the current data and rules, so a past release can change when either changes."
+				return "Tournaments are processed once, in date order, and releases come out on Thursdays. Tournaments from 2013 to 2015 only teach the model where players stand; the first published release is the first Thursday of 2016, and every published number uses only results from before its date. Every morning the whole history is recomputed from the current data and rules, so a past release can change when either changes."
 			},
 			Title: func() string { return "Publication" },
 		},
