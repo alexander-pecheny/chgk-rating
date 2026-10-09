@@ -35,15 +35,21 @@ def cmp_db(a, b):
         print(f"  {a.name}: tables differ: -{sorted(ta - tb)} +{sorted(tb - ta)}")
         bad += 1
     for t in sorted(ta & tb):
+        ca_ = [r[1] for r in c.execute(f'pragma main.table_info("{t}")')]
+        cb_ = [r[1] for r in c.execute(f'pragma n.table_info("{t}")')]
+        if ca_ != cb_:
+            bad += 1
+            print(f"  {a.name}.{t}: columns differ: -{[x for x in ca_ if x not in cb_]} +{[x for x in cb_ if x not in ca_]}")
+        cols = ", ".join(f'"{x}"' for x in ca_ if x in cb_)
         na = c.execute(f'select count(*) from main."{t}"').fetchone()[0]
         nb = c.execute(f'select count(*) from n."{t}"').fetchone()[0]
-        only_a = c.execute(f'select count(*) from (select * from main."{t}" except select * from n."{t}")').fetchone()[0]
-        only_b = c.execute(f'select count(*) from (select * from n."{t}" except select * from main."{t}")').fetchone()[0]
+        diff = lambda x, y: f'select {cols} from {x}."{t}" except select {cols} from {y}."{t}"'
+        only_a = c.execute(f"select count(*) from ({diff('main', 'n')})").fetchone()[0]
+        only_b = c.execute(f"select count(*) from ({diff('n', 'main')})").fetchone()[0]
         if na != nb or only_a or only_b:
             bad += 1
             print(f"  {a.name}.{t}: {na} vs {nb} rows, {only_a} only in base, {only_b} only in new")
-            ex = c.execute(f'select * from main."{t}" except select * from n."{t}" limit 1').fetchone()
-            print(f"    e.g. base {ex}")
+            print(f"    e.g. base {c.execute(diff('main', 'n') + ' limit 1').fetchone()}")
 
 
 def cmp_text(a, b):

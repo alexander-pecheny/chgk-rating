@@ -112,7 +112,7 @@ impl History {
     /// Places one release: settled ratings first, then by rating, the order
     /// the published table uses.
     fn flush(&mut self, batch: &mut Vec<Entry>) {
-        batch.sort_by(|x, y| x.2.cmp(&y.2).then(y.1.partial_cmp(&x.1).unwrap()));
+        batch.sort_by(|x, y| x.2.cmp(&y.2).then(y.1.total_cmp(&x.1)).then(x.0.cmp(&y.0)));
         for (i, (id, _, _)) in batch.iter().enumerate() {
             self.places.entry(*id).or_default().extend_from_slice(&(i as u32 + 1).to_le_bytes());
         }

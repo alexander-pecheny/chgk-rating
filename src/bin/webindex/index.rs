@@ -300,7 +300,7 @@ fn ranked(c: &Ctx, s: &RankSpec, release: i64) -> Vec<Ranked> {
             provisional: sigma > c.d.provisional_sigma,
         });
     });
-    out.sort_by(|x, y| x.provisional.cmp(&y.provisional).then(y.display.partial_cmp(&x.display).unwrap()));
+    out.sort_by(|x, y| x.provisional.cmp(&y.provisional).then(y.display.total_cmp(&x.display)).then(x.id.cmp(&y.id)));
     out
 }
 
