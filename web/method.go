@@ -21,7 +21,6 @@ func methodPage() (string, []ui.Item) {
 		part(S.Method.Player.Title(),
 			p(t(S.Method.Player.ModelLead()+" "), ui.Em(t(S.Method.Player.Intensity())), t(S.Method.Player.ModelAlone()), ui.Sup(t(S.Method.Player.SupIntensity())),
 				t(S.Method.Player.ModelTable()), ui.Sup(t(S.Method.Player.SupSum())), t(S.Method.Player.ModelTail())),
-			p(t(S.Method.Player.Format())),
 			p(t(S.Method.Player.Published())),
 		),
 		part(S.Method.Scale.Title(), p(t(S.Method.Scale.Anchor()+" "), link("/releases/", S.Method.Scale.Releases()), t(S.Method.Scale.Tail()))),

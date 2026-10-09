@@ -53,7 +53,7 @@ var RU = Strings{
 			Before: func() string { return "Было" },
 			Change: func() string { return "Изменение" },
 			ChangePlayerTitle: func() string {
-				return "За неделю, вместе с недельным сдвигом шкалы и поправкой за очные игры"
+				return "За неделю, вместе с недельным сдвигом шкалы"
 			},
 			ChangeTeamTitle: func() string {
 				return "За неделю: прибавка от новых результатов минус угасание старых. Без новых результатов рейтинг каждую неделю немного снижается"
@@ -169,9 +169,6 @@ var RU = Strings{
 			return "How the rating is computed, in short. An earlier version of the model, with formulas, is described in the"
 		},
 		Player: MethodPlayerStrings{
-			Format: func() string {
-				return "A player is not equally strong in every format. Besides the strength, each player carries a second, smaller number: how much stronger they are at a table that meets face to face than at a synchronous package played elsewhere. It is estimated from in-person results only and is added to the strength whenever the tournament is in person — in the question model, in lineup strength and in the forecast. For most players it is zero, because most have never played in person; the tenth and ninetieth percentiles of those who have are about −0.05 and +0.13 on the individual scale, about −220 and +550 points, and the largest is about 1.06, some 4500 points. Once estimated it does not fade with time, unlike the strength itself: how a player takes to a face-to-face table is a property of the player, not of their form."
-			},
 			Intensity: func() string { return "intensity" },
 			ModelAlone: func() string {
 				return ", the rate at which they find the answer: 1 when their strength equals the difficulty, rising by a factor of e for every unit above it and falling by the same for every unit below. A player alone answers with probability 1 − e"
@@ -184,7 +181,7 @@ var RU = Strings{
 				return ". Uncertainty plays no part in this chance; it only sets how far the estimate moves afterwards. Question difficulty is read from the share of lineups that answered it: it is set so that the model predicts exactly the observed share. This is what makes packages from different years and levels comparable."
 			},
 			Published: func() string {
-				return "Individual numbers are published as they are, with their uncertainty, with no ladder rules and no rounding to grades. The published number is the strength at an in-person table: the in-person bonus above is part of it, which is what the other systems' player numbers also mean, so the tables can be compared. The model itself keeps the two apart, and it is the strength without the bonus that the scale of the next section is anchored to. A player with no history enters at the average strength of a newcomer with a wide uncertainty. After each tournament three more rules apply. A lineup's players are judged against the lineups whose expected score was close to their own (within about twelve answers), not against the whole field. Before the tournament every lineup gets a forecast place: if it finishes at or above that place its players cannot lose strength from the tournament, and if it finishes below it they cannot gain. And each player is pulled a quarter of a percent of the way towards the mean of the lineup they played in."
+				return "Individual numbers are published as they are, with their uncertainty, with no ladder rules and no rounding to grades. One number per player serves every format: a player is assumed to be as strong at a synchronous package as at a face-to-face table. A player with no history enters at the average strength of a newcomer with a wide uncertainty. After each tournament three more rules apply. A lineup's players are judged against the lineups whose expected score was close to their own (within about twelve answers), not against the whole field. Before the tournament every lineup gets a forecast place: if it finishes at or above that place its players cannot lose strength from the tournament, and if it finishes below it they cannot gain. And each player is pulled a quarter of a percent of the way towards the mean of the lineup they played in."
 			},
 			SupIntensity: func() string { return "−intensity" },
 			SupSum:       func() string { return "−sum" },

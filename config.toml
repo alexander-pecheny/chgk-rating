@@ -48,8 +48,10 @@ eta_v = 0.2
 fit = "take_rate"
 # The per-player format effect of DESIGN 3.7. "in_person" adds phi at an
 # in-person table and nothing elsewhere; "signed" subtracts it at a synchronous
-# one and lost; "none" is the model without it.
-format_effect = "in_person"
+# one and lost; "none" is the model without it. Off since 2026-10-09: it
+# measured as noise (tune -0.0006, test +0.0015, se 0.0015 / 0.0024), two
+# blind refits dropped it, and it was the main source of the cold-start error.
+format_effect = "none"
 s_phi = 0.3
 # A second per-player scalar read at a synchronous table, the asymmetric answer
 # to "signed". Measured and off; it costs 0.0035 of weighted tune NDCG.
@@ -98,11 +100,6 @@ teammate_shrink = 0.0025
 # The pull above is not allowed to take back what the winner rule protects:
 # 2145 of 25,725 winning player-games lost up to 15 points to it.
 shrink_keeps_floor = true
-# The in-person effect phi learns only from the share v/(v+var) of a
-# tournament's evidence, so it stays put while theta climbs from the newcomer
-# prior; with the burn-in this recovers most of the old warm start's accuracy
-# (test +0.0017 against the plain burn-in) without reading any year twice.
-phi_share_v = 0.02
 tau_p = 0.25
 v_min = 0.05
 v_max = 0.6
@@ -339,10 +336,9 @@ b_team = 1.0640
 a_player = 5738.6039
 b_player = 4269.2612
 provisional_sigma = 0.3
-# How much of the format effect the published player number carries: 1 is
-# theta + phi, the strength at an in-person table, which is the number the
-# external player tables mean. The forecast never reads this.
-player_phi = 1.0
+# How much of the format effect the published player number carries; with
+# format_effect = "none" there is none, so the number is the strength itself.
+player_phi = 0.0
 # The player table ranks everyone by the rating less 2.75 sigma, the lower
 # 0.3% bound, so a provisional rating sits where its evidence allows.
 rank_sigmas = 2.75
