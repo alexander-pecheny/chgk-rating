@@ -199,12 +199,12 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *handler) respond(w http.ResponseWriter, r *http.Request, err error, title, section, leaf string, body []ui.Item) {
 	switch {
 	case errors.Is(err, errNotFound):
-		nf := S.Common.NotFound
-		h.send(w, http.StatusNotFound, nf.Title(), "", nf.Title(), head(ui.Text(nf.Lede())))
+		title := S.Common.NotFound.Title()
+		h.send(w, http.StatusNotFound, title, "", title, head(ui.Text(S.Common.NotFound.Lede())))
 	case err != nil:
 		log.Printf("%s: %v", r.URL.Path, err)
-		f := S.Common.Failed
-		h.send(w, http.StatusInternalServerError, f.Title(), "", f.Title(), head(ui.Text(f.Lede())))
+		title := S.Common.Failed.Title()
+		h.send(w, http.StatusInternalServerError, title, "", title, head(ui.Text(S.Common.Failed.Lede())))
 	default:
 		h.send(w, http.StatusOK, title, section, leaf, body...)
 	}

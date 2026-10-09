@@ -179,6 +179,11 @@ fn base_rosters(c: &Ctx) {
     log(c.t0, &format!("{n} base-roster places"));
 }
 
+/// Text as the search index holds it: ё is е, as most people type it.
+fn without_yo(s: &str) -> String {
+    s.replace('ё', "е").replace('Ё', "Е")
+}
+
 /// Every player with a game, under the name `buff.players` gives them.
 fn player_names(c: &Ctx, res: &Results, now: &HashMap<i64, Current>) {
     let mut ins = c.w.prepare("insert into player values (?1,?2,?3,?4,?5,?6,?7,?8)").unwrap();
@@ -191,7 +196,7 @@ fn player_names(c: &Ctx, res: &Results, now: &HashMap<i64, Current>) {
         ins.execute(params![id, full, games, last, n.map(|n| n.display), n.map(|n| n.sigma),
             n.map(|n| n.games_365), n.map(|n| n.provisional)])
         .unwrap();
-        fts.execute(params![id, full]).unwrap();
+        fts.execute(params![id, without_yo(&full)]).unwrap();
     });
 }
 
@@ -217,7 +222,7 @@ fn team_names(c: &Ctx, res: &Results, now: &HashMap<i64, Current>) {
         ins.execute(params![id, name, town, last.games, last.date, n.map(|n| n.display),
             n.map(|n| n.sigma), n.map(|n| n.provisional)])
         .unwrap();
-        fts.execute(params![id, name, town, res.aliases(*id, name)]).unwrap();
+        fts.execute(params![id, without_yo(name), without_yo(town), without_yo(&res.aliases(*id, name))]).unwrap();
     }
     let from_last = res.team_last.len() - from_buff;
     eprintln!("index: team names — {from_buff} from buff.teams, \
@@ -275,10 +280,13 @@ fn ranks(c: &Ctx, release: i64) -> (usize, usize) {
 /// ratings first, then by rating.
 fn ranked(c: &Ctx, s: &RankSpec, release: i64) -> Vec<Ranked> {
     let have = columns(c.r, s.table);
-    let factor = change_factor(c.r, s.table, release, s.b);
+    // `delta` is already the move of the published number; an older table has
+    // only `change`, on the internal scale.
+    let (change, factor) =
+        if have.contains("delta") { ("delta", 1.0) } else { (col(&have, "change"), change_factor(c.r, s.table, release, s.b)) };
     let sql = format!(
-        "select {} as id, {} as raw, sigma, {} as extra, {} as change, {} as display from {} where release_id = {release}",
-        s.id, s.value, s.extra, col(&have, "change"), col(&have, "display"), s.table
+        "select {} as id, {} as raw, sigma, {} as extra, {change} as change, {} as display from {} where release_id = {release}",
+        s.id, s.value, s.extra, col(&have, "display"), s.table
     );
     let mut out = Vec::new();
     each(c.r, &sql, |x| {

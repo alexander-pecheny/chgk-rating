@@ -600,11 +600,11 @@ impl Rival for Fun {
         let newcomers: Vec<PlayerRow> =
             self.st.settle().into_iter().map(|p| (ids[p], PLAYER_START_RATING, 0.0, 0, 0.0)).collect();
         if r.id > 1 && !newcomers.is_empty() {
-            w.player_ratings(r.id - 1, &newcomers, |t| t)?;
+            w.player_ratings(r.id - 1, &crate::output::published(&newcomers), |t| t)?;
         }
         let rows = self.st.player_rows(ids);
         w.release(r.id, &format_date(r.day), 0.0, 0.0, rows.len())?;
-        w.player_ratings(r.id, &rows, |t| t)?;
+        w.player_ratings(r.id, &crate::output::published(&rows), |t| t)?;
         w.team_ratings(r.id, &self.st.team_rows(&self.seats, r.day), |m| m)?;
         Ok(())
     }

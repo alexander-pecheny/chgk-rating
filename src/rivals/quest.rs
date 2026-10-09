@@ -605,7 +605,7 @@ impl Rival for Quest {
             return Ok(());
         }
         let rows = self.player_rows(&active);
-        w.player_ratings(r.id, &rows, |t| t)?;
+        w.player_ratings(r.id, &crate::output::published(&rows), |t| t)?;
         let trows = self.team_rows();
         w.team_ratings(r.id, &trows, |mu| mu)?;
         Ok(())

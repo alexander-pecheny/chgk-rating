@@ -256,13 +256,12 @@ func (s *site) anomalyExplainer() ui.Node {
 	named := func(name, text string) ui.Node {
 		return ui.Paragraph(ui.Inline(ui.Strong(ui.Text(name)), ui.Text(" "+text)))
 	}
-	e := S.Anomaly.Explain
-	return ui.Explainer(ui.Label(e.Summary()),
-		ui.Paragraph(ui.Text(e.Gap())),
-		named(e.ForecastName(), e.Forecast()),
-		named(e.HardName(), e.Hard()),
-		ui.Paragraph(ui.Text(e.Shrink())),
-		ui.Paragraph(ui.Text(e.Count(spaced(s.nAnomaly), s.nAnomaly))),
+	return ui.Explainer(ui.Label(S.Anomaly.Explain.Summary()),
+		ui.Paragraph(ui.Text(S.Anomaly.Explain.Gap())),
+		named(S.Anomaly.Explain.ForecastName(), S.Anomaly.Explain.Forecast()),
+		named(S.Anomaly.Explain.HardName(), S.Anomaly.Explain.Hard()),
+		ui.Paragraph(ui.Text(S.Anomaly.Explain.Shrink())),
+		ui.Paragraph(ui.Text(S.Anomaly.Explain.Count(spaced(s.nAnomaly), s.nAnomaly))),
 	)
 }
 

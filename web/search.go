@@ -14,8 +14,10 @@ import (
 // is what a reader typing half a surname expects.
 func ftsQuery(q string) string {
 	words := strings.FieldsFunc(q, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) })
+	// The index holds ё as е, as most people type it.
+	fold := strings.NewReplacer("ё", "е", "Ё", "Е")
 	for i, w := range words {
-		words[i] = `"` + w + `"*`
+		words[i] = `"` + fold.Replace(w) + `"*`
 	}
 	return strings.Join(words, " ")
 }

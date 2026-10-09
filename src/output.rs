@@ -4,6 +4,15 @@ use rusqlite::{params, Connection};
 /// Columns of `team_events`.
 const TEAM_EVENT_COLS: usize = 25;
 
+/// One row of `player_ratings`, as `Writer::player_ratings` documents it.
+pub type PlayerRow = (i64, f64, f64, u32, f64, f64);
+
+/// Rows of a rating published on its own scale, where the change is already
+/// the move of the published number.
+pub fn published(rows: &[(i64, f64, f64, u32, f64)]) -> Vec<PlayerRow> {
+    rows.iter().map(|&(p, t, s, g, c)| (p, t, s, g, c, c)).collect()
+}
+
 pub struct Writer {
     pub conn: Connection,
 }
@@ -50,7 +59,7 @@ impl<'a> TournamentMetrics<'a> {
 
 const SCHEMA: &str = "
 CREATE TABLE releases (id INTEGER PRIMARY KEY, date TEXT, shift REAL, shift_cum REAL, n_players INTEGER);
-CREATE TABLE player_ratings (release_id INTEGER, player_id INTEGER, theta REAL, sigma REAL, games_365 INTEGER, display REAL, change REAL);
+CREATE TABLE player_ratings (release_id INTEGER, player_id INTEGER, theta REAL, sigma REAL, games_365 INTEGER, display REAL, change REAL, delta REAL);
 CREATE TABLE team_ratings (release_id INTEGER, team_id INTEGER, mu REAL, sigma REAL, core_strength REAL, evidence REAL, display REAL, listed INTEGER, change REAL);
 CREATE TABLE team_events (tournament_id INTEGER, date TEXT, team_id INTEGER, c REAL, delta_l REAL, x REAL, s_r REAL, forecast REAL, forecast_place REAL, actual_place REAL, s_pair REAL, i_pair REAL, mu_before REAL, mu_after REAL, sigma_before REAL, sigma_after REAL, evidence REAL, gap_days INTEGER, var_diff REAL, lost_prev REAL, rated INTEGER, z REAL, expected_place REAL, d_place REAL, d_pull REAL);
 CREATE TABLE player_events (tournament_id INTEGER, player_id INTEGER, theta_before REAL, theta_after REAL, sigma_after REAL, phi_before REAL, sigma_before REAL, games_ip INTEGER, days_ip INTEGER);
@@ -76,11 +85,13 @@ impl Writer {
         Ok(())
     }
 
-    /// `(player, theta, sigma, games in the window, change)` of every listed player.
-    pub fn player_ratings(&self, release_id: i64, rows: &[(i64, f64, f64, u32, f64)], disp: impl Fn(f64) -> f64) -> rusqlite::Result<()> {
-        let mut st = self.conn.prepare_cached("INSERT INTO player_ratings VALUES (?1,?2,?3,?4,?5,?6,?7)")?;
-        for (pid, theta, sigma, games, change) in rows {
-            st.execute(params![release_id, pid, theta, sigma, games, disp(*theta), change])?;
+    /// `(player, theta, sigma, games in the window, change, delta)` of every
+    /// listed player. `change` is the move of the raw strength alone, without
+    /// the gauge; `delta` the move of the published number since its last row.
+    pub fn player_ratings(&self, release_id: i64, rows: &[PlayerRow], disp: impl Fn(f64) -> f64) -> rusqlite::Result<()> {
+        let mut st = self.conn.prepare_cached("INSERT INTO player_ratings VALUES (?1,?2,?3,?4,?5,?6,?7,?8)")?;
+        for (pid, theta, sigma, games, change, delta) in rows {
+            st.execute(params![release_id, pid, theta, sigma, games, disp(*theta), change, delta])?;
         }
         Ok(())
     }

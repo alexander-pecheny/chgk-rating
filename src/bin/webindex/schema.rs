@@ -10,7 +10,7 @@ use std::path::Path;
 
 /// Bumped whenever the index grows a table or column the server reads, so a
 /// deploy rebuilds it instead of serving a page with nothing behind it.
-pub const VERSION: &str = "13";
+pub const VERSION: &str = "14";
 
 /// `place_hist.kind`: whose places a blob holds.
 pub const KIND_PLAYER: i64 = 0;

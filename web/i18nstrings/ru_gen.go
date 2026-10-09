@@ -109,11 +109,9 @@ var RU = Strings{
 		},
 		PlayerFallback: func(n string) string { return fmt.Sprintf("Игрок %s", n) },
 		Prov: CommonProvStrings{
-			Badge: func() string { return "предв." },
-			FromPage: func(n string) string {
-				return fmt.Sprintf("предварительные — со страницы %s", n)
-			},
-			Hidden: func(n string) string { return fmt.Sprintf("скрыто на этой странице: %s", n) },
+			Badge:    func() string { return "предв." },
+			FromPage: func(n string) string { return fmt.Sprintf("они начинаются со страницы %s", n) },
+			Hidden:   func(n string) string { return fmt.Sprintf("скрыто на этой странице: %s", n) },
 			Title: func() string {
 				return "Рейтинг предварительный: неопределённость велика"
 			},
@@ -126,8 +124,10 @@ var RU = Strings{
 		TeamFallback: func(n string) string { return fmt.Sprintf("Команда %s", n) },
 		Title:        func(title string) string { return fmt.Sprintf("%s — Рейтинг ЧГК", title) },
 		Unrated: CommonUnratedStrings{
-			Tag:   func() string { return "вне рейтинга" },
-			Title: func() string { return "Результат не учтён в рейтинге" },
+			Tag: func() string { return "не в зачёт команде" },
+			Title: func() string {
+				return "Результат не учтён в рейтинге команды; рейтинги игроков он меняет"
+			},
 		},
 		Untitled: func() string { return "без названия" },
 	},
@@ -218,7 +218,7 @@ var RU = Strings{
 				return "A result loses 10% of its value each year if it was played in person and 40% if it was synchronous. A strong result fades a little more slowly. A team that stops playing keeps its seven results, and its rating only falls; it can rise only by a new result that enters the seven."
 			},
 			Listed: func() string {
-				return "A team is in the table while it has a base roster for the season (in the first sixty days of a season, last season's roster is enough) and at least one counted result in the past 365 days. A result flagged as unrated counts for nobody."
+				return "A team is in the table while it has a base roster for the season (in the first sixty days of a season, last season's roster is enough) and at least one counted result in the past 365 days. A result flagged as unrated counts for no team; the players who played it are rated on it as usual."
 			},
 			Roster: func() string {
 				return "A result counts for the team whose number it was played under, whoever sat at the table. If the team's base roster has since changed, the result keeps only part of its value: the share of that season's roster, weighted by the players' ratings over the six strongest, that is still on the roster today, to the power 0.6. A team that loses its strongest player loses more than one that loses its weakest."
@@ -256,7 +256,7 @@ var RU = Strings{
 		NotListed: func(date string) string {
 			return fmt.Sprintf("Не в текущем релизе — последняя игра %s", date)
 		},
-		Rank: func(n string) string { return fmt.Sprintf("Игрок №%s", n) },
+		Rank: func(n string) string { return fmt.Sprintf("%s-е место в таблице игроков", n) },
 		Stat: PlayerStatStrings{
 			Games:    func() string { return "Всего игр" },
 			Games365: func() string { return "Игр за 365 дней" },

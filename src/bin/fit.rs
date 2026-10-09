@@ -1,7 +1,7 @@
 use chgk_rating::config::{Config, FormatEffect};
 use chgk_rating::data::{Arena, Format, Tournament};
 use chgk_rating::features::{Features, Pre};
-use chgk_rating::output::{PlayerEvent, TournamentMetrics, Writer};
+use chgk_rating::output::{PlayerEvent, PlayerRow, TournamentMetrics, Writer};
 use chgk_rating::pass::{self, Engine, Evening, Morning, Observer, Release};
 use chgk_rating::util::{format_date, parse_date, spearman};
 use std::time::Instant;
@@ -175,6 +175,8 @@ struct Fit<'a> {
     start: Instant,
     /// Last published raw value per entity, so `change` excludes the gauge shift.
     prev_p: Vec<f64>,
+    /// The last published number per player, for `delta`.
+    prev_d: Vec<f64>,
     prev_t: Vec<f64>,
     /// The lineup of this tournament and the state the forecast read this
     /// morning, before the update moves it.
@@ -193,6 +195,7 @@ impl<'a> Fit<'a> {
             diag: diag.and_then(|id| arena.player_ids.iter().position(|x| *x == id)),
             start,
             prev_p: vec![f64::NAN; arena.n_players()],
+            prev_d: vec![f64::NAN; arena.n_players()],
             prev_t: vec![f64::NAN; arena.n_teams()],
             before: Vec::new(),
         })
@@ -293,18 +296,20 @@ impl Observer for Fit<'_> {
         if !cfg.data.write_rows(r.id, r.last) {
             return Ok(());
         }
-        let prows: Vec<(i64, f64, f64, u32, f64)> = listed
-            .iter()
-            .map(|&i| {
-                let raw = r.players.state[i].theta_raw;
-                let change = if self.prev_p[i].is_finite() { raw - self.prev_p[i] } else { 0.0 };
-                self.prev_p[i] = raw;
-                // The published number may carry a share of the format effect; the
-                // forecast reads `theta` and `phi` separately and never this.
-                let theta = r.players.theta(i) + cfg.display.player_phi * r.players.phi(i);
-                (arena.player_ids[i], theta, r.players.sigma_at(i, r.day, cfg), r.activity.count[i], change)
-            })
-            .collect();
+        let since = |now: f64, prev: &mut f64| {
+            let d = if prev.is_finite() { now - *prev } else { 0.0 };
+            *prev = now;
+            d
+        };
+        let mut prows: Vec<PlayerRow> = Vec::with_capacity(listed.len());
+        for &i in &listed {
+            let change = since(r.players.state[i].theta_raw, &mut self.prev_p[i]);
+            // The published number may carry a share of the format effect; the
+            // forecast reads `theta` and `phi` separately and never this.
+            let theta = r.players.theta(i) + cfg.display.player_phi * r.players.phi(i);
+            let delta = since(chgk_rating::display::player(theta, cfg), &mut self.prev_d[i]);
+            prows.push((arena.player_ids[i], theta, r.players.sigma_at(i, r.day, cfg), r.activity.count[i], change, delta));
+        }
         self.w.player_ratings(r.id, &prows, |t| chgk_rating::display::player(t, cfg))?;
         let trows: Vec<(i64, f64, f64, f64, f64, f64)> = r
             .teams

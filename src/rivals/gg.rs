@@ -630,7 +630,7 @@ impl Gg {
         let trows = self.team_rows(listed, &prev.0);
         let prows = self.player_rows(&prev.1);
         w.release(wk.release_id, &format_date(wk.day), 0.0, wk.q, prows.len())?;
-        w.player_ratings(wk.release_id, &prows, |t| t)?;
+        w.player_ratings(wk.release_id, &crate::output::published(&prows), |t| t)?;
         w.team_ratings(wk.release_id, &trows, |m| m)
     }
 }

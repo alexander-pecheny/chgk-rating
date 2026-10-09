@@ -163,22 +163,21 @@ func (f fieldView) teamsAt(venue int64) int {
 }
 
 func (f fieldView) header() []ui.Item {
-	fl := S.Tournament.Field
-	cols := []ui.Item{numCol(S.Common.Col.Place()), numCol(fl.Forecast()), nameCol(S.Common.Col.Team())}
+	cols := []ui.Item{numCol(S.Common.Col.Place()), numCol(S.Tournament.Field.Forecast()), nameCol(S.Common.Col.Team())}
 	if f.merged {
-		cols = append(cols, hcell(fl.VenueCol()))
+		cols = append(cols, hcell(S.Tournament.Field.VenueCol()))
 	}
-	cols = append(cols, numCol(S.Common.Col.Taken()), numCol(fl.Lineup(), fl.LineupTitle()), numCol(S.Common.Col.Value(), fl.ValueTitle()))
+	cols = append(cols, numCol(S.Common.Col.Taken()), numCol(S.Tournament.Field.Lineup(), S.Tournament.Field.LineupTitle()), numCol(S.Common.Col.Value(), S.Tournament.Field.ValueTitle()))
 	if f.values {
-		cols = append(cols, numCol(S.Common.Col.Gain(), fl.GainTitle()))
+		cols = append(cols, numCol(S.Common.Col.Gain(), S.Tournament.Field.GainTitle()))
 	} else {
 		cols = append(cols, stepCols()...)
 	}
 	if f.split {
-		cols = append(cols, numCol(fl.ByPlace(), fl.ByPlaceTitle()), numCol(fl.ToLineup(), fl.ToLineupTitle()))
+		cols = append(cols, numCol(S.Tournament.Field.ByPlace(), S.Tournament.Field.ByPlaceTitle()), numCol(S.Tournament.Field.ToLineup(), S.Tournament.Field.ToLineupTitle()))
 	}
 	if f.floor {
-		cols = append(cols, numCol(fl.Winner(), fl.WinnerTitle()))
+		cols = append(cols, numCol(S.Tournament.Field.Winner(), S.Tournament.Field.WinnerTitle()))
 	}
 	return cols
 }
@@ -301,13 +300,12 @@ func (f fieldView) partCells(v fieldRow) []ui.Item {
 }
 
 func (f fieldView) notes() []string {
-	fl := S.Tournament.Field
-	notes := []string{fl.NoteLineup()}
+	notes := []string{S.Tournament.Field.NoteLineup()}
 	for _, n := range []struct {
 		on   bool
 		text func() string
-	}{{f.values, fl.NoteValue}, {f.split, fl.NoteSplit}, {f.floor, fl.NoteFloor},
-		{len(f.rosters) > 0, fl.NoteRoster}, {f.merged, fl.NoteMerged}} {
+	}{{f.values, S.Tournament.Field.NoteValue}, {f.split, S.Tournament.Field.NoteSplit}, {f.floor, S.Tournament.Field.NoteFloor},
+		{len(f.rosters) > 0, S.Tournament.Field.NoteRoster}, {f.merged, S.Tournament.Field.NoteMerged}} {
 		if n.on {
 			notes = append(notes, n.text())
 		}
