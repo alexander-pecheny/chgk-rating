@@ -51,7 +51,11 @@ func (f *fieldView) placeAll() {
 	}
 	scores, strengths := make([]*float64, len(evs)), make([]*float64, len(evs))
 	for i, v := range evs {
-		scores[i], strengths[i] = scoreOf(v.score), v.strength
+		// The merged field counts only the questions every venue played.
+		if v.fieldScore != nil {
+			evs[i].score = v.fieldScore
+		}
+		scores[i], strengths[i] = scoreOf(evs[i].score), v.strength
 	}
 	places, fplaces := rankDesc(scores), rankDesc(strengths)
 	for i := range evs {

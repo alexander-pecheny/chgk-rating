@@ -49,6 +49,7 @@ pub fn build(ratings: &Path, buff: &Path, out: &Path, d: &Display, reads: &Reads
     assert!(last.0 > 0, "no releases in {}", ratings.display());
     let tours = tournaments(&c);
     venues(&c);
+    field_scores(&c);
     let res = crate::results::scan(&c, &tours.date);
     base_rosters(&c);
     let players = crate::history::scan(&c, Listed::players(d));
@@ -155,6 +156,39 @@ fn venues(c: &Ctx) {
         let (t, f): (i64, i64) = (x.get("tournament_id").unwrap(), x.get("field_id").unwrap());
         ins.execute(params![t, f]).unwrap();
     });
+}
+
+/// A merged field's own count of each team's questions. A question one venue
+/// lost as a whole, to an appeal or a misprint, is struck from every venue, so
+/// the teams are ranked on the questions they all played; a single venue's
+/// page keeps its own count.
+fn field_scores(c: &Ctx) {
+    let mut fields: HashMap<i64, Vec<i64>> = HashMap::new();
+    each(c.w, "select tournament_id, field_id from venue", |x| {
+        fields.entry(x.get("field_id").unwrap()).or_default().push(x.get("tournament_id").unwrap());
+    });
+    let mut ins = c.w.prepare("insert or replace into field_score values (?1, ?2, ?3)").unwrap();
+    for tids in fields.values() {
+        for (tid, team, score) in recount(c, tids) {
+            ins.execute(params![tid, team, score]).unwrap();
+        }
+    }
+}
+
+/// `(venue, team, questions taken)` over the questions every venue played.
+fn recount(c: &Ctx, tids: &[i64]) -> Vec<(i64, i64, i64)> {
+    let list = tids.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(",");
+    let sql = format!("select id, team_id, mask from tournament_results where id in ({list}) and mask is not null and mask != ''");
+    let mut rows: Vec<(i64, i64, Vec<u8>)> = Vec::new();
+    each(c.b, &sql, |x| rows.push((x.get("id").unwrap(), x.get("team_id").unwrap(), text(x, "mask").into_bytes())));
+    let nq = rows.iter().map(|r| r.2.len()).max().unwrap_or(0);
+    let answered = |m: &[u8], q: usize| matches!(m.get(q), Some(b'0' | b'1'));
+    let lost = |q: usize| tids.iter().any(|t| {
+        let at: Vec<&Vec<u8>> = rows.iter().filter(|r| r.0 == *t).map(|r| &r.2).collect();
+        !at.is_empty() && at.iter().all(|m| !answered(m, q))
+    });
+    let kept: Vec<usize> = (0..nq).filter(|&q| !lost(q)).collect();
+    rows.iter().map(|(t, team, m)| (*t, *team, kept.iter().filter(|&&q| m.get(q) == Some(&b'1')).count() as i64)).collect()
 }
 
 const ROSTER_SQL: &str = "select s.team_id, s.player_id, p.surname, p.name, \

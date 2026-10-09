@@ -449,6 +449,9 @@ type fieldRow struct {
 	venue                  int64
 	strength               *float64
 	allActual, allForecast *float64
+	// fieldScore is the team's count over the questions every venue of a
+	// merged field played; nil outside a merged field.
+	fieldScore *int64
 	// step is the whole move of the rating, in display points.
 	step *float64
 }
@@ -462,7 +465,7 @@ type fieldScan struct {
 func (f *fieldScan) fields() []any {
 	r := &f.r
 	return []any{&r.team, &f.name, &r.forecast, &r.actual, &r.before, &r.after, &f.rated, &r.score, &f.playedAs,
-		&r.lineup, &r.dPlace, &r.dPull, &r.value, &r.gain, &r.venue, &r.strength}
+		&r.lineup, &r.dPlace, &r.dPull, &r.value, &r.gain, &r.venue, &r.strength, &r.fieldScore}
 }
 
 // field is every team at the venues, in the order of its own venue's places,
@@ -477,9 +480,10 @@ func (st *store) field(ids []int64) ([]fieldRow, error) {
 		join = "left join achieve_values a on a.tournament_id = v.tournament_id and a.team_id = v.team_id"
 	}
 	rows, err := all[fieldScan](st.db, `select v.team_id, m.name, v.forecast_place, v.actual_place, v.mu_before, v.mu_after,
-		v.rated, r.score, r.name, v.s_r, `+steps+`, `+values+`, v.tournament_id, v.forecast
+		v.rated, r.score, r.name, v.s_r, `+steps+`, `+values+`, v.tournament_id, v.forecast, fs.score
 		from team_events v left join x.team m on m.id = v.team_id
-		left join x.result_ r on r.tournament_id = v.tournament_id and r.team_id = v.team_id `+join+`
+		left join x.result_ r on r.tournament_id = v.tournament_id and r.team_id = v.team_id
+		left join x.field_score fs on fs.tournament_id = v.tournament_id and fs.team_id = v.team_id `+join+`
 		where v.tournament_id in (`+idList(ids)+`) order by v.actual_place`)
 	out := make([]fieldRow, len(rows))
 	for i, f := range rows {
