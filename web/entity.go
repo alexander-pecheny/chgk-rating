@@ -106,7 +106,12 @@ func orNotFound(err error) error {
 
 func playerStats(p standing) []ui.Item {
 	stats := []ui.Item{stat(S.Common.Col.Rating(), dash)}
-	if p.rated() {
+	switch {
+	case p.rated() && p.rank == nil:
+		// Not in this week's table: the rating is the one they last had, and
+		// a count of games in the past year would be that year's, not this one.
+		stats = []ui.Item{stat(S.Player.Stat.LastRating(), disp(num(p.display))), stat(S.Player.Stat.Sigma(), "±"+disp(num(p.sigma)))}
+	case p.rated():
 		stats = []ui.Item{
 			stat(S.Common.Col.Rating(), disp(num(p.display))),
 			stat(S.Player.Stat.Sigma(), "±"+disp(num(p.sigma))),

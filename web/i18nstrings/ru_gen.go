@@ -264,10 +264,11 @@ var RU = Strings{
 		},
 		Rank: func(n string) string { return fmt.Sprintf("%s-е место в таблице игроков", n) },
 		Stat: PlayerStatStrings{
-			Games:    func() string { return "Всего игр" },
-			Games365: func() string { return "Игр за 365 дней" },
-			Sigma:    func() string { return "Неопределённость" },
-			Week:     func() string { return "Изменение за неделю" },
+			Games:      func() string { return "Всего игр" },
+			Games365:   func() string { return "Игр за 365 дней" },
+			LastRating: func() string { return "Последний рейтинг" },
+			Sigma:      func() string { return "Неопределённость" },
+			Week:       func() string { return "Изменение за неделю" },
 		},
 	},
 	Players: PlayersStrings{
