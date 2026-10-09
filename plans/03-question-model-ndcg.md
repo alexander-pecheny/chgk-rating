@@ -134,12 +134,12 @@ difference is probably around 0.002–0.003.
 
 - You run in your own git worktree of this repository. Before anything:
   symlink the data in, without copying:
-  `ln -s /home/pecheny/new_chgk_rating/buff.db buff.db`,
-  `ln -s /home/pecheny/new_chgk_rating/data/external data/external`
+  `ln -s <production checkout>/buff.db buff.db`,
+  `ln -s <production checkout>/data/external data/external`
   (`data/` is tracked and holds the weights CSV), `mkdir -p out`,
-  `ln -s /home/pecheny/new_chgk_rating/out/ext out/ext`,
-  `ln -s /home/pecheny/new_chgk_rating/out/ratings.db out/shipped.db`.
-  Treat everything under `/home/pecheny/new_chgk_rating` as read-only.
+  `ln -s <production checkout>/out/ext out/ext`,
+  `ln -s <production checkout>/out/ratings.db out/shipped.db`.
+  Treat everything under `<production checkout>` as read-only.
 - Never write large files to `/tmp` or the scratchpad (a 3.8 GB tmpfs);
   experiment databases go under `out/` in your worktree and are deleted when
   they have been scored. Keep the winner's database.

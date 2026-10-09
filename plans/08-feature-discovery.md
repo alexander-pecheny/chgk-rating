@@ -102,9 +102,9 @@ instructions; do not merge.
 ## Environment
 
 Own worktree from the current branch; `ln -s
-/mnt/HC_Volume_106816389/build/herdr-worktrees/r2out/buff_frozen.db buff.db`,
-`ln -s /home/pecheny/new_chgk_rating/data/external data/external`,
-`mkdir -p out`, `ln -s /home/pecheny/new_chgk_rating/out/ext out/ext`.
-Never write large files to /tmp or the scratchpad; `/home/pecheny/new_chgk_rating`
+<frozen buff.db> buff.db`,
+`ln -s <production checkout>/data/external data/external`,
+`mkdir -p out`, `ln -s <production checkout>/out/ext out/ext`.
+Never write large files to /tmp or the scratchpad; `<production checkout>`
 is read-only. Python is allowed here because the ranker is a research
 instrument; the feature writer stays in Rust.

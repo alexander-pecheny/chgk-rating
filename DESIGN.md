@@ -1011,8 +1011,6 @@ and a dated tooltip. Without JavaScript the line and its band still render. A
 team's series has no band under S2, which publishes no uncertainty; the team page
 shows its rated games and its usual lineup where the player page shows a `±`.
 
-Styling follows the user's design system in `~/dopesuite/dopeuikit`: reuse its
+Styling follows the dopesuite design system (`pecheny.me/dopeuikit`): reuse its
 tokens, type scale and table styles from `assets/core.css` and its fonts from
-`assets/fonts`, rather than inventing new ones. Run the `design-review` skill
-from `~/dopesuite/.claude/skills/design-review` on the built pages before
-calling the site done.
+`assets/fonts`, rather than inventing new ones.

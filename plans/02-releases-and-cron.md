@@ -60,20 +60,18 @@ Facts:
   01:05 UTC daily and a graph rebuild at 04:50 UTC (both machines run UTC).
   It was last copied with `rsync` over ssh (`~/.ssh/config` has the host);
   1 GB at about 11 MB/s takes 80 seconds.
-- The production checkout is `/home/pecheny/new_chgk_rating`
+- The production checkout is `<production checkout>`
   (`chgk-rating.service`, `deploy/chgk-rating.service`). `serve` holds
   `buff.db` and `out/ratings.db` open and rebuilds `out/web.db` on restart when
   `ratings.db` is newer (about 90 seconds). Replacing an open SQLite file by
   `mv` is safe: the old inode lives until restart. `fit`'s `Writer::create`
   unlinks and recreates `out/ratings.db`, which is the same story.
-- `sudo -n systemctl restart chgk-rating` works for this user without a
-  password (checked: `sudo -n true` succeeds).
 - The user's crontab already has one line (`sess index` every 15 minutes).
   Preserve it.
 
 Write `deploy/update.sh` (POSIX sh, `set -eu`, executable):
 
-1. `REPO=${REPO:-/home/pecheny/new_chgk_rating}`; `cd "$REPO"`. Take an
+1. `REPO=${REPO:-<production checkout>}`; `cd "$REPO"`. Take an
    exclusive lock (`flock -n "$REPO/out/update.lock"`) so two runs never
    overlap; log lines with a UTC timestamp to stdout (cron appends to
    `out/update.log`).
@@ -93,7 +91,7 @@ Write `deploy/update.sh` (POSIX sh, `set -eu`, executable):
 Cron line (keep a copy at `deploy/crontab`):
 
 ```
-30 6 * * * /home/pecheny/new_chgk_rating/deploy/update.sh >> /home/pecheny/new_chgk_rating/out/update.log 2>&1
+30 6 * * * <production checkout>/deploy/update.sh >> <production checkout>/out/update.log 2>&1
 ```
 
 Install it with a short `uv run python -c` snippet that reads `crontab -l`,
@@ -113,7 +111,7 @@ run it by hand.
 
 ## Constraints
 
-- Never write under `/home/pecheny/new_chgk_rating` or `/tmp`; large outputs
+- Never write under `<production checkout>` or `/tmp`; large outputs
   go to `out/` in this worktree. Do not restart the production service.
 - Another agent edits `web/` and the two team-name subqueries in
   `src/bin/eval.rs` concurrently. Use the Edit tool, not Write, on

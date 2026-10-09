@@ -4,7 +4,10 @@
 # See deploy/README.md.
 set -eu
 
-REPO=${REPO:-/home/pecheny/new_chgk_rating}
+# The checkout this script lives in, unless REPO says otherwise.
+REPO=${REPO:-$(cd "$(dirname "$0")/.." && pwd)}
+# Where the mirror is rebuilt nightly; any rsync source works.
+BUFF_SOURCE=${BUFF_SOURCE:-vps2day-ee:/home/ap/buff/buff.db}
 cd "$REPO"
 mkdir -p out
 
@@ -29,12 +32,12 @@ log "update starts in $REPO"
 if [ "${SKIP_SYNC:-}" = "1" ]; then
     log "sync skipped"
 else
-    log "sync: rsync vps2day-ee:/home/ap/buff/buff.db"
+    log "sync: rsync $BUFF_SOURCE"
     # Yesterday's copy is the basis rsync compares against, so only the pages
     # that changed cross the network: about 10 MB of the 1 GB, in seconds. The
     # copy is made beside it, so a failed sync never touches the good buff.db.
     [ -f "$REPO/buff.db" ] && cp "$REPO/buff.db" "$REPO/buff.db.tmp"
-    if rsync -a --inplace --no-whole-file vps2day-ee:/home/ap/buff/buff.db "$REPO/buff.db.tmp"; then
+    if rsync -a --inplace --no-whole-file "$BUFF_SOURCE" "$REPO/buff.db.tmp"; then
         mv -f "$REPO/buff.db.tmp" "$REPO/buff.db"
         log "sync done"
     else

@@ -36,7 +36,7 @@ move it by a digit.
 ## 0. The baseline
 
 Everything is on the frozen mirror
-`/mnt/HC_Volume_106816389/build/herdr-worktrees/r2out/buff_frozen.db`, symlinked
+a frozen copy of `buff.db`, symlinked
 as `buff.db`. Round 3 refitted from `config.toml` at `1f0e06f` with
 `--to 2026-09-05 --rows-every 0`:
 

@@ -41,7 +41,7 @@ deploy-dry: build
 
 # Fast-forward main in the production checkout to this branch, build there, publish.
 # From a worktree; `just ship` then `just deploy`.
-prod := "/home/pecheny/new_chgk_rating"
+prod := env_var_or_default("PROD", "/home/pecheny/new_chgk_rating")
 ship:
     git -C {{prod}} merge --ff-only $(git rev-parse --abbrev-ref HEAD)
     cargo build --release --manifest-path {{prod}}/Cargo.toml

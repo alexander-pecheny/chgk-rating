@@ -27,7 +27,7 @@ bit-identical, because the distillation had to be measurable; both lose.
 ## 0. The protocol
 
 Everything is on the frozen mirror
-`/mnt/HC_Volume_106816389/build/herdr-worktrees/r2out/buff_frozen.db`, symlinked
+a frozen copy of `buff.db`, symlinked
 as `buff.db`. The round-3 winner refitted from `config.toml` at `e1a18e3` with
 `--to 2026-09-05 --rows-every 0`:
 

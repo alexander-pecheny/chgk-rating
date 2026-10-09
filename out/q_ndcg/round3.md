@@ -36,7 +36,7 @@ standard errors**, and this round did not make it so either; it is now 1.3 and
 ## 0. The baseline
 
 Everything is on the frozen mirror
-`/mnt/HC_Volume_106816389/build/herdr-worktrees/r2out/buff_frozen.db`, symlinked
+a frozen copy of `buff.db`, symlinked
 as `buff.db`. The round-2 winner, refitted from `config.toml` at `5b23144` with
 `--to 2026-09-05 --rows-every 0`:
 

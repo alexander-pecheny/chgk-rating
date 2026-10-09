@@ -16,7 +16,7 @@ Same protocol: tune 2018-09-01 to 2024-08-29 decides, test 2024-08-30 to
 paired bootstrap SE against the round-2 winner, fun and quest; every change a
 switch with the shipped default; `to = "2026-09-05"`, `rows_every = 0`.
 
-**Use the frozen mirror** `/mnt/HC_Volume_106816389/build/herdr-worktrees/r2out/buff_frozen.db`
+**Use the frozen mirror** a frozen copy of `buff.db`
 (symlink it as `buff.db`), not the live one, which the daily update replaces;
 refit the round-2 baseline from `config.toml` at `ded58dd` on it first and
 check it reproduces round 2's numbers to the fourth decimal.

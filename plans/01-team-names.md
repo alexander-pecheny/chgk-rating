@@ -61,7 +61,7 @@ Every team with a one-off name on its latest result is affected, not only 308.
 
 ## Constraints
 
-- Work only in this worktree; never write under `/home/pecheny/new_chgk_rating`
+- Work only in this worktree; never write under `<production checkout>`
   or `/tmp`. Large outputs go to `out/` here.
 - Use the Edit tool for shared files (`web/src/pages.rs`, `src/bin/eval.rs`);
   another agent is editing `src/config.rs`, `src/bin/fit.rs`, `src/bin/eval.rs`

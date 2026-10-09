@@ -17,7 +17,7 @@ players' history.
 Same protocol as plans 3, 5 and 6: tune window decides, test reported once
 per row, weights from `data/tournament_weights.csv`, paired SE vs round 3,
 fun and quest; every change a switch with the shipped default; the frozen
-mirror `/mnt/HC_Volume_106816389/build/herdr-worktrees/r2out/buff_frozen.db`;
+mirror a frozen copy of `buff.db`;
 refit round 3 from `config.toml` first and reproduce 0.9084 / 0.8108 on it.
 
 ## Levers
