@@ -211,8 +211,10 @@ and renames it into place, and takes about two minutes. `--rebuild` forces it.
 `web/` is the server, a Go module on dopesuite's DopeUIKit: the kit's page
 shell, tables, ☰ menu, `core.css` and fonts, the site's own primitives in
 `web/ui/` and every string in the Catalog under `web/i18nstrings/ru/`. It reads
-the two databases and computes nothing. It expects the dopesuite checkout at
-`/home/pecheny/dopesuite`.
+the two databases and computes nothing. The kit is the Go modules
+`pecheny.me/dopeuikit` and `pecheny.me/dopecore`, published from
+https://code.pecheny.me/pecheny/dopesuite; `just strings` and `just ui` also
+need a dopesuite checkout at `$HOME/dopesuite` for their generators.
 
 ```
 ./target/release/webindex
