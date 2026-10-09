@@ -13,10 +13,36 @@
 use chgk_rating::config::{Config, MarginShape, PullTarget, S2};
 use chgk_rating::data::{Arena, Format};
 use chgk_rating::pass::{self, Morning, Observer};
+use chgk_rating::team_event::TeamEvent;
 use chgk_rating::team_ndcg::{self as metric, QUALIFY, TEST, TUNE, WEIGHTS};
 use chgk_rating::team_s2::{lineup_strength, Row, TeamsS2};
-use chgk_rating::util::parse_date;
+use chgk_rating::util::{format_date, parse_date};
 use std::collections::{HashMap, HashSet};
+
+/// The sweep stops here unless `--to` says otherwise.
+const TO: &str = "2026-09-05";
+/// Bootstrap draws of the standard error, unless `--boot` says otherwise.
+const BOOT: usize = 2000;
+/// The guest and legionnaire checks read results from this day on.
+const CHECKS_FROM: &str = "2018-09-01";
+/// A loss counts as a guest loss when the lineup is this far above the team's core.
+const GUEST_GAP: f64 = 600.0;
+/// A loss counts as a legionnaire loss when the guests lift the lineup this far
+/// over its base-roster players alone.
+const LEGIONNAIRE_LIFT: f64 = 300.0;
+/// A winner "lost points" only beyond rounding.
+const LOSS_EPS: f64 = 1e-9;
+/// A field needs this many qualifying teams to be scored, and NDCG@3 reads its podium.
+const MIN_FIELD: usize = 5;
+const PODIUM: usize = 3;
+const YEAR: f64 = 365.0;
+/// The table of `--top`: teams with this many rated games, active in the trailing
+/// year (`TOP_ALL=1`: in the last century, so however long idle).
+const TOP_MIN_GAMES: f64 = 5.0;
+const TOP_WINDOW: i32 = 365;
+const TOP_WINDOW_ALL: i32 = 100 * 365;
+/// The bootstrap's seed, so its standard errors are the same on every run.
+const SEED: u64 = 0x1234_5678_9ABC_DEF1;
 
 fn args() -> Vec<String> {
     std::env::args().skip(1).collect()
@@ -47,57 +73,76 @@ struct Point {
 }
 
 fn set(p: &mut Point, key: &str, val: &str) -> Result<(), String> {
-    let num = || val.parse::<f64>().map_err(|_| format!("{key}: not a number: {val}"));
+    if set_switch(&mut p.s2, key, val == "true") || set_choice(&mut p.s2, key, val)? {
+        return Ok(());
+    }
+    let x = val.parse::<f64>().map_err(|_| format!("{key}: not a number: {val}"))?;
+    if key == "idle_drop" {
+        p.idle_drop = x;
+        return Ok(());
+    }
+    set_number(&mut p.s2, key, x)
+}
+
+/// The on/off rules; false when `key` is not one.
+fn set_switch(s: &mut S2, key: &str, on: bool) -> bool {
+    let field = match key {
+        "winner_floor" => &mut s.winner_floor,
+        "two_part" => &mut s.two_part,
+        "core_live" => &mut s.core_live,
+        "core_top" => &mut s.core_top,
+        "core_base" => &mut s.core_base,
+        "field_sync" => &mut s.field_sync,
+        "place_sign" => &mut s.place_sign,
+        "ref_core" => &mut s.ref_core,
+        "info_norm" => &mut s.info_norm,
+        "expect_forecast" => &mut s.expect_forecast,
+        "forecast_rating" => &mut s.forecast_rating,
+        "adj_mult" => &mut s.adj_mult,
+        _ => return false,
+    };
+    *field = on;
+    true
+}
+
+/// The rules with named options; false when `key` is not one.
+fn set_choice(s: &mut S2, key: &str, val: &str) -> Result<bool, String> {
+    match (key, val) {
+        ("margin_shape", "linear") => s.margin_shape = MarginShape::Linear,
+        ("margin_shape", "logistic") => s.margin_shape = MarginShape::Logistic,
+        ("margin_shape", _) => return Err("margin_shape: linear or logistic".into()),
+        ("k_r_target", "lineup") => s.k_r_target = PullTarget::Lineup,
+        ("k_r_target", "usual") => s.k_r_target = PullTarget::Usual,
+        ("k_r_target", _) => return Err("k_r_target: lineup or usual".into()),
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+fn set_number(s: &mut S2, key: &str, x: f64) -> Result<(), String> {
     match key {
-        "K" => p.s2.k = num()?,
-        "k_q" => p.s2.k_q = num()?,
-        "D" => p.s2.d = num()?,
-        "margin_g" => p.s2.margin_g = num()?,
-        "margin_shape" => {
-            p.s2.margin_shape = match val {
-                "linear" => MarginShape::Linear,
-                "logistic" => MarginShape::Logistic,
-                _ => return Err("margin_shape: linear or logistic".into()),
-            }
-        }
-        "k_r" => p.s2.k_r = num()?,
-        "k_r_target" => {
-            p.s2.k_r_target = match val {
-                "lineup" => PullTarget::Lineup,
-                "usual" => PullTarget::Usual,
-                _ => return Err("k_r_target: lineup or usual".into()),
-            }
-        }
-        "k_r_sync" => p.s2.k_r_sync = num()?,
-        "n0" => p.s2.n0 = num()?,
-        "w_sync" => p.s2.w_sync = Some(num()?),
-        "w_strict_sync" => p.s2.w_strict_sync = Some(num()?),
-        "winner_floor" => p.s2.winner_floor = val == "true",
-        "idle_drop" => p.idle_drop = num()?,
-        "two_part" => p.s2.two_part = val == "true",
-        "k_c" => p.s2.k_c = num()?,
-        "k_b" => p.s2.k_b = num()?,
-        "core_live" => p.s2.core_live = val == "true",
-        "core_top" => p.s2.core_top = val == "true",
-        "core_min_w" => p.s2.core_min_w = num()?,
-        "core_base" => p.s2.core_base = val == "true",
-        "field_gamma" => p.s2.field_gamma = num()?,
-        "field_k" => p.s2.field_k = num()? as usize,
-        "field_ref" => p.s2.field_ref = num()?,
-        "field_sync" => p.s2.field_sync = val == "true",
-        "place_sign" => p.s2.place_sign = val == "true",
-        "lineup_adj" => p.s2.lineup_adj = num()?,
-        "ref_core" => p.s2.ref_core = val == "true",
-        "info_norm" => p.s2.info_norm = val == "true",
-        "info_min" => p.s2.info_min = num()?,
-        "start_drop" => p.s2.start_drop = num()?,
-        "start_frac" => p.s2.start_frac = num()?,
-        "expect_forecast" => p.s2.expect_forecast = val == "true",
-        "forecast_rating" => p.s2.forecast_rating = val == "true",
-        "adj_mult" => p.s2.adj_mult = val == "true",
-        "best_n" => p.s2.best_n = num()? as usize,
-        "best_window" => p.s2.best_window = num()? as i32,
-        "perf_prior" => p.s2.perf_prior = num()?,
+        "K" => s.k = x,
+        "k_q" => s.k_q = x,
+        "D" => s.d = x,
+        "margin_g" => s.margin_g = x,
+        "k_r" => s.k_r = x,
+        "k_r_sync" => s.k_r_sync = x,
+        "n0" => s.n0 = x,
+        "w_sync" => s.w_sync = Some(x),
+        "w_strict_sync" => s.w_strict_sync = Some(x),
+        "k_c" => s.k_c = x,
+        "k_b" => s.k_b = x,
+        "core_min_w" => s.core_min_w = x,
+        "field_gamma" => s.field_gamma = x,
+        "field_k" => s.field_k = x as usize,
+        "field_ref" => s.field_ref = x,
+        "lineup_adj" => s.lineup_adj = x,
+        "info_min" => s.info_min = x,
+        "start_drop" => s.start_drop = x,
+        "start_frac" => s.start_frac = x,
+        "best_n" => s.best_n = x as usize,
+        "best_window" => s.best_window = x as i32,
+        "perf_prior" => s.perf_prior = x,
         _ => return Err(format!("unknown parameter {key}")),
     }
     Ok(())
@@ -136,6 +181,7 @@ struct Field {
     place: Vec<f64>,
 }
 
+#[derive(Default)]
 struct Run {
     /// NDCG and NDCG@3 per tournament, per window.
     full: [HashMap<i64, f64>; 2],
@@ -169,166 +215,161 @@ struct Cached {
     rows: Vec<Row>,
 }
 
-fn windows() -> [(i32, i32); 2] {
-    [
-        (parse_date(TUNE.0).unwrap(), parse_date(TUNE.1).unwrap()),
-        (parse_date(TEST.0).unwrap(), parse_date(TEST.1).unwrap()),
-    ]
+/// The pass's output and what every replay scores against.
+struct Replay<'a> {
+    cache: &'a [Cached],
+    arena: &'a Arena,
+    qual: &'a HashSet<(i64, i64)>,
+    windows: [(i32, i32); 2],
+    since: i32,
 }
 
-fn replay(cache: &[Cached], arena: &Arena, qual: &HashSet<(i64, i64)>, p: &Point) -> Run {
-    replay_teams(cache, arena, qual, p).0
+/// A rated loss: a negative placement step.
+fn rated_loss(e: &TeamEvent) -> bool {
+    e.rated && e.d_place < 0.0
 }
 
-/// The team table at the end of the replay: the `n` best teams with five rated
-/// games or more and one in the trailing year, as `team_id<TAB>rating<TAB>games`.
-fn top(teams: &TeamsS2, arena: &Arena, day: i32, n: usize) -> String {
-    // `TOP_ALL=1` lists every team however long idle, the best-results rule's table.
-    let window = if std::env::var("TOP_ALL").is_ok() { 100 * 365 } else { 365 };
-    let mut v: Vec<_> = teams.rows(day, window).into_iter().filter(|r| r.4 >= 5.0).collect();
-    v.sort_by(|a, b| b.1.total_cmp(&a.1));
-    v.iter()
-        .take(n)
-        .map(|r| {
-            let last = teams.state_of(r.0).map_or(0, |s| s.3);
-            format!(
-                "{}\t{:.0}\t{:.0}\t{}\n",
-                arena.team_ids[r.0],
-                r.1,
-                r.4,
-                chgk_rating::util::format_date(last)
-            )
-        })
-        .collect()
+fn rose(e: &TeamEvent) -> i64 {
+    (e.mu_after > e.mu_before) as i64
 }
 
-fn replay_teams(
-    cache: &[Cached],
-    arena: &Arena,
-    qual: &HashSet<(i64, i64)>,
-    p: &Point,
-) -> (Run, TeamsS2) {
-    let mut teams = TeamsS2::new(arena.n_teams());
-    let win = windows();
-    let mut run = Run {
-        full: [HashMap::new(), HashMap::new()],
-        fc: [HashMap::new(), HashMap::new()],
-        at3: [HashMap::new(), HashMap::new()],
-        sole: 0,
-        shared: 0,
-        guest_losses: 0,
-        guest_up: 0,
-        guest_parts: [0.0; 4],
-        leg_losses: 0,
-        leg_up: 0,
-        leg_move: 0.0,
-    };
-    let since = parse_date("2018-09-01").unwrap();
-    for t in cache {
-        let evs = teams.step_rows(t.id, t.day, t.weight, t.format, &t.rows, &p.s2);
-        // The winner rule: a team that finished first never loses points.
-        let best = evs
-            .iter()
-            .filter(|e| e.actual_place > 0.0)
-            .map(|e| e.actual_place)
-            .fold(f64::INFINITY, f64::min);
-        let n_best = evs.iter().filter(|e| e.actual_place == best).count();
-        for e in evs.iter().filter(|e| e.actual_place == best && e.rated) {
-            if e.mu_after < e.mu_before - 1e-9 {
-                if n_best == 1 {
-                    run.sole += 1;
-                } else {
-                    run.shared += 1;
-                }
+impl Replay<'_> {
+    fn new<'a>(cache: &'a [Cached], arena: &'a Arena, qual: &'a HashSet<(i64, i64)>) -> Replay<'a> {
+        let day = |s: &str| parse_date(s).unwrap();
+        let windows = [(day(TUNE.0), day(TUNE.1)), (day(TEST.0), day(TEST.1))];
+        Replay { cache, arena, qual, windows, since: day(CHECKS_FROM) }
+    }
+
+    fn run(&self, p: &Point) -> Run {
+        self.teams(p).0
+    }
+
+    fn teams(&self, p: &Point) -> (Run, TeamsS2) {
+        let mut teams = TeamsS2::new(self.arena.n_teams());
+        let mut run = Run::default();
+        for t in self.cache {
+            let evs = teams.step_rows(t.id, t.day, t.weight, t.format, &t.rows, &p.s2);
+            winner_rule(&mut run, &evs);
+            if t.day >= self.since {
+                legionnaire_losses(&mut run, t, &evs, &p.s2);
+                guest_losses(&mut run, &evs, &teams.guest_gap);
             }
+            self.score(&mut run, t, &evs, p);
         }
-        if t.day >= since {
-            let by_team: HashMap<u32, &Row> = t.rows.iter().map(|r| (r.team, r)).collect();
-            for e in evs.iter().filter(|e| e.rated && e.d_place < 0.0) {
-                let Some(r) = by_team.get(&e.team) else { continue };
-                let base: Vec<f64> = r
-                    .member_r
-                    .iter()
-                    .zip(&r.member_base)
-                    .filter(|(_, &b)| b)
-                    .map(|(&x, _)| x)
-                    .collect();
-                if base.is_empty() || base.len() == r.member_r.len() {
-                    continue;
-                }
-                let lift = lineup_strength(&r.member_r, &p.s2) - lineup_strength(&base, &p.s2);
-                if lift >= 300.0 {
-                    run.leg_losses += 1;
-                    run.leg_up += (e.mu_after > e.mu_before) as i64;
-                    run.leg_move += e.mu_after - e.mu_before;
-                }
-            }
-            for (e, _) in evs
-                .iter()
-                .zip(&teams.guest_gap)
-                .filter(|(e, &g)| e.rated && e.d_place < 0.0 && g > 600.0)
-            {
-                run.guest_losses += 1;
-                run.guest_up += (e.mu_after > e.mu_before) as i64;
-                let tot = e.mu_after - e.mu_before;
-                let parts = [e.d_place, e.var_diff, e.lost_prev, tot - e.d_place - e.var_diff - e.lost_prev];
-                for (a, x) in run.guest_parts.iter_mut().zip(parts) {
-                    *a += x;
-                }
-            }
-        }
+        (run, teams)
+    }
+
+    /// The forecast NDCG and the team NDCG of an in-person field in a window.
+    fn score(&self, run: &mut Run, t: &Cached, evs: &[TeamEvent], p: &Point) {
         if t.format != Format::InPerson {
-            continue;
+            return;
         }
-        let Some(w) = win.iter().position(|&(a, b)| t.day >= a && t.day < b) else {
-            continue;
-        };
+        let Some(w) = self.windows.iter().position(|&(a, b)| t.day >= a && t.day < b) else { return };
         let field: Vec<(f64, f64)> = evs
             .iter()
             .filter(|e| e.actual_place > 0.0 && e.forecast.is_finite())
             .map(|e| (e.forecast, e.actual_place))
             .collect();
-        if let Some(s) = chgk_rating::ndcg::score_field(t.id, &field) {
-            if s.ndcg.is_finite() {
-                run.fc[w].insert(t.id, s.ndcg);
-            }
+        if let Some(s) = chgk_rating::ndcg::score_field(t.id, &field).filter(|s| s.ndcg.is_finite()) {
+            run.fc[w].insert(t.id, s.ndcg);
         }
-        let mut f = Field::default();
-        for e in &evs {
-            let team = arena.team_ids[e.team as usize];
-            if !e.rated || e.actual_place <= 0.0 || !e.mu_before.is_finite() {
-                continue;
-            }
-            if !qual.contains(&(t.id, team)) {
-                continue;
-            }
-            f.team.push(team);
-            // Lever 6: an untested rating counts lower in the ranking alone.
-            f.mu.push(e.mu_before - p.idle_drop * (e.gap_days as f64 / 365.0).max(0.0));
-            f.place.push(e.actual_place);
-        }
-        if f.team.len() < 5 {
-            continue;
+        let f = self.field(t, evs, p);
+        if f.team.len() < MIN_FIELD {
+            return;
         }
         if let Some(v) = metric::score(t.id, &f.team, &f.mu, &f.place, usize::MAX) {
             run.full[w].insert(t.id, v);
         }
-        if let Some(v) = metric::score(t.id, &f.team, &f.mu, &f.place, 3) {
+        if let Some(v) = metric::score(t.id, &f.team, &f.mu, &f.place, PODIUM) {
             run.at3[w].insert(t.id, v);
         }
     }
-    (run, teams)
+
+    /// The qualifying rated placed teams of a field, ranked by rating alone.
+    fn field(&self, t: &Cached, evs: &[TeamEvent], p: &Point) -> Field {
+        let mut f = Field::default();
+        for e in evs {
+            let team = self.arena.team_ids[e.team as usize];
+            if !e.rated || e.actual_place <= 0.0 || !e.mu_before.is_finite() || !self.qual.contains(&(t.id, team)) {
+                continue;
+            }
+            f.team.push(team);
+            // Lever 6: an untested rating counts lower in the ranking alone.
+            f.mu.push(e.mu_before - p.idle_drop * (e.gap_days as f64 / YEAR).max(0.0));
+            f.place.push(e.actual_place);
+        }
+        f
+    }
+}
+
+/// The winner rule: a team that finished first never loses points.
+fn winner_rule(run: &mut Run, evs: &[TeamEvent]) {
+    let best = evs.iter().filter(|e| e.actual_place > 0.0).map(|e| e.actual_place).fold(f64::INFINITY, f64::min);
+    let n_best = evs.iter().filter(|e| e.actual_place == best).count();
+    for e in evs.iter().filter(|e| e.actual_place == best && e.rated) {
+        if e.mu_after < e.mu_before - LOSS_EPS {
+            if n_best == 1 {
+                run.sole += 1;
+            } else {
+                run.shared += 1;
+            }
+        }
+    }
+}
+
+fn legionnaire_losses(run: &mut Run, t: &Cached, evs: &[TeamEvent], s2: &S2) {
+    let by_team: HashMap<u32, &Row> = t.rows.iter().map(|r| (r.team, r)).collect();
+    for e in evs.iter().filter(|e| rated_loss(e)) {
+        let Some(r) = by_team.get(&e.team) else { continue };
+        let base: Vec<f64> = r.member_r.iter().zip(&r.member_base).filter(|(_, &b)| b).map(|(&x, _)| x).collect();
+        if base.is_empty() || base.len() == r.member_r.len() {
+            continue;
+        }
+        if lineup_strength(&r.member_r, s2) - lineup_strength(&base, s2) >= LEGIONNAIRE_LIFT {
+            run.leg_losses += 1;
+            run.leg_up += rose(e);
+            run.leg_move += e.mu_after - e.mu_before;
+        }
+    }
+}
+
+fn guest_losses(run: &mut Run, evs: &[TeamEvent], guest_gap: &[f64]) {
+    for (e, _) in evs.iter().zip(guest_gap).filter(|(e, &g)| rated_loss(e) && g > GUEST_GAP) {
+        run.guest_losses += 1;
+        run.guest_up += rose(e);
+        let tot = e.mu_after - e.mu_before;
+        let parts = [e.d_place, e.var_diff, e.lost_prev, tot - e.d_place - e.var_diff - e.lost_prev];
+        for (a, x) in run.guest_parts.iter_mut().zip(parts) {
+            *a += x;
+        }
+    }
+}
+
+/// The team table at the end of the replay: the `n` best teams with five rated
+/// games or more and one in the trailing year, as `team_id<TAB>rating<TAB>games`.
+fn top(teams: &TeamsS2, arena: &Arena, day: i32, n: usize) -> String {
+    let window = if std::env::var("TOP_ALL").is_ok() { TOP_WINDOW_ALL } else { TOP_WINDOW };
+    let mut v: Vec<_> = teams.rows(day, window).into_iter().filter(|r| r.4 >= TOP_MIN_GAMES).collect();
+    v.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let line = |r: &(usize, f64, f64, f64, f64)| {
+        let last = teams.state_of(r.0).map_or(0, |s| s.3);
+        format!("{}\t{:.0}\t{:.0}\t{}\n", arena.team_ids[r.0], r.1, r.4, format_date(last))
+    };
+    v.iter().take(n).map(line).collect()
 }
 
 // ------------------------------------------------------------------ reports
+
+/// Marsaglia's xorshift64 shifts.
+const XORSHIFT: (u32, u32, u32) = (13, 7, 17);
 
 struct Rng(u64);
 
 impl Rng {
     fn next(&mut self) -> u64 {
-        self.0 ^= self.0 << 13;
-        self.0 ^= self.0 >> 7;
-        self.0 ^= self.0 << 17;
+        self.0 ^= self.0 << XORSHIFT.0;
+        self.0 ^= self.0 >> XORSHIFT.1;
+        self.0 ^= self.0 << XORSHIFT.2;
         self.0
     }
 }
@@ -336,12 +377,11 @@ impl Rng {
 /// Paired bootstrap SE of the weighted difference a - b over tournaments.
 fn boot(a: &HashMap<i64, f64>, b: &HashMap<i64, f64>, w: &HashMap<i64, f64>, n: usize) -> f64 {
     let keys: Vec<i64> = a.keys().filter(|k| b.contains_key(k)).copied().collect();
-    if keys.len() < 5 || n == 0 {
+    if keys.len() < MIN_FIELD || n == 0 {
         return f64::NAN;
     }
-    let mut rng = Rng(0x1234_5678_9ABC_DEF1);
-    let mut d = Vec::with_capacity(n);
-    for _ in 0..n {
+    let mut rng = Rng(SEED);
+    let mut draw = || {
         let (mut num, mut den) = (0.0, 0.0);
         for _ in 0..keys.len() {
             let t = keys[(rng.next() % keys.len() as u64) as usize];
@@ -349,8 +389,9 @@ fn boot(a: &HashMap<i64, f64>, b: &HashMap<i64, f64>, w: &HashMap<i64, f64>, n: 
             num += x * (a[&t] - b[&t]);
             den += x;
         }
-        d.push(if den > 0.0 { num / den } else { 0.0 });
-    }
+        if den > 0.0 { num / den } else { 0.0 }
+    };
+    let d: Vec<f64> = (0..n).map(|_| draw()).collect();
     let m = d.iter().sum::<f64>() / d.len() as f64;
     (d.iter().map(|v| (v - m) * (v - m)).sum::<f64>() / (d.len() - 1) as f64).sqrt()
 }
@@ -380,20 +421,24 @@ fn line(name: &str, r: &Run, base: Option<&Run>, w: &HashMap<i64, f64>, nboot: u
         r.guest_losses,
         metric::wmean(&r.fc[0], w),
         metric::wmean(&r.fc[1], w),
-    ) + &{
-        let n = r.guest_losses.max(1) as f64;
-        let g = r.guest_parts.map(|x| x / n);
-        format!(
-            "<!-- guest-loss parts: place {:.0} drift {:.0} attend {:.0} rest {:.0}; legionnaire losses: {:.1}% up of {}, mean move {:.0} -->\n",
-            g[0],
-            g[1],
-            g[2],
-            g[3],
-            100.0 * r.leg_up as f64 / r.leg_losses.max(1) as f64,
-            r.leg_losses,
-            r.leg_move / r.leg_losses.max(1) as f64
-        )
-    }
+    ) + &loss_note(r)
+}
+
+/// The guest and legionnaire losses behind a row, as a Markdown comment.
+fn loss_note(r: &Run) -> String {
+    let n = r.guest_losses.max(1) as f64;
+    let g = r.guest_parts.map(|x| x / n);
+    let legs = r.leg_losses.max(1) as f64;
+    format!(
+        "<!-- guest-loss parts: place {:.0} drift {:.0} attend {:.0} rest {:.0}; legionnaire losses: {:.1}% up of {}, mean move {:.0} -->\n",
+        g[0],
+        g[1],
+        g[2],
+        g[3],
+        100.0 * r.leg_up as f64 / legs,
+        r.leg_losses,
+        r.leg_move / legs
+    )
 }
 
 // --------------------------------------------------------------------- main
@@ -415,50 +460,25 @@ fn build_cache(arena: &Arena, cfg: &Config) -> pass::Result<Vec<Cached>> {
     Ok(cache.0)
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cfg_path = arg("--config").unwrap_or_else(|| "config.toml".into());
-    let mut cfg = Config::load(&cfg_path)?;
-    cfg.data.to = arg("--to").unwrap_or_else(|| "2026-09-05".into());
-    let nboot: usize = arg("--boot").map_or(2000, |v| v.parse().unwrap_or(2000));
-    let qual = metric::qualify(QUALIFY);
-    let w = metric::weights(WEIGHTS);
+/// What every row of the table is read against.
+struct Sweep<'a> {
+    replay: Replay<'a>,
+    base: Point,
+    base_run: Run,
+    w: HashMap<i64, f64>,
+    nboot: usize,
+}
 
-    let arena = chgk_rating::data::load(&cfg, &cfg.data.from, &cfg.data.to)?;
-    eprintln!(
-        "loaded {} tournaments, {} teams; {} qualifying results, {} weights",
-        arena.tournaments.len(),
-        arena.n_teams(),
-        qual.len(),
-        w.len()
-    );
-    let cache = build_cache(&arena, &cfg)?;
-
-    let base = apply(
-        &Point { s2: cfg.team.s2.clone(), idle_drop: 0.0 },
-        &arg("--base").unwrap_or_default(),
-    )?;
-    let base_run = replay(&cache, &arena, &qual, &base);
-
-    let mut out = String::new();
-    out.push_str(&header());
-    out.push_str(&line("base (the config, plus --base)", &base_run, None, &w, 0));
-
-    let axes = args_all("--axis");
-    let points = args_all("--point");
-    let specs: Vec<String> = if axes.is_empty() && points.is_empty() {
-        LEVERS.iter().map(|s| s.to_string()).collect()
-    } else {
-        axes
-    };
-    for spec in &specs {
-        // "k_r=0.02,0.05;k_r_target=usual": the first field is the axis, the rest
-        // are held fixed for the whole scan.
+impl Sweep<'_> {
+    /// "k_r=0.02,0.05;k_r_target=usual": the first field is the axis, the rest
+    /// are held fixed for the whole scan.
+    fn axis(&self, spec: &str, out: &mut String) -> Result<(), Box<dyn std::error::Error>> {
         let mut parts = spec.split(';');
         let head = parts.next().unwrap();
         let fixed: Vec<&str> = parts.collect();
         let (key, vals) = head.split_once('=').ok_or("--axis expects name=v1,v2")?;
         for v in vals.split(',') {
-            let mut p = apply(&base, &format!("{key}={v}"))?;
+            let mut p = apply(&self.base, &format!("{key}={v}"))?;
             for f in &fixed {
                 p = apply(&p, f)?;
             }
@@ -467,48 +487,93 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 format!("`{key} = {v}`, `{}`", fixed.join("`, `"))
             };
-            let r = replay(&cache, &arena, &qual, &p);
-            out.push_str(&line(&name, &r, Some(&base_run), &w, nboot));
+            out.push_str(&line(&name, &self.replay.run(&p), Some(&self.base_run), &self.w, self.nboot));
         }
-    }
-    // `--explain 49804,27177`: each team's two parts at the end of every point.
-    let explain: Vec<i64> = arg("--explain")
-        .map(|v| v.split(',').filter_map(|x| x.trim().parse().ok()).collect())
-        .unwrap_or_default();
-    let top_n: Option<usize> = arg("--top").and_then(|v| v.parse().ok());
-    let last_day = cache.last().map_or(0, |t| t.day);
-    if let (Some(n), Some(dir)) = (top_n, arg("--top-dir")) {
-        let (_, teams) = replay_teams(&cache, &arena, &qual, &base);
-        std::fs::write(format!("{dir}/base.tsv"), top(&teams, &arena, last_day, n))?;
-    }
-    for (k, spec) in points.iter().enumerate() {
-        let p = apply(&base, spec)?;
-        let (r, teams) = replay_teams(&cache, &arena, &qual, &p);
-        out.push_str(&line(&format!("`{spec}`"), &r, Some(&base_run), &w, nboot));
-        for &id in &explain {
-            let Some(i) = arena.team_ids.iter().position(|&x| x == id) else { continue };
-            if p.s2.best_n > 0 {
-                let mut v: Vec<(i32, f64)> = teams.pool_of(i).to_vec();
-                v.sort_by(|a, b| b.1.total_cmp(&a.1));
-                let s: Vec<String> = v
-                    .iter()
-                    .map(|(d, x)| format!("{} {:.0}", chgk_rating::util::format_date(*d), x))
-                    .collect();
-                eprintln!("{spec} team {id}: pool {} — {}", v.len(), s.join(", "));
-            }
-            if let (Some((q, b)), Some((rt, _, g, _))) = (teams.parts_of(i, &p.s2), teams.state_of(i)) {
-                eprintln!("{spec} team {id}: R {rt:.0} = core {q:.0} + b {b:+.0}, games {g:.0}");
-            }
-        }
-        if let (Some(n), Some(dir)) = (top_n, arg("--top-dir")) {
-            std::fs::write(format!("{dir}/point{k}.tsv"), top(&teams, &arena, last_day, n))?;
-        }
+        Ok(())
     }
 
+    /// One `--point`: its row, `--explain`'s lines, and `--top`'s table.
+    fn point(&self, k: usize, spec: &str, out: &mut String) -> Result<(), Box<dyn std::error::Error>> {
+        let p = apply(&self.base, spec)?;
+        let (r, teams) = self.replay.teams(&p);
+        out.push_str(&line(&format!("`{spec}`"), &r, Some(&self.base_run), &self.w, self.nboot));
+        for id in explained() {
+            let Some(i) = self.replay.arena.team_ids.iter().position(|&x| x == id) else { continue };
+            explain(spec, id, i, &teams, &p.s2);
+        }
+        self.write_top(&teams, &format!("point{k}.tsv"))
+    }
+
+    /// `--top n --top-dir dir`: the replay's table into `dir/name`.
+    fn write_top(&self, teams: &TeamsS2, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let top_n: Option<usize> = arg("--top").and_then(|v| v.parse().ok());
+        if let (Some(n), Some(dir)) = (top_n, arg("--top-dir")) {
+            let last_day = self.replay.cache.last().map_or(0, |t| t.day);
+            std::fs::write(format!("{dir}/{name}"), top(teams, self.replay.arena, last_day, n))?;
+        }
+        Ok(())
+    }
+}
+
+/// `--explain 49804,27177`: the teams whose two parts are shown at every point.
+fn explained() -> Vec<i64> {
+    arg("--explain").map(|v| v.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default()
+}
+
+fn explain(spec: &str, id: i64, i: usize, teams: &TeamsS2, s2: &S2) {
+    if s2.best_n > 0 {
+        let mut v: Vec<(i32, f64)> = teams.pool_of(i).to_vec();
+        v.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let s: Vec<String> = v.iter().map(|(d, x)| format!("{} {:.0}", format_date(*d), x)).collect();
+        eprintln!("{spec} team {id}: pool {} — {}", v.len(), s.join(", "));
+    }
+    if let (Some((q, b)), Some((rt, _, g, _))) = (teams.parts_of(i, s2), teams.state_of(i)) {
+        eprintln!("{spec} team {id}: R {rt:.0} = core {q:.0} + b {b:+.0}, games {g:.0}");
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cfg_path = arg("--config").unwrap_or_else(|| "config.toml".into());
+    let mut cfg = Config::load(&cfg_path)?;
+    cfg.data.to = arg("--to").unwrap_or_else(|| TO.into());
+    let qual = metric::qualify(QUALIFY);
+    let w = metric::weights(WEIGHTS);
+    let arena = chgk_rating::data::load(&cfg, &cfg.data.from, &cfg.data.to)?;
+    let (nt, nteams) = (arena.tournaments.len(), arena.n_teams());
+    eprintln!("loaded {nt} tournaments, {nteams} teams; {} qualifying results, {} weights", qual.len(), w.len());
+    let cache = build_cache(&arena, &cfg)?;
+    let replay = Replay::new(&cache, &arena, &qual);
+    let base = apply(&Point { s2: cfg.team.s2.clone(), idle_drop: 0.0 }, &arg("--base").unwrap_or_default())?;
+    let base_run = replay.run(&base);
+    let nboot: usize = arg("--boot").map_or(BOOT, |v| v.parse().unwrap_or(BOOT));
+    let sweep = Sweep { replay, base, base_run, w, nboot };
+    let out = sweep.table()?;
     print!("{out}");
     if let Some(path) = arg("--out") {
         std::fs::write(&path, &out)?;
         eprintln!("wrote {path}");
     }
     Ok(())
+}
+
+impl Sweep<'_> {
+    /// The base row, every axis (the levers of plan 4 when nothing is asked),
+    /// then every point.
+    fn table(&self) -> Result<String, Box<dyn std::error::Error>> {
+        let mut out = header();
+        out.push_str(&line("base (the config, plus --base)", &self.base_run, None, &self.w, 0));
+        let (axes, points) = (args_all("--axis"), args_all("--point"));
+        let specs: Vec<String> =
+            if axes.is_empty() && points.is_empty() { LEVERS.iter().map(|s| s.to_string()).collect() } else { axes };
+        for spec in &specs {
+            self.axis(spec, &mut out)?;
+        }
+        if arg("--top").and_then(|v| v.parse::<usize>().ok()).is_some() && arg("--top-dir").is_some() {
+            self.write_top(&self.replay.teams(&self.base).1, "base.tsv")?;
+        }
+        for (k, spec) in points.iter().enumerate() {
+            self.point(k, spec, &mut out)?;
+        }
+        Ok(out)
+    }
 }
