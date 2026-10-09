@@ -158,17 +158,19 @@ var RU = Strings{
 				return "At an in-person tournament the forecast carries one small correction that is not about the lineup: how that lineup's players have fared before under the editors of this package. A weak player misses a question whoever wrote it, so only the strongest fifth of players carry such a record at all, and a player and an editor need two shared tournaments before the record counts. Everything else in the system ignores it — no rating, no player number and no question difficulty moves because of it, and a synchronous forecast never reads it. It is worth a few points of forecast quality and it is the only place in the model where who wrote the questions changes what we expect."
 			},
 			Lineup: func() string {
-				return "The forecast for a tournament is separate from the rating and takes no part in the update. A team's forecast strength is the strength of the lineup it fielded, computed from individual ratings, and the forecast places are the order of the field by that strength. About tomorrow, the lineup knows more than the accumulated team rating: on in-person tournaments of the last two seasons this forecast beats both the team rating and the forecast of the old system."
+				return "The forecast for a tournament is separate from the rating and takes no part in the update. A team's forecast strength is the strength of the lineup it fielded, computed from individual ratings, each player read 1.5 uncertainties below their estimate, so an unknown player counts for less than a known one of the same rating; the forecast places are the order of the field by that strength. About tomorrow, the lineup knows more than the accumulated team rating: on in-person tournaments of the last two seasons this forecast beats both the team rating and the forecast of the old system."
 			},
 			Quality: func() string {
-				return "The tournament page shows the forecast next to the result. Forecast quality is measured two ways and compared with the other systems: by Spearman rank correlation over the whole field, and by a top-weighted measure that counts a swap at the first places for far more than one deep in the table, averaged over tournaments with the strong fields counting most. On in-person tournaments of the last two seasons the forecast is ahead of rating.chgk.fun, chgk.quest, chgk.gg and the old system on both."
+				return "The tournament page shows the forecast next to the result. Forecast quality is measured two ways and compared with the other systems: by Spearman rank correlation over the whole field, and by a top-weighted measure that counts a swap at the first places for far more than one deep in the table, averaged over tournaments with the strong fields counting most. The same measures are computed for the forecasts of rating.chgk.fun, chgk.quest, chgk.gg and the old system, as we reimplement them."
 			},
 			Title: func() string { return "Forecast" },
 		},
-		Lede: func() string { return "How the rating is computed, in short. The full rules with formulas are in the" },
+		Lede: func() string {
+			return "How the rating is computed, in short. An earlier version of the model, with formulas, is described in the"
+		},
 		Player: MethodPlayerStrings{
 			Format: func() string {
-				return "A player is not equally strong in every format. Besides the strength, each player carries a second, smaller number: how much stronger they are at a table that meets face to face than at a synchronous package played elsewhere. It is estimated from in-person results only and is added to the strength whenever the tournament is in person — in the question model, in lineup strength and in the forecast. For most players it is zero, because most have never played in person; the tenth and ninetieth percentiles of those who have are about −0.05 and +0.09 on the individual scale, some three hundred and five hundred points of team rating apart at the extremes. Once estimated it does not fade with time, unlike the strength itself: how a player takes to a face-to-face table is a property of the player, not of their form."
+				return "A player is not equally strong in every format. Besides the strength, each player carries a second, smaller number: how much stronger they are at a table that meets face to face than at a synchronous package played elsewhere. It is estimated from in-person results only and is added to the strength whenever the tournament is in person — in the question model, in lineup strength and in the forecast. For most players it is zero, because most have never played in person; the tenth and ninetieth percentiles of those who have are about −0.05 and +0.13 on the individual scale, about −220 and +550 points, and the largest is about 1.06, some 4500 points. Once estimated it does not fade with time, unlike the strength itself: how a player takes to a face-to-face table is a property of the player, not of their form."
 			},
 			Intensity: func() string { return "intensity" },
 			ModelAlone: func() string {
@@ -182,7 +184,7 @@ var RU = Strings{
 				return ". Uncertainty plays no part in this chance; it only sets how far the estimate moves afterwards. Question difficulty is read from the share of lineups that answered it: it is set so that the model predicts exactly the observed share. This is what makes packages from different years and levels comparable."
 			},
 			Published: func() string {
-				return "Individual numbers are published as they are, with their uncertainty, with no ladder rules and no rounding to grades. The published number is the strength at an in-person table: the in-person bonus above is part of it, which is what the other systems' player numbers also mean, so the tables can be compared. The model itself keeps the two apart, and it is the strength without the bonus that the scale of the next section is anchored to. A player with no history enters at the average strength of a newcomer with a wide uncertainty."
+				return "Individual numbers are published as they are, with their uncertainty, with no ladder rules and no rounding to grades. The published number is the strength at an in-person table: the in-person bonus above is part of it, which is what the other systems' player numbers also mean, so the tables can be compared. The model itself keeps the two apart, and it is the strength without the bonus that the scale of the next section is anchored to. A player with no history enters at the average strength of a newcomer with a wide uncertainty. After each tournament three more rules apply. A lineup's players are judged against the lineups whose expected score was close to their own (within about twelve answers), not against the whole field. The players of the winning lineup cannot lose strength from that tournament. And each player is pulled a quarter of a percent of the way towards the mean of the lineup they played in."
 			},
 			SupIntensity: func() string { return "−intensity" },
 			SupSum:       func() string { return "−sum" },
@@ -190,7 +192,7 @@ var RU = Strings{
 		},
 		Publication: MethodPublicationStrings{
 			Body: func() string {
-				return "Processing is online and chronological: tournaments in date order, releases on Thursdays. The site is refreshed every morning. A result’s value is fixed on the day it is played; the team history on the site is recomputed under the current rules, so it can differ from what an earlier version of the site showed."
+				return "Tournaments are processed in date order and releases come out on Thursdays. The first years are processed twice: once to find where each player stands, then again from 2013 with those players already at their strength, so the early tables do not start everyone from zero. Every morning the whole history is recomputed from the current data and rules, so a past release can change when either changes."
 			},
 			Title: func() string { return "Publication" },
 		},
@@ -201,7 +203,7 @@ var RU = Strings{
 		Report: func() string { return "report (PDF)" },
 		Scale: MethodScaleStrings{
 			Anchor: func() string {
-				return "At every release the scale is anchored to the population: the mean strength of players with at least eight rated tournaments in the past year is set to zero. This shift is subtracted from every player. Team values rest on the same anchor, because the strength a team showed is read on the same scale as the players. The accumulated shift is shown on the"
+				return "At every release the scale is anchored to the population: the mean strength of players with at least eight rated tournaments in the past year is set to zero. This shift is subtracted from every player. Team values rest on the same anchor, because the strength a team showed is read on the same scale as the players. The published scale follows this anchor but moves at most 0.05 (about 210 points) from one release to the next, so a week in which the reference group shrinks, as in the lockdown of 2021, does not move every rating at once. The accumulated shift is shown on the"
 			},
 			Releases: func() string { return "releases" },
 			Tail:     func() string { return " page." },
@@ -216,12 +218,12 @@ var RU = Strings{
 			},
 			Title: func() string { return "What a team rating is" },
 			Value: func() string {
-				return "A result is valued once, on the day of the tournament, and never revalued afterwards. Its value is the strength the team showed, divided by its place to the power 0.6, times the weight of the tournament. A win keeps the whole strength, second place 66% of it, fifth 38%, tenth 25%."
+				return "A result is valued once, on the day of the tournament, and never revalued afterwards. Its value is the strength the team showed, divided by its place to the power 0.6, times the weight of the tournament. A win keeps the whole strength, second place 66% of it, fifth 38%, tenth 25%. A result with no per-question data is valued by the strength at which its place is what the field's lineups predict, under the same divisor."
 			},
 		},
 		Time: MethodTimeStrings{
 			Fade: func() string {
-				return "A result loses 10% of its value each year if it was played in person and 40% if it was synchronous. A strong result fades a little more slowly. A team that stops playing keeps its seven results, and its rating only falls; it can rise only by a new result that enters the seven."
+				return "A result worth 9000 loses 10% of its value each year if it was played in person and 40% if it was synchronous. A result's age runs at (9000 / its value) to the power 0.6, so weaker results fade faster: a typical in-person result, worth about 700, loses about 40% a year, and a typical synchronous one nearly all of it within the year. A team that stops playing keeps its seven results, and its rating only falls; it can rise only by a new result that enters the seven."
 			},
 			Listed: func() string {
 				return "A team is in the table while it has a base roster for the season (in the first sixty days of a season, last season's roster is enough) and at least one counted result in the past 365 days. A result flagged as unrated counts for no team; the players who played it are rated on it as usual."
@@ -236,19 +238,19 @@ var RU = Strings{
 		},
 		Uncertainty: MethodUncertaintyStrings{
 			Body: func() string {
-				return "Players carry a ± next to the rating: the root-mean-square uncertainty of the estimate. A rating with a large one is provisional. The width is driven by the player's own volatility. A steady, predictable history squeezes it to the floor no matter how much time passes, and a run of results unlike the past opens it again. The calendar alone does not blur a rating."
+				return "Players carry a ± next to the rating: the root-mean-square uncertainty of the estimate. A rating with a large one is provisional. The width is driven by the player's own volatility. A steady, predictable history squeezes it towards the floor and a run of results unlike the past opens it again. It also grows with the time since the player's last game, at the rate of the player's own volatility."
 			},
 			Title: func() string { return "Uncertainty" },
 		},
 		Weight: MethodWeightStrings{
 			Field: func() string {
-				return "Field: the average strength of the tournament's twenty strongest lineups, placed between 5000, which weighs 0, and 10000, which weighs 1. A tournament with fewer than twenty lineups counts the missing ones as zero, so a small field weighs less."
+				return "Field: the average strength of the tournament's twenty strongest lineups, placed between 5000, which weighs 0, and 10000, which weighs 1. A tournament with fewer than twenty lineups is averaged over the lineups it has, and its weight is then multiplied by the square root of its number of lineups over twenty, so a strong small field counts, but less than a strong full one."
 			},
 			Format: func() string {
 				return "Format: in-person 1, strictly synchronous 0.9, synchronous 0.5. Asynchronous tournaments do not count."
 			},
 			Merged: func() string {
-				return "Several cities playing one package within two days of each other are one tournament, with one set of places. A question dropped at one venue is dropped at all of them, so every team plays for the same questions."
+				return "Several cities playing one package within two days of each other are one tournament for the team rating, with one set of places by questions taken, ties sharing the place. They are merged only when they have the same editors and question count, their questions' take rates agree (a correlation of at least 0.5), and no team played at two of them. A question that a whole venue did not play is dropped at all of them, so every team plays for the same questions. A tournament played in one place keeps its official places, shootouts included. Individual ratings treat every venue as its own tournament."
 			},
 			Product: func() string { return "The weight is the product of three factors." },
 			Reach: func() string {
@@ -290,7 +292,7 @@ var RU = Strings{
 			Teams:    func() string { return "Команд" },
 		},
 		Lede: func(n string) string {
-			return fmt.Sprintf("Релиз — недельный снимок состояния, по четвергам. Опубликованное число никогда не переписывается. Сдвиг — калибровка шкалы к нулевому среднему на этом релизе, накопленный сдвиг показывает, насколько шкала ушла с начала счёта. Всего релизов: %s.", n)
+			return fmt.Sprintf("Релиз — недельный снимок состояния, по четвергам. Каждое утро вся история пересчитывается заново, поэтому число в прошлом релизе может измениться, если изменились данные или правила. Сдвиг — калибровка шкалы к нулевому среднему на этом релизе, накопленный сдвиг показывает, насколько шкала ушла с начала счёта. Всего релизов: %s.", n)
 		},
 	},
 	Search: SearchStrings{
