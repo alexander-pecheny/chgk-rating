@@ -1,4 +1,4 @@
-"""Fidelity of src/bin/ext_fun.rs against the oracle points held for rating.chgk.fun.
+"""Fidelity of src/rivals/fun.rs against the oracle points held for rating.chgk.fun.
 
     uv run tools/ext_fun_report.py [out/ext/fun.db] > /dev/null
 
@@ -183,7 +183,7 @@ def main():
 
     w("# rating.chgk.fun, reimplemented\n")
     w(
-        f"`src/bin/ext_fun.rs` -> `{DB}` "
+        f"`src/rivals/fun.rs` -> `{DB}` "
         f"({os.path.getsize(DB) / 1e9:.2f} GB, "
         f"{c.execute('select count(*) from releases').fetchone()[0]} releases, "
         f"{c.execute('select count(*) from tournament_metrics').fetchone()[0]} tournaments, "

@@ -253,7 +253,15 @@ sorted descending.
 ./target/release/anomaly --who 308949       # one player's mask numbers
 ```
 
-## ext_fun
+## ext_fun, ext_gg, ext_quest
+
+The other production ratings, reimplemented so `eval` and `tools/team_ndcg.py`
+can score them next to ours. Each system's rules live in `src/rivals/` (`fun.rs`,
+`gg.rs`, `quest.rs`); the three binaries are thin wrappers over one driver that
+owns the weekly calendar and the writer, so all three write the `ratings.db`
+schema the same way.
+
+### ext_fun
 
 rating.chgk.fun (Sirotkin's alternative rating) reimplemented from its published
 rules, over its own scope — no `in_rating` filter, asynchronous tournaments
@@ -270,6 +278,34 @@ uv run tools/ext_fun_report.py                             # -> out/ext/fun/repo
 site's own API: nine of the ten tournaments of releases 1 and 2 reproduce every
 fitted question difficulty bit-exactly, and the current player table correlates
 0.9990 with `data/external/chgk_fun/players_rating_release263.csv`.
+
+### ext_gg
+
+rating.chgk.gg, the official rating, bootstrapped from its release of 2021-09-09
+and stepped weekly to `--to`. Reads `data/external/chgk_gg` (base rosters, the
+bootstrap players, and `extra.db` for tournaments the mirror lacks).
+`--rows-every N` writes the rating tables at every N-th release and the last
+(0: the last only). `--players DB` keeps the team rules and reads our player
+ratings from DB instead of chgk.gg's.
+
+```
+./target/release/ext_gg --to 2026-09-10 --rows-every 1 --out out/ext/gg.db
+./target/release/ext_gg --players out/ratings.db --out out/ext/gg_ours.db
+uv run tools/gg_report.py                                  # fidelity against rating.chgk.gg
+```
+
+### ext_quest
+
+chgk.quest from its published methodology: online noisy-OR SGD over every
+format, with a yearly re-centering of the scale and the site's team core
+strength. Settings come from `config_quest.toml` (`--config` to change);
+`--from`, `--to` and `--out` override its `[data]` section. Prints the online and
+in-sample log-loss.
+
+```
+./target/release/ext_quest                                 # -> out/ext/quest.db
+./target/release/ext_quest --from 2010-01-01 --to 2026-08-16 --out out/ext/quest.db
+```
 
 ## Report
 

@@ -13,6 +13,7 @@ pub mod ndcg;
 pub mod output;
 pub mod pass;
 pub mod question_model;
+pub mod rivals;
 pub mod team_event;
 pub mod team_model;
 pub mod team_ndcg;
