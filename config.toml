@@ -125,6 +125,13 @@ window_days = 365
 # reads the gauge itself, which forecasts better, but nobody's published
 # number jumps with it.
 publish_step = 0.05
+# The lockdown: from March 2020 the reference group fell from 40 000 players to
+# none, and those who stayed eight games deep were the strongest, so the gauge
+# lowered every published number by about 1500 points and raised it again in
+# 2021-22. The published scale stands still over those months and then glides
+# to where the gauge settled, about 400 points lower than before.
+publish_hold_from = "2020-03-12"
+publish_hold_until = "2022-07-01"
 
 [team]
 # "s2" is the shipped engine of DESIGN 4; "kalman" is the legacy filter of

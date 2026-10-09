@@ -21,19 +21,22 @@ pub struct Listed {
     a: f64,
     b: f64,
     provisional_sigma: f64,
+    /// Rank by the rating less this many sigmas, as the table does; 0 ranks
+    /// settled ratings first, then by rating.
+    sigmas: f64,
 }
 
 impl Listed {
     pub fn players(d: &Display) -> Listed {
         let (a, b) = (d.a_player, d.b_player);
-        let provisional_sigma = d.provisional_sigma;
-        Listed { table: "player_ratings", id: "player_id", value: "theta", extra: "games_365", a, b, provisional_sigma }
+        let (provisional_sigma, sigmas) = (d.provisional_sigma, d.rank_sigmas);
+        Listed { table: "player_ratings", id: "player_id", value: "theta", extra: "games_365", a, b, provisional_sigma, sigmas }
     }
 
     pub fn teams(d: &Display) -> Listed {
         let (a, b) = (d.a_team, d.b_team);
         let provisional_sigma = d.provisional_sigma;
-        Listed { table: "team_ratings", id: "team_id", value: "mu", extra: "NULL", a, b, provisional_sigma }
+        Listed { table: "team_ratings", id: "team_id", value: "mu", extra: "NULL", a, b, provisional_sigma, sigmas: 0.0 }
     }
 }
 
@@ -62,7 +65,8 @@ const SIGMA: usize = 3;
 const DISPLAY: usize = 4;
 const EXTRA: usize = 5;
 
-/// One row of the table: who, the published value, whether it is provisional.
+/// One row of the table: who, the value it is ranked by, and whether it ranks
+/// below every settled rating.
 type Entry = (i64, f64, bool);
 
 pub fn scan(c: &Ctx, l: Listed) -> History {
@@ -106,11 +110,14 @@ impl History {
                 self.now.insert(id, now);
             }
         }
-        (id, display, provisional)
+        if l.sigmas > 0.0 {
+            (id, display - l.sigmas * l.b * sigma, false)
+        } else {
+            (id, display, provisional)
+        }
     }
 
-    /// Places one release: settled ratings first, then by rating, the order
-    /// the published table uses.
+    /// Places one release in the order the published table uses.
     fn flush(&mut self, batch: &mut Vec<Entry>) {
         batch.sort_by(|x, y| x.2.cmp(&y.2).then(y.1.total_cmp(&x.1)).then(x.0.cmp(&y.0)));
         for (i, (id, _, _)) in batch.iter().enumerate() {

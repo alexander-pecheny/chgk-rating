@@ -178,7 +178,7 @@ fn write_values(tx: &Transaction, b: &Book, gains: &HashMap<(i64, i64), f64>) ->
             let wf = v.w / (v.wfmt * v.geo).max(EPS);
             ins.execute(params![
                 v.venue, v.tid, t, format_date(v.day), v.format.to_string(), v.place, v.vplace,
-                v.nt as i64, v.nv as i64, v.fs, v.perf, v.by_score, v.w, v.wfmt, wf, v.geo,
+                v.nt as i64, v.nv as i64, v.fs, v.perf, v.shown, v.w, v.wfmt, wf, v.geo,
                 v.n_towns as i64, v.base, gains.get(&(v.venue, t))
             ])?;
         }

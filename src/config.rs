@@ -865,6 +865,13 @@ pub struct Gauge {
     /// publishes the gauge as it is.
     #[serde(default)]
     pub publish_step: f64,
+    /// The published scale stands still from `publish_hold_from` until
+    /// `publish_hold_until` (dates; empty is no hold), then rejoins the gauge
+    /// under `publish_step`. The model reads the gauge itself either way.
+    #[serde(default)]
+    pub publish_hold_from: String,
+    #[serde(default)]
+    pub publish_hold_until: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

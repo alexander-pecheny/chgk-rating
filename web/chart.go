@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"html"
 	"math"
-	"sort"
 	"strings"
 
 	sitestrings "ratingweb/i18nstrings"
@@ -150,12 +149,11 @@ func (s yScale) py(y float64) float64 {
 func (f xScale) view(sr series, hidden bool) string {
 	ys := newYScale(sr)
 	var band, line strings.Builder
-	for _, run := range runs(sr.pts) {
-		if sr.band && len(run) > 1 {
-			fmt.Fprintf(&band, `<polygon points="%s" class="c-band"/>`, f.bandPoints(run, ys))
-		}
-		fmt.Fprintf(&line, `<polyline points="%s" class="c-line"/>`, f.linePoints(run, ys))
+	// One line through every release listed, across the weeks off the table.
+	if sr.band && len(sr.pts) > 1 {
+		fmt.Fprintf(&band, `<polygon points="%s" class="c-band"/>`, f.bandPoints(sr.pts, ys))
 	}
+	fmt.Fprintf(&line, `<polyline points="%s" class="c-line"/>`, f.linePoints(sr.pts, ys))
 	attr := ""
 	if hidden {
 		attr = " hidden"
@@ -178,39 +176,6 @@ func grid(ys yScale) string {
 			padL, y, chartW-padR, y, padL-labelGap, y+labelDrop, html.EscapeString(disp(v)))
 	}
 	return b.String()
-}
-
-// runs are the stretches of a series without a break. A team or player
-// leaves the table when it stops playing and comes back later; joining those
-// two releases with a straight line would draw a rating for weeks that never
-// had one, so a gap of three times the usual step breaks the run.
-func runs(pts []pt) [][]pt {
-	const (
-		usualSteps = 3
-		minGap     = 4
-	)
-	gap := math.Max(medianStep(pts)*usualSteps, minGap)
-	var out [][]pt
-	start := 0
-	for j := 1; j < len(pts); j++ {
-		if pts[j].x-pts[j-1].x > gap {
-			out = append(out, pts[start:j])
-			start = j
-		}
-	}
-	return append(out, pts[start:])
-}
-
-func medianStep(pts []pt) float64 {
-	gaps := make([]float64, 0, len(pts))
-	for j := 1; j < len(pts); j++ {
-		gaps = append(gaps, pts[j].x-pts[j-1].x)
-	}
-	sort.Float64s(gaps)
-	if len(gaps) == 0 {
-		return 1
-	}
-	return gaps[len(gaps)/2]
 }
 
 // bandPoints go along the top of the band and back along the bottom.

@@ -29,6 +29,9 @@ pub(super) struct Val {
     pub base: f64,
     pub perf: f64,
     pub by_score: f64,
+    /// The strength the value divides by its place: `by_score`, or the
+    /// place-based strength of a result the fallback valued.
+    pub shown: f64,
     pub w: f64,
     pub wfmt: f64,
     pub fs: f64,
@@ -128,7 +131,8 @@ pub(super) fn values(lab: &Lab, k: &Knobs) -> HashMap<i64, Vec<Val>> {
 /// counted. `fw` keeps each field's weight once read.
 fn value(lab: &Lab, r: &Res, f: &Field, k: &Knobs, fw: &mut HashMap<i64, (f64, f64)>) -> Option<Val> {
     let wfmt = format_weight(r.format, k);
-    let (perf, by_score, _) = perf_of(r, k);
+    let (perf, by_score, by_place) = perf_of(r, k);
+    let shown = if by_score.is_finite() || !k.fallback { by_score } else { by_place };
     if !perf.is_finite() || wfmt <= 0.0 {
         return None;
     }
@@ -147,6 +151,7 @@ fn value(lab: &Lab, r: &Res, f: &Field, k: &Knobs, fw: &mut HashMap<i64, (f64, f
         base,
         perf,
         by_score,
+        shown,
         w,
         wfmt,
         fs,

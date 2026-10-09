@@ -354,7 +354,10 @@ impl<'a> Sweep<'a> {
         let shift = gauge::shift(self.players, &self.activity, &cfg.gauge);
         self.players.shift_cum += shift;
         let p = &mut *self.players;
+        let held = parse_date(&cfg.gauge.publish_hold_from).is_some_and(|from| day >= from)
+            && parse_date(&cfg.gauge.publish_hold_until).is_some_and(|until| day < until);
         p.shift_pub = match cfg.gauge.publish_step {
+            _ if held => p.shift_pub,
             step if step > 0.0 => p.shift_pub + (p.shift_cum - p.shift_pub).clamp(-step, step),
             _ => p.shift_cum,
         };
