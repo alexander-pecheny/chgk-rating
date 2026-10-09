@@ -93,6 +93,11 @@ teammate_shrink = 0.0025
 # The pull above is not allowed to take back what the winner rule protects:
 # 2145 of 25,725 winning player-games lost up to 15 points to it.
 shrink_keeps_floor = true
+# The in-person effect phi learns only from the share v/(v+var) of a
+# tournament's evidence, so it stays put while theta climbs from the newcomer
+# prior; with the burn-in this recovers most of the old warm start's accuracy
+# (test +0.0017 against the plain burn-in) without reading any year twice.
+phi_share_v = 0.02
 tau_p = 0.25
 v_min = 0.05
 v_max = 0.6
