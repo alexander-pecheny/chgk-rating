@@ -216,11 +216,17 @@ pub struct Options {
 }
 
 /// The players are snapshotted for the warm restart on the first tournament on
-/// or after `player.warm_until`.
+/// or after `player.warm_until`. With `data.publish_from` on or after
+/// `warm_until`, every published number still depends only on results before
+/// its date: the snapshot holds nothing later than `warm_until`.
 pub fn run(arena: &Arena, cfg: &Config, opts: Options, obs: &mut dyn Observer) -> Result<i64> {
     let passes = opts.passes.unwrap_or(cfg.data.passes);
     let from_day = parse_date(&cfg.data.from).ok_or("bad data.from")?;
     let warm_until = parse_date(&cfg.player.warm_until).ok_or("bad player.warm_until")?;
+    let publish_from = parse_date(&cfg.data.publish_from).unwrap_or(i32::MIN);
+    if passes > 1 && publish_from < warm_until {
+        eprintln!("note: the warm start publishes before player.warm_until; those releases read results after their date");
+    }
     let mut players = Players::new(arena.n_players(), arena.n_editors(), cfg);
     let mut snap: Vec<Option<f64>> = Vec::new();
     let mut releases = 0;
@@ -235,14 +241,20 @@ pub fn run(arena: &Arena, cfg: &Config, opts: Options, obs: &mut dyn Observer) -
         let mut quiet = Quiet;
         let obs: &mut dyn Observer = if last { &mut *obs } else { &mut quiet };
         let mut sweep = Sweep::new(arena, cfg, opts, &mut players, last);
+        let mut stopped = false;
         for (n, t) in arena.tournaments.iter().enumerate() {
-            if snap.is_empty() && t.day >= warm_until {
+            // An unobserved pass exists only for its snapshot, and nothing it
+            // does after `warm_until` reaches the next one: it stops there, so
+            // each further pass restarts from the one before.
+            if !last && t.day >= warm_until {
                 snap = sweep.players.snapshot();
+                stopped = true;
+                break;
             }
             sweep.releases_through(t.day, obs)?;
             sweep.tournament(n, t, obs)?;
         }
-        if snap.is_empty() {
+        if !last && !stopped {
             snap = sweep.players.snapshot();
         }
         if last {
