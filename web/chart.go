@@ -40,6 +40,9 @@ const (
 	padB   = 24.0
 	// headroom is the share of the range left free above and below the line.
 	headroom = 0.08
+	// bandReach is how far, as a share of the line's range, the band may push
+	// the frame beyond the line.
+	bandReach = 0.5
 	// gridLines is how many value lines the grid aims for.
 	gridLines = 4
 	// labelGap and labelDrop place an axis label beside or under its line.
@@ -113,19 +116,26 @@ type yScale struct {
 
 func newYScale(sr series) yScale {
 	lo, hi := math.MaxFloat64, -math.MaxFloat64
+	bandLo, bandHi := lo, hi
 	for _, p := range sr.pts {
-		d := 0.0
+		lo, hi = math.Min(lo, p.mid), math.Max(hi, p.mid)
 		if sr.band {
-			d = p.sigma
+			bandLo, bandHi = math.Min(bandLo, p.mid-p.sigma), math.Max(bandHi, p.mid+p.sigma)
 		}
-		lo, hi = math.Min(lo, p.mid-d), math.Max(hi, p.mid+d)
 	}
 	if !(hi > lo) {
 		hi = lo + 1
 	}
+	// The band may widen the frame by at most bandReach of the line's own
+	// range, so a few uncertain early points cannot flatten the line.
+	reach := (hi - lo) * bandReach
+	lo, hi = math.Min(lo, math.Max(bandLo, lo-reach)), math.Max(hi, math.Min(bandHi, hi+reach))
 	pad := (hi - lo) * headroom
 	return yScale{lo - pad, hi + pad, sr.invert}
 }
+
+// clamp keeps a value inside the frame.
+func (s yScale) clamp(y float64) float64 { return math.Max(s.lo, math.Min(s.hi, y)) }
 
 func (s yScale) py(y float64) float64 {
 	f := (s.hi - y) / (s.hi - s.lo)
@@ -207,10 +217,10 @@ func medianStep(pts []pt) float64 {
 func (f xScale) bandPoints(run []pt, ys yScale) string {
 	var poly []string
 	for _, p := range run {
-		poly = append(poly, fmt.Sprintf("%.1f,%.1f", f.px(p.x), ys.py(p.mid+p.sigma)))
+		poly = append(poly, fmt.Sprintf("%.1f,%.1f", f.px(p.x), ys.py(ys.clamp(p.mid+p.sigma))))
 	}
 	for j := len(run) - 1; j >= 0; j-- {
-		poly = append(poly, fmt.Sprintf("%.1f,%.1f", f.px(run[j].x), ys.py(run[j].mid-run[j].sigma)))
+		poly = append(poly, fmt.Sprintf("%.1f,%.1f", f.px(run[j].x), ys.py(ys.clamp(run[j].mid-run[j].sigma))))
 	}
 	return strings.Join(poly, " ")
 }
