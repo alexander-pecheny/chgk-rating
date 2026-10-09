@@ -92,6 +92,10 @@ pub fn build(r: &Connection, b: &Connection, w: &Connection, online: &HashMap<i6
     let prior_m = Prior::fit(&scored.iter().map(|s| s.2).collect::<Vec<_>>());
     eprintln!("anomaly: {} players scored, {prior_f:?} / {prior_m:?}", scored.len());
     let mut out: Vec<Row> = scored.iter().map(|s| row(&players[&s.0], s, &prior_f, &prior_m)).collect();
+    // A player with no in-person result has nothing to compare the online
+    // ones with; the score would be the prior's alone. They are scored with
+    // everyone, so nobody else's number moves, and left off the table.
+    out.retain(|x| x.f_ip + x.m_ip > 0);
     out.sort_by(|a, b| b.k.total_cmp(&a.k).then(a.player_id.cmp(&b.player_id)));
     out
 }

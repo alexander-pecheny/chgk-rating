@@ -41,7 +41,7 @@ func main() {
 	}
 	h := &handler{site: s, assets: kit.Assets(embedded, roots...)}
 	log.Printf("serving %d teams and %d players from release %s on http://%s", s.nTeams, s.nPlayers, s.releaseDate, *addr)
-	log.Fatal(http.ListenAndServe(*addr, webassets.Gzip(h.mux())))
+	log.Fatal(http.ListenAndServe(*addr, noindex(webassets.Gzip(h.mux()))))
 }
 
 // open reads the databases and everything the pages share.
@@ -70,6 +70,14 @@ func (h *handler) mux() *http.ServeMux {
 	mux.HandleFunc("/api/auth/me", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.Handle("/", h)
 	return mux
+}
+
+// noindex keeps every page out of search engines until the site is launched.
+func noindex(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+		next.ServeHTTP(w, r)
+	})
 }
 
 type handler struct {

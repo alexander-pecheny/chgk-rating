@@ -84,3 +84,11 @@ func env(k, def string) string {
 	}
 	return def
 }
+
+func TestNoindex(t *testing.T) {
+	rec := httptest.NewRecorder()
+	noindex(http.NotFoundHandler()).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	if got := rec.Header().Get("X-Robots-Tag"); got != "noindex, nofollow" {
+		t.Fatalf("X-Robots-Tag = %q", got)
+	}
+}
