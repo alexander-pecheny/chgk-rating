@@ -13,6 +13,12 @@ w_async = 0.0
 # This is the only config that keeps the history; the research configs use 0.
 rows_every = 1
 passes = 2
+# City merges (read by the achievement rating only): fields join when their
+# per-question take rates correlate at 0.5 or more and no team played both,
+# so the 2017 World Championship's four stages are no longer one field; and a
+# question is dropped only where a whole venue skipped it.
+merge_min_corr = 0.5
+merge_venue_drop = true
 # The tournaments the official system leaves out, for the player side only: they
 # move theta and phi, open no team state, write no team event and enter no
 # metric. Measured and off: +0.0002 +/- 0.0018 on tune and -0.0037 +/- 0.0019 on
@@ -76,6 +82,9 @@ info_scale = 0.46
 # Retuned on the merged model: the optimum moved from 0.005 once `phi` was
 # absorbing part of what the shrinkage used to correct.
 teammate_shrink = 0.0025
+# The pull above is not allowed to take back what the winner rule protects:
+# 2145 of 25,725 winning player-games lost up to 15 points to it.
+shrink_keeps_floor = true
 tau_p = 0.25
 v_min = 0.05
 v_max = 0.6
@@ -95,6 +104,12 @@ v_fast = 0.0
 [gauge]
 n_est = 8
 window_days = 365
+# The published scale follows the gauge at most 0.05 theta (about 210 points)
+# a release. In September 2021 the reference group shrank to seven players and
+# the gauge moved every rating by 1722 points, then back; the model still
+# reads the gauge itself, which forecasts better, but nobody's published
+# number jumps with it.
+publish_step = 0.05
 
 [team]
 # "s2" is the shipped engine of DESIGN 4; "kalman" is the legacy filter of

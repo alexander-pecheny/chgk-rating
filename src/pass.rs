@@ -324,6 +324,11 @@ impl<'a> Sweep<'a> {
         self.activity.expire_before(day - cfg.gauge.window_days);
         let shift = gauge::shift(self.players, &self.activity, &cfg.gauge);
         self.players.shift_cum += shift;
+        let p = &mut *self.players;
+        p.shift_pub = match cfg.gauge.publish_step {
+            step if step > 0.0 => p.shift_pub + (p.shift_cum - p.shift_pub).clamp(-step, step),
+            _ => p.shift_cum,
+        };
         if cfg.question.aff_strength == AffStrength::Gate || cfg.team.s2.ed_gate > 0.0 {
             let mut panel: Vec<f64> = (0..self.arena.n_players())
                 .filter(|&i| self.activity.count[i] >= cfg.gauge.n_est)

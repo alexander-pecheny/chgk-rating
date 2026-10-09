@@ -177,6 +177,8 @@ struct Fit<'a> {
     prev_p: Vec<f64>,
     /// The last published number per player, for `delta`.
     prev_d: Vec<f64>,
+    /// The published scale at the previous release.
+    shift_pub: f64,
     prev_t: Vec<f64>,
     /// The lineup of this tournament and the state the forecast read this
     /// morning, before the update moves it.
@@ -196,6 +198,7 @@ impl<'a> Fit<'a> {
             start,
             prev_p: vec![f64::NAN; arena.n_players()],
             prev_d: vec![f64::NAN; arena.n_players()],
+            shift_pub: 0.0,
             prev_t: vec![f64::NAN; arena.n_teams()],
             before: Vec::new(),
         })
@@ -261,7 +264,7 @@ impl Observer for Fit<'_> {
             let rows: Vec<PlayerEvent> = std::mem::take(&mut self.before)
                 .into_iter()
                 .map(|(i, b)| PlayerEvent {
-                    theta_after: e.players.theta(i as usize),
+                    theta_after: e.players.published(i as usize),
                     sigma_after: e.players.sigma_at(i as usize, t.day, cfg),
                     ..b
                 })
@@ -292,7 +295,11 @@ impl Observer for Fit<'_> {
         if r.last {
             release_diagnostics(r, &listed, cfg);
         }
-        self.w.release(r.id, &format_date(r.day), r.shift, r.players.shift_cum, listed.len())?;
+        // The release records the scale as published, which is the gauge
+        // itself unless `gauge.publish_step` holds it back.
+        let moved = r.players.shift_pub - std::mem::replace(&mut self.shift_pub, r.players.shift_pub);
+        let shift = if cfg.gauge.publish_step > 0.0 { moved } else { r.shift };
+        self.w.release(r.id, &format_date(r.day), shift, r.players.shift_pub, listed.len())?;
         if !cfg.data.write_rows(r.id, r.last) {
             return Ok(());
         }
@@ -306,7 +313,7 @@ impl Observer for Fit<'_> {
             let change = since(r.players.state[i].theta_raw, &mut self.prev_p[i]);
             // The published number may carry a share of the format effect; the
             // forecast reads `theta` and `phi` separately and never this.
-            let theta = r.players.theta(i) + cfg.display.player_phi * r.players.phi(i);
+            let theta = r.players.published(i) + cfg.display.player_phi * r.players.phi(i);
             let delta = since(chgk_rating::display::player(theta, cfg), &mut self.prev_d[i]);
             prows.push((arena.player_ids[i], theta, r.players.sigma_at(i, r.day, cfg), r.activity.count[i], change, delta));
         }
@@ -337,7 +344,7 @@ impl Fit<'_> {
             let (i, s) = (i as usize, &players.state[i as usize]);
             let ev = PlayerEvent {
                 player: self.arena.player_ids[i],
-                theta_before: players.theta(i),
+                theta_before: players.published(i),
                 theta_after: f64::NAN,
                 sigma_after: f64::NAN,
                 phi_before: players.phi(i),

@@ -773,6 +773,11 @@ pub struct Gauge {
     /// The largest shift one release may make, in theta; 0 is no limit.
     #[serde(default)]
     pub max_shift: f64,
+    /// The published scale follows the gauge but moves at most this far, in
+    /// theta, per release; the model reads the gauge itself either way. 0
+    /// publishes the gauge as it is.
+    #[serde(default)]
+    pub publish_step: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]

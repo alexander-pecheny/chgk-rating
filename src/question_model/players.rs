@@ -55,6 +55,8 @@ pub enum Pin {
 pub struct Players {
     pub state: Vec<PlayerState>,
     pub shift_cum: f64,
+    /// The gauge as published: `shift_cum` followed at a limited pace.
+    pub shift_pub: f64,
     pub editors: Vec<f64>,
     pub rank: usize,
     /// The pinned columns, in order, followed by `free` learned editor columns.
@@ -169,6 +171,7 @@ impl Players {
         Players {
             state: (0..n_players).map(|_| PlayerState::newcomer(rank, prior.clone(), cfg)).collect(),
             shift_cum: 0.0,
+            shift_pub: 0.0,
             editors,
             rank,
             pins,
@@ -243,6 +246,12 @@ impl Players {
         self.state[i].theta_raw - self.shift_cum
     }
 
+    /// `theta` on the published scale; the same number unless
+    /// `gauge.publish_step` holds the published scale back.
+    pub fn published(&self, i: usize) -> f64 {
+        self.state[i].theta_raw - self.shift_pub
+    }
+
     /// The fast estimate of the same strength, on the same scale as `theta`.
     pub fn theta_fast(&self, i: usize) -> f64 {
         self.state[i].theta_fast - self.shift_cum
@@ -311,6 +320,7 @@ impl Players {
             s.restart(*warm, day, &aff_prior, cfg);
         }
         self.shift_cum = 0.0;
+        self.shift_pub = 0.0;
         self.zstat = (0.0, 0.0, 0.0);
     }
 
