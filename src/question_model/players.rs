@@ -324,6 +324,17 @@ impl Players {
         self.zstat = (0.0, 0.0, 0.0);
     }
 
+    /// `player.burn_reset_phi`: every pinned format column back to zero at
+    /// its prior width; `theta` and the editor columns stay.
+    pub fn reset_pins(&mut self, cfg: &Config) {
+        let prior = Players::priors(&self.pins, self.free, cfg);
+        let n = self.pins.len();
+        for s in &mut self.state {
+            s.aff[..n].iter_mut().for_each(|a| *a = 0.0);
+            s.aff_var[..n].copy_from_slice(&prior[..n]);
+        }
+    }
+
     /// Published strength of every player who has already appeared.
     pub fn snapshot(&self) -> Vec<Option<f64>> {
         (0..self.state.len()).map(|i| self.state[i].seen.then(|| self.theta(i))).collect()
@@ -390,7 +401,9 @@ impl Players {
         for &(i, g, info) in grads {
             let s = &mut self.state[i as usize];
             let obs = Obs { g, info, dt: years(s.last_day, t.day) };
-            if let Some(z) = step.theta(s, &obs, cfg) {
+            let joint = cfg.player.phi_joint && step.active_pins() && cfg.player.update == PUpdate::Kalman;
+            let z = if joint { step.joint(s, &obs, &self.pins, cfg) } else { step.theta(s, &obs, cfg) };
+            if let Some(z) = z {
                 if collect && s.games > ZSTAT_MIN_GAMES {
                     self.zstat.0 += 1.0;
                     self.zstat.1 += z;
@@ -398,7 +411,10 @@ impl Players {
                 }
             }
             step.fast(s, &obs, cfg);
-            step.pinned(s, &obs, &self.pins, cfg);
+            let gated = cfg.player.phi_gate_var > 0.0 && s.var > cfg.player.phi_gate_var;
+            if !joint && !gated {
+                step.pinned(s, &obs, &self.pins, cfg);
+            }
             s.games += 1;
             s.last_day = t.day;
             if t.format == Format::InPerson {
@@ -499,6 +515,50 @@ impl Step {
         }
         // Standardised surprise of this tournament against the prior.
         let z = (o.g / o.info) / (prior + 1.0 / ieff).sqrt();
+        let (lo, hi, eta) = self.vol;
+        let lv = s.vol.ln();
+        s.vol = (lv + eta * (if z.abs() > 1.0 { hi } else { lo } - lv)).exp();
+        Some(z)
+    }
+
+    /// Whether any pinned column is read at this tournament's format.
+    fn active_pins(&self) -> bool {
+        self.vbar[..self.n_pin].iter().any(|&v| v != 0.0)
+    }
+
+    /// `player.phi_joint`: `theta` and the active pinned columns take one
+    /// Kalman step as the sum `theta + Σ vbar_k aff_k` the likelihood reads.
+    /// With prior variances `var` and `av_k` and `S = var + Σ vbar_k² av_k`,
+    /// each moves by its own share `var / (1 + I S)` (or `vbar_k av_k / ...`)
+    /// of the score, and each keeps the diagonal of the joint posterior. The
+    /// volatility is moved by the surprise against `S`.
+    fn joint(&self, s: &mut PlayerState, o: &Obs, pins: &[Pin], cfg: &Config) -> Option<f64> {
+        let p = &cfg.player;
+        let max = Step::max_step(cfg);
+        s.var += s.vol * s.vol * o.dt;
+        let tau2 = p.tau_phi * p.tau_phi;
+        let active: Vec<usize> = (0..self.n_pin).filter(|&k| self.vbar[k] != 0.0).collect();
+        for &k in &active {
+            let own = p.tau_phi_own && pins[k] == Pin::InPerson && s.games_ip > 0;
+            let dt = if own { years(s.last_ip, self.day) } else { o.dt };
+            s.aff_var[k] += tau2 * dt;
+        }
+        let sum: f64 = s.var + active.iter().map(|&k| self.vbar[k] * self.vbar[k] * s.aff_var[k]).sum::<f64>();
+        let ieff = self.weight * o.info * p.info_scale;
+        let i = ieff.max(cfg.numeric.info_floor);
+        let score = self.weight * p.info_scale * o.g;
+        let den = 1.0 + i * sum;
+        s.theta_raw += (s.var * score / den).clamp(-max, max);
+        s.var -= s.var * s.var * i / den;
+        for &k in &active {
+            let pv = self.vbar[k] * s.aff_var[k];
+            s.aff[k] = (s.aff[k] + (pv * score / den).clamp(-max, max)).clamp(-self.pin_clamp[k], self.pin_clamp[k]);
+            s.aff_var[k] -= pv * pv * i / den;
+        }
+        if ieff <= cfg.numeric.info_floor {
+            return None;
+        }
+        let z = (o.g / o.info) / (sum + 1.0 / ieff).sqrt();
         let (lo, hi, eta) = self.vol;
         let lv = s.vol.ln();
         s.vol = (lv + eta * (if z.abs() > 1.0 { hi } else { lo } - lv)).exp();

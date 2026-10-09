@@ -242,6 +242,7 @@ pub fn run(arena: &Arena, cfg: &Config, opts: Options, obs: &mut dyn Observer) -
         let obs: &mut dyn Observer = if last { &mut *obs } else { &mut quiet };
         let mut sweep = Sweep::new(arena, cfg, opts, &mut players, last);
         let mut stopped = false;
+        let mut reset = cfg.player.burn_reset_phi;
         for (n, t) in arena.tournaments.iter().enumerate() {
             // An unobserved pass exists only for its snapshot, and nothing it
             // does after `warm_until` reaches the next one: it stops there, so
@@ -250,6 +251,10 @@ pub fn run(arena: &Arena, cfg: &Config, opts: Options, obs: &mut dyn Observer) -
                 snap = sweep.players.snapshot();
                 stopped = true;
                 break;
+            }
+            if reset && t.day >= publish_from {
+                sweep.players.reset_pins(cfg);
+                reset = false;
             }
             sweep.releases_through(t.day, obs)?;
             sweep.tournament(n, t, obs)?;

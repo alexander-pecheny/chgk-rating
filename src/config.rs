@@ -738,6 +738,28 @@ pub struct Player {
     /// season of synchronous play does not age their in-person strength.
     #[serde(default)]
     pub tau_phi_own: bool,
+    /// One joint Kalman step for `theta` and the pinned format columns, which
+    /// enter the likelihood as one sum, instead of a full step for each against
+    /// the same gradient. The shares follow the prior variances, so a newcomer's
+    /// surprise goes to the uncertain `theta` and not to `phi`, which never
+    /// forgets it. Off is the separate steps. Measured against the one-pass
+    /// burn-in and off: +0.0001 +/- 0.0007 on tune (+0.0018 +/- 0.0009 on
+    /// test), and it moves every player's `phi`, not only the burn-in's.
+    #[serde(default)]
+    pub phi_joint: bool,
+    /// At `data.publish_from`, put every pinned format column back to its
+    /// prior, so `phi` is learned only once the burn-in has put `theta` where
+    /// it belongs. Off keeps what the burn-in learned. Measured and off:
+    /// -0.0026 +/- 0.0012 on tune; three years of `phi` evidence are worth
+    /// more than the cold-start bias they carry.
+    #[serde(default)]
+    pub burn_reset_phi: bool,
+    /// `phi` learns only from tournaments after which the player's `theta`
+    /// variance is at most this, so the surprises of a newcomer's climb go to
+    /// `theta` alone. 0 is off. Measured and off: -0.0008 +/- 0.0010 on tune
+    /// at 0.25 and -0.0007 +/- 0.0011 at 0.1.
+    #[serde(default)]
+    pub phi_gate_var: f64,
     /// Volatility floor of the second, fast estimate of the same strength. It
     /// takes the same Kalman step against the same gradient and forgets far
     /// faster; only the forecast reads it, through `team.s2.k_fast`. 0 is off.
