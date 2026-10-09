@@ -49,7 +49,9 @@ fn own_lineup(r: &Res) -> bool {
 fn perf_of(r: &Res, k: &Knobs) -> (f64, f64, f64) {
     let (s, p) = (r.perf_s + k.shift, r.perf_p);
     let v = match k.perf {
-        "strength_place" if r.place > 0.0 && k.fallback && !s.is_finite() => p,
+        // The place-based strength sits on the shifted score scale already
+        // (their medians differ by 9 points), so it takes the same divisor.
+        "strength_place" if r.place > 0.0 && k.fallback && !s.is_finite() => p / r.place.powf(k.place_pow),
         "strength_place" if r.place > 0.0 => s / r.place.powf(k.place_pow),
         "place" => p,
         "mix" if s.is_finite() && p.is_finite() => k.mix * s + (1.0 - k.mix) * p,
