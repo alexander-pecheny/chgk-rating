@@ -1,4 +1,5 @@
 pub mod achieve_core;
+pub mod anomaly;
 pub mod chemistry;
 pub mod config;
 pub mod data;
