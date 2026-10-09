@@ -394,20 +394,26 @@ impl<'a> Sweep<'a> {
 }
 
 impl Sweep<'_> {
-    /// Under `player.shrink_keeps_floor`, every member of a lineup the
-    /// direction rule protects, with the strength they came in with.
+    /// Under `player.shrink_keeps_floor`, every member of a lineup a floor
+    /// protects, with the strength they came in with: under `rel_place` a
+    /// lineup at or above its forecast place, under `rel_winner` the winners.
     fn floored(&self, t: &Tournament, events: &[TeamEvent]) -> Vec<(u32, f64)> {
-        let cfg = self.cfg;
-        if !(cfg.player.shrink_keeps_floor && cfg.question.rel_place) {
+        let (cfg, q) = (self.cfg, &self.cfg.question);
+        if !cfg.player.shrink_keeps_floor || !(q.rel_place || q.rel_winner) {
             return Vec::new();
         }
-        let held: HashMap<u32, bool> = events
-            .iter()
-            .filter(|e| e.actual_place > 0.0 && e.forecast_place > 0.0)
-            .map(|e| (e.team, e.forecast_place >= e.actual_place))
-            .collect();
-        let members = t.teams.iter().filter(|r| held.get(&r.team) == Some(&true)).flat_map(|r| &r.members);
-        members.map(|&m| (m, self.players.state[m as usize].theta_raw)).collect()
+        let held: Vec<&crate::data::TeamResult> = if q.rel_place {
+            let met: HashMap<u32, bool> = events
+                .iter()
+                .filter(|e| e.actual_place > 0.0 && e.forecast_place > 0.0)
+                .map(|e| (e.team, e.forecast_place >= e.actual_place))
+                .collect();
+            t.teams.iter().filter(|r| met.get(&r.team) == Some(&true)).collect()
+        } else {
+            let best = t.teams.iter().map(|r| r.position).filter(|&p| p > 0.0).fold(f64::INFINITY, f64::min);
+            t.teams.iter().filter(|r| r.position == best).collect()
+        };
+        held.iter().flat_map(|r| &r.members).map(|&m| (m, self.players.state[m as usize].theta_raw)).collect()
     }
 }
 
