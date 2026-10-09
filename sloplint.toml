@@ -1,0 +1,7 @@
+# sloplint (code.pecheny.me/pecheny/sloplint) settings; `just slop` checks them.
+
+[project]
+# The whole tree's slop score may not go above this. It was 1.32 before the
+# pre-release tidy-up of October 2026 and 0.40 after it. When a change lowers
+# the score, lower this line to match, so the gain is kept.
+max-slop-score = 0.45

@@ -79,3 +79,12 @@ sweep batch dir="out/q_ndcg":
 # Rebuild the rules report; needs the fonts of tools/fetch/fonts.py.
 rules:
     typst compile --font-path fonts report/report.typ report/report.pdf
+
+# The maintainability gate: sloplint's score must stay under sloplint.toml's ceiling.
+slop:
+    sloplint --format summary .
+
+# Run a build's binaries through every step into a directory, for tools/regress/cmp.py.
+regress bin out:
+    tools/regress/golden.sh {{bin}} {{out}}
+    tools/regress/variants.sh {{bin}} {{out}}/var
