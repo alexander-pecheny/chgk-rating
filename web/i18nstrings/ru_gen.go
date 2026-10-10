@@ -140,7 +140,7 @@ var RU = Strings{
 	Method: MethodStrings{
 		Count: MethodCountStrings{
 			Formats: func() string {
-				return "Rated tournaments from 1 January 2013 count; those before 2016 inform the ratings but no release is published for them. For individual ratings the format enters as a weight: in-person tournaments 1, strict synchronous 2/3, synchronous 1/2; team ratings use the weights above. Asynchronous tournaments are never rated. Marathons are excluded."
+				return "Rated tournaments from 1 January 2013 count; those before 2016 inform the ratings but no release is published for them. For individual ratings every rated format weighs the same; team ratings use the weights above. Asynchronous tournaments are never rated. Marathons are excluded."
 			},
 			Players: func() string {
 				return "The player table includes players who played at least one rated tournament in the last 365 days. A player entered under two ids that rating.chgk.info has since merged counts as one."
@@ -155,13 +155,13 @@ var RU = Strings{
 		},
 		Forecast: MethodForecastStrings{
 			Editors: func() string {
-				return "At an in-person tournament the forecast carries one small correction that is not about the lineup: how that lineup's players have fared before under the editors of this package. A weak player misses a question whoever wrote it, so only the strongest fifth of players carry such a record at all, and a player and an editor need two shared tournaments before the record counts. Everything else in the system ignores it — no rating, no player number and no question difficulty moves because of it, and a synchronous forecast never reads it. It is worth a few points of forecast quality and it is the only place in the model where who wrote the questions changes what we expect."
+				return "At an in-person tournament the forecast carries one small correction that is not about the lineup: how the team has fared before under the editors of this package. A weak player misses a question whoever wrote it, so only lineups with a player in the strongest 44% carry such a record, and a team and an editor need three shared tournaments before the record counts. Everything else in the system ignores it — no rating, no player number and no question difficulty moves because of it, and a synchronous forecast never reads it. It is worth a few points of forecast quality and it is the only place in the model where who wrote the questions changes what we expect."
 			},
 			Lineup: func() string {
-				return "The forecast for a tournament is separate from the rating and takes no part in the update. A team's forecast strength is the strength of the lineup it fielded, computed from individual ratings, each player read 1.5 uncertainties below their estimate, so an unknown player counts for less than a known one of the same rating; the forecast places are the order of the field by that strength. About tomorrow, the lineup knows more than the accumulated team rating: on in-person tournaments of the last two seasons this forecast beats both the team rating and the forecast of the old system."
+				return "The forecast for a tournament is separate from the rating and takes no part in the update. A team's forecast strength is the strength of the lineup it fielded, computed from individual ratings: the players are sorted from strongest to weakest and averaged with weights 6, 5, 4, 3, 2 and 1, and each seat short of six is filled by the weakest player less 700 points. The forecast places are the order of the field by that strength. About tomorrow, the lineup knows more than the accumulated team rating: on in-person tournaments of the last two seasons this forecast beats both the team rating and the forecast of the old system."
 			},
 			Quality: func() string {
-				return "The tournament page shows the forecast next to the result. Forecast quality is measured two ways and compared with the other systems: by Spearman rank correlation over the whole field, and by a top-weighted measure that counts a swap at the first places for far more than one deep in the table, averaged over tournaments with the strong fields counting most. For tournaments from 28 August 2026, on which no rule of this rating was chosen, the tournament page also shows the same measure for the old system's own forecast and for rating.chgk.fun, chgk.quest and chgk.gg as we reimplement them."
+				return "The tournament page shows the forecast next to the result. Forecast quality is measured two ways and compared with the other systems: by Spearman rank correlation over the whole field, and by a top-weighted measure that counts a swap at the first places for far more than one deep in the table, averaged over tournaments with the strong fields counting most. The forecast's constants were chosen blind, from a random start, on in-person tournaments of 2023 and 2024, with no data from 2025 on; a few rules of principle, such as the forecast place that no lineup can lose by reaching, were fixed by hand. For tournaments from 1 January 2025 the tournament page also shows the same measure for the old system's own forecast and for rating.chgk.fun, chgk.quest and chgk.gg as we reimplement them."
 			},
 			Title: func() string { return "Forecast" },
 		},
@@ -176,12 +176,14 @@ var RU = Strings{
 			ModelLead: func() string {
 				return "Player strength is estimated from a question model. Each question has a difficulty, each player has a strength and an uncertainty. On each question a player has an"
 			},
-			ModelTable: func() string { return ". Intensities of a table add up, and the team answers with probability 1 − e" },
+			ModelTable: func() string {
+				return ". Intensities of a table add up, and the team answers with probability (1 − e"
+			},
 			ModelTail: func() string {
-				return ". Uncertainty plays no part in this chance; it only sets how far the estimate moves afterwards. Question difficulty is read from the share of lineups that answered it: it is set so that the model predicts exactly the observed share. This is what makes packages from different years and levels comparable."
+				return ")^1.59; the power makes a table less than the sum of its players. Uncertainty plays no part in this chance; it only sets how far the estimate moves afterwards. Each question also has a sharpness: how cleanly it separates strong lineups from weak ones. Its difficulty and sharpness are fitted to which lineups answered it, each pulled towards a typical value so that a question taken by two teams of thirty is not read as extreme. This is what makes packages from different years and levels comparable."
 			},
 			Published: func() string {
-				return "Individual numbers are published as they are, with their uncertainty, with no ladder rules and no rounding to grades. One number per player serves every format: a player is assumed to be as strong at a synchronous package as at a face-to-face table. A player with no history enters at the average strength of a newcomer with a wide uncertainty. After each tournament three more rules apply. A lineup's players are judged against the lineups whose expected score was close to their own (within about twelve answers), not against the whole field. Before the tournament every lineup gets a forecast place: if it finishes at or above that place its players cannot lose strength from the tournament, and if it finishes below it they cannot gain. And each player is pulled a quarter of a percent of the way towards the mean of the lineup they played in."
+				return "Individual numbers are published as they are, with their uncertainty, with no ladder rules and no rounding to grades. One number per player serves every format: a player is assumed to be as strong at a synchronous package as at a face-to-face table. A player with no history enters at the average strength of a newcomer with a wide uncertainty. After each tournament three more rules apply. A lineup's players are judged against the lineups whose expected score was close to their own (within about twelve answers), not against the whole field. Before the tournament every lineup gets a forecast place: if it finishes at or above that place its players cannot lose strength from the tournament, and if it finishes below it they cannot gain. And each player is pulled 0.07% of the way towards the mean of the lineup they played in."
 			},
 			SupIntensity: func() string { return "−intensity" },
 			SupSum:       func() string { return "−sum" },
