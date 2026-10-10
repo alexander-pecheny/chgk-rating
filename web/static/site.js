@@ -1,6 +1,6 @@
 /* Small behaviours that degrade to nothing without JS: the remembered
    switches, the chart crosshair, pinned columns, the venue filter, the section
-   picker, the phone's search and the phone's card rows. */
+   picker, the phone's search, the phone's card rows and the copy of a formula. */
 
 (function () {
   [[".prov-toggle input", "showprov"], [".roster-toggle input", "showroster"]].forEach(function (t) {
@@ -342,5 +342,26 @@
     var tr = ev.target.closest && ev.target.closest("table.cards tr.card-has-panel");
     if (!tr || ev.target.closest("a, input, label, select, button")) return;
     tr.classList.toggle("card-open");
+  });
+})();
+
+/* A formula on /method/ is an SVG with its TeX and its MathML hidden behind
+   it. The browser's own copy breaks the line at each MathML, so a copy that
+   takes a formula takes its TeX instead: the selection, without the drawings
+   and the MathML, read as the page lays it out. */
+(function () {
+  document.addEventListener("copy", function (e) {
+    var sel = window.getSelection();
+    if (!sel.rangeCount || !e.clipboardData) return;
+    var frag = sel.getRangeAt(0).cloneContents();
+    if (!frag.querySelector(".tex-src")) return;
+    Array.prototype.forEach.call(frag.querySelectorAll("svg, math"), function (n) { n.remove(); });
+    var box = document.createElement("div");
+    box.className = "post tex-copy";
+    box.appendChild(frag);
+    document.body.appendChild(box);
+    e.clipboardData.setData("text/plain", box.innerText.trim());
+    document.body.removeChild(box);
+    e.preventDefault();
   });
 })();

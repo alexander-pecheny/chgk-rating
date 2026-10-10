@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	_ "embed"
+	"html"
 	"regexp"
 	"slices"
 	"strings"
@@ -19,8 +20,8 @@ import (
 	"ratingweb/ui"
 )
 
-// methodMD is the post on the rating, rendered with its formulas as MathML
-// once at start-up, so a formula that does not parse stops the server there.
+// methodMD is the post on the rating, rendered once at start-up, so a
+// formula that does not parse stops the server there.
 //
 //go:embed method.md
 var methodMD []byte
@@ -36,8 +37,24 @@ var (
 func renderMethod() (string, error) {
 	src := llmMarks.ReplaceAll(postHeading.ReplaceAll(methodMD, nil), nil)
 	md := goldmark.New(goldmark.WithExtensions(extension.Table, extension.Footnote, texMath{}))
+	doc := md.Parser().Parse(text.NewReader(src))
+	var all []*tex
+	err := ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if t, ok := n.(interface{ formula() *tex }); ok && entering {
+			all = append(all, t.formula())
+		}
+		return ast.WalkContinue, nil
+	})
+	if err != nil {
+		return "", err
+	}
+	glyphs, err := typeset(all)
+	if err != nil {
+		return "", err
+	}
 	var out bytes.Buffer
-	err := md.Convert(src, &out)
+	out.WriteString(glyphs)
+	err = md.Renderer().Render(&out, src, doc)
 	return out.String(), err
 }
 
@@ -54,25 +71,36 @@ var (
 	dollar       = []byte("$$")
 )
 
+// tex is one formula: its source, its pieces and their parts (splitDisplay),
+// and the SVG of each part once typeset has set them.
+type tex struct {
+	src     string
+	display bool
+	pieces  [][]string
+	svgs    [][]string
+}
+
 type texInlineNode struct {
 	ast.BaseInline
-	tex []byte
+	tex
 }
 
 func (n *texInlineNode) Kind() ast.NodeKind { return kindTex }
+func (n *texInlineNode) formula() *tex      { return &n.tex }
 func (n *texInlineNode) Dump(src []byte, level int) {
-	ast.DumpHelper(n, src, level, map[string]string{"tex": string(n.tex)}, nil)
+	ast.DumpHelper(n, src, level, map[string]string{"tex": n.src}, nil)
 }
 
 type texBlockNode struct {
 	ast.BaseBlock
-	tex []byte
+	tex
 }
 
 func (n *texBlockNode) Kind() ast.NodeKind { return kindTexBlock }
+func (n *texBlockNode) formula() *tex      { return &n.tex }
 func (n *texBlockNode) IsRaw() bool        { return true }
 func (n *texBlockNode) Dump(src []byte, level int) {
-	ast.DumpHelper(n, src, level, map[string]string{"tex": string(n.tex)}, nil)
+	ast.DumpHelper(n, src, level, map[string]string{"tex": n.src}, nil)
 }
 
 func (texMath) Extend(m goldmark.Markdown) {
@@ -96,7 +124,7 @@ func (texInline) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Node
 		return nil
 	}
 	block.Advance(end + 2)
-	return &texInlineNode{tex: bytes.Clone(line[1 : end+1])}
+	return &texInlineNode{tex: tex{src: strings.TrimSpace(string(line[1 : end+1]))}}
 }
 
 type texBlock struct{}
@@ -110,13 +138,13 @@ func (texBlock) Open(_ ast.Node, r text.Reader, _ parser.Context) (ast.Node, par
 		return nil, parser.NoChildren
 	}
 	r.AdvanceToEOL()
-	n := &texBlockNode{}
+	n := &texBlockNode{tex: tex{display: true}}
 	rest = rest[len(dollar):]
 	if body, ok := bytes.CutSuffix(rest, dollar); ok {
-		n.tex = bytes.Clone(body)
+		n.src = strings.TrimSpace(string(body))
 		return n, parser.Close
 	}
-	n.tex = append(bytes.Clone(rest), '\n')
+	n.src = string(rest) + "\n"
 	return n, parser.NoChildren
 }
 
@@ -125,10 +153,10 @@ func (texBlock) Continue(node ast.Node, r text.Reader, _ parser.Context) parser.
 	r.AdvanceToEOL()
 	n := node.(*texBlockNode)
 	if body, ok := bytes.CutSuffix(bytes.TrimSpace(line), dollar); ok {
-		n.tex = append(n.tex, body...)
+		n.src = strings.TrimSpace(n.src + string(body))
 		return parser.Close
 	}
-	n.tex = append(n.tex, line...)
+	n.src += string(line)
 	return parser.Continue | parser.NoChildren
 }
 
@@ -140,21 +168,41 @@ type texRenderer struct{}
 
 func (texRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(kindTex, func(w util.BufWriter, _ []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-		return writeTex(w, node.(*texInlineNode).tex, false, entering)
+		return writeTex(w, node.(*texInlineNode).formula(), entering)
 	})
 	reg.Register(kindTexBlock, func(w util.BufWriter, _ []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-		return writeTex(w, node.(*texBlockNode).tex, true, entering)
+		return writeTex(w, node.(*texBlockNode).formula(), entering)
 	})
 }
 
-func writeTex(w util.BufWriter, tex []byte, display, entering bool) (ast.WalkStatus, error) {
+// writeTex shows Typst's drawing of the formula and keeps two texts behind
+// it that nobody sees: the TeX, which is what a copy of the passage takes,
+// and MathML, which is what a screen reader reads.
+func writeTex(w util.BufWriter, t *tex, entering bool) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkSkipChildren, nil
 	}
-	mml, err := treeblood.TexToMML(string(bytes.TrimSpace(tex)), nil, display, false)
-	if err == nil {
-		_, err = w.WriteString(sortAttrs(mml))
+	mml, err := treeblood.TexToMML(strings.ReplaceAll(t.src, `\allowbreak`, ""), nil, t.display, false)
+	if err != nil {
+		return ast.WalkSkipChildren, err
 	}
+	mml = strings.TrimSpace(sortAttrs(mml))
+	src := html.EscapeString(t.src)
+	if !t.display {
+		_, err = w.WriteString(`<span class="tex">` + t.svgs[0][0] + `<span class="tex-src" aria-hidden="true">$` + src + `$</span>` + mml + `</span>`)
+		return ast.WalkSkipChildren, err
+	}
+	var b strings.Builder
+	b.WriteString(`<div class="tex-block"><div class="tex-row">`)
+	for _, piece := range t.svgs {
+		b.WriteString(`<span class="tex-piece">`)
+		for _, svg := range piece {
+			b.WriteString(`<span class="tex-part">` + svg + `</span>`)
+		}
+		b.WriteString(`</span>`)
+	}
+	b.WriteString(`</div><span class="tex-src" aria-hidden="true">$$` + src + `$$</span>` + mml + "</div>\n")
+	_, err = w.WriteString(b.String())
 	return ast.WalkSkipChildren, err
 }
 

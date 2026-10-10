@@ -29,6 +29,7 @@ func main() {
 	web := flag.String("web", "out/web.db", "the serving index webindex builds")
 	addr := flag.String("addr", "127.0.0.1:8080", "where to listen")
 	dev := flag.Bool("dev", false, "read web/static from disk on every request, for editing the CSS and JS")
+	flag.StringVar(&typstBin, "typst", typstBin, "the typst executable, which draws /method/'s formulas")
 	flag.Parse()
 
 	s, err := open(*ratings, *web)

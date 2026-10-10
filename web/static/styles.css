@@ -509,7 +509,7 @@ td:has(.roster-open input:checked) .roster-open span {
   }
 }
 
-/* ── the method page: the post, with its MathML ─────────── */
+/* ── the method page: the post and its formulas ─────────── */
 
 /* As specific as the frame's sticky rule above, which would widen it. */
 .site-body > .post {
@@ -548,26 +548,87 @@ td:has(.roster-open input:checked) .roster-open span {
   color: var(--muted);
 }
 
-/* Noto Sans Math, cut by `just math-font`, has the MATH table and the math
-   alphabets the text face lacks; Cyrillic inside \text{} falls through to the
-   page's own face. Only /method/ sets math, so only it loads the file. */
-@font-face {
-  font-family: "Noto Sans Math";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/static/noto-sans-math.woff2") format("woff2");
+/* A formula is Typst's SVG (typeset.go), drawn in the text's colour. Behind
+   it sit its TeX, which a copy of the passage takes, and its MathML, which a
+   screen reader reads; neither is seen, and the MathML is left out of a copy. */
+.tex-glyphs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
 }
 
-.post math {
-  font-family: "Noto Sans Math", var(--font-sans), math;
+.tex svg,
+.tex-piece svg {
+  display: inline-block;
+  overflow: visible;
 }
 
-/* A wide formula scrolls in its own line rather than widening the page. */
-.post math[display="block"] {
+/* Inline, so that a copy does not break the line around the TeX. */
+.tex-src {
+  display: inline-block;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Under a display formula it would open a line of its own. */
+.tex-block > .tex-src {
+  position: absolute;
+}
+
+/* Where site.js lays out a copied selection to read it as text. */
+.tex-copy {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+}
+
+.tex math,
+.tex-block math {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.tex math,
+.tex-block math {
+  user-select: none;
+}
+
+.tex,
+.tex-block {
+  position: relative;
+}
+
+/* The pieces of a display formula, cut at its \qquad, sit side by side, and
+   the parts of a piece, cut at its \allowbreak, touch; either wraps onto a
+   line of its own on a narrow screen. A part still too wide scrolls on its
+   own line rather than widening the page. */
+.tex-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: var(--space-2) 2em;
   margin: var(--space-3) 0;
+}
+
+.tex-piece {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
+  padding: 0.2em 0;
 }
 
 .post table {
@@ -581,6 +642,21 @@ td:has(.roster-open input:checked) .roster-open span {
 .post td {
   padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--structure);
+}
+
+/* A table too wide for a phone shrinks, then scrolls on its own. */
+@media (max-width: 760px) {
+  .post table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    font-size: var(--text-xs);
+  }
+
+  .post th,
+  .post td {
+    padding: var(--space-1);
+  }
 }
 
 .post .footnotes {

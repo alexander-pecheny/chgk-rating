@@ -106,7 +106,7 @@ NDCG@3 — то же самое, только по местам в топ-3.
 Вероятность, что состав $L$ возьмёт вопрос q:
 
 $$
-P(L \text{ берёт } q) = \Bigl(1 - \exp\Bigl(-\sum_{i \in L} e^{\,a_q(\theta_i - b_q)}\Bigr)\Bigr)^{1.59}
+P(L \text{ берёт } q) = \Bigl(1 - \exp\Bigl({-\sum_{i \in L} e^{a_q(\theta_i - b_q)}}\Bigr)\Bigr)^{1.59}
 $$
 
 После турнира сначала методом Ньютона подбираются $b_q$ и $a_q$. Затем обновляются параметры каждого игрока. Переменными $g_i$ и $I_i$ обозначены первая производная логарифма правдоподобия турнира по $\theta_i$ и вторая производная с обратным знаком: $g_i$ обозначает, в какую сторону сдвинуть силу игрока, $I_i$ — то, насколько турнир уверен в этом сдвиге. $\Delta t$ — время в годах, прошедшее с предыдущей игры этого игрока.
@@ -123,8 +123,8 @@ $$
 $$
 \tilde g_i =
 \begin{cases}
-\max(g_i,\ 0), & M \le \hat M \\
-\min(g_i,\ 0), & M > \hat M
+\max(g_i, 0), & \quad M \le \hat M \\
+\min(g_i, 0), & \quad M > \hat M
 \end{cases}
 $$
 
@@ -141,8 +141,8 @@ z_i = \frac{g_i / I_i}{\sqrt{\sigma_i^2 + 1/(0.4\,I_i)}}, \qquad
 \ln v_i \leftarrow \ln v_i + 0.131\,(\ln v^{*} - \ln v_i), \qquad
 v^{*} =
 \begin{cases}
-0.46, & \lvert z_i \rvert > 1 \\
-0.0541, & \lvert z_i \rvert \le 1
+0.46, & \quad \lvert z_i \rvert > 1 \\
+0.0541, & \quad \lvert z_i \rvert \le 1
 \end{cases}
 $$
 
@@ -180,22 +180,22 @@ $r_i$ и $Q(L)$ — внутренняя шкала. На странице ту�
 - $T$ — количества городов команд-участниц.
 
 $$
-V = w_{\text{формат}} \cdot w_{\text{топ}} \cdot w_{\text{города}} \cdot \max\Bigl(0,\ \frac{S - 800}{M^{0.6}}\Bigr)
+V = w_{\text{формат}} \cdot w_{\text{топ}} \cdot w_{\text{города}} \cdot \max\Bigl(0, \frac{S - 800}{M^{0.6}}\Bigr)
 $$
 
 $$
 w_{\text{формат}} =
 \begin{cases}
-1 & \text{очный} \\
-2/3 & \text{строгий синхрон} \\
-0.5 & \text{синхрон}
+1 & \quad \text{очный} \\
+2/3 & \quad \text{строгий синхрон} \\
+0.5 & \quad \text{синхрон}
 \end{cases}
 \qquad
-w_{\text{топ}} = \min\Bigl(1,\ \max\Bigl(0,\ \frac{\bar Q_{20} - 5000}{5000}\Bigr)\Bigr) \cdot \Bigl(\frac{\min(n, 20)}{20}\Bigr)^{0.5}
+w_{\text{топ}} = \min\Bigl(1, \max\Bigl(0, \frac{\bar Q_{20} - 5000}{5000}\Bigr)\Bigr) \allowbreak \cdot \Bigl(\frac{\min(n, 20)}{20}\Bigr)^{0.5}
 $$
 
 $$
-w_{\text{города}} = \min\Bigl(1,\ \bigl(T/24\bigr)^{0.6}\Bigr) \text{ для очников}, \qquad w_{\text{города}} = 1 \text{ для синхронов}
+w_{\text{города}} = \min\Bigl(1, \bigl(T/24\bigr)^{0.6}\Bigr) \text{ для очников}, \qquad w_{\text{города}} = 1 \text{ для синхронов}
 $$
 
 {llm}Если у турнира нет повопросных результатов, показанная сила $S$ берётся по месту: это сила, при которой занятое командой место совпадает с тем, что ожидается от составов поля. Результат, помеченный как «не в рейтинг» (сборный состав, который не приносит команде рейтинга), рейтингового балла не даёт.
@@ -221,8 +221,8 @@ $$
 f(t) = (1 - \ell)^{\,t' / 365.25}, \qquad t' = t \cdot \Bigl(\frac{9000}{V}\Bigr)^{0.6}, \qquad
 \ell =
 \begin{cases}
-0.1 & \text{очный} \\
-0.4 & \text{синхрон}
+0.1 & \quad \text{очный} \\
+0.4 & \quad \text{синхрон}
 \end{cases}
 $$
 
