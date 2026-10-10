@@ -373,6 +373,12 @@ td:has(.roster-open input:checked) .roster-open span {
   vector-effect: non-scaling-stroke;
 }
 
+/* A player's R, dotted above the solid line of the rating under it. */
+.c-mid {
+  stroke-width: 1.5;
+  stroke-dasharray: 2 3;
+}
+
 .c-grid {
   stroke: var(--structure);
   vector-effect: non-scaling-stroke;

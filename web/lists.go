@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strconv"
-	"strings"
 
 	"ratingweb/ui"
 )
@@ -151,7 +149,7 @@ func (s *site) playerTable(page int) (string, []ui.Item, error) {
 	single := s.q.sc.rankSigmas > 0
 	lines := make([]rankLine, len(rows))
 	for i, r := range rows {
-		lines[i] = playerLine(r, nil)
+		lines[i] = s.playerLine(r, nil)
 		lines[i].ranked = single
 	}
 	sec := p.framed(rankTable(playerCols(s.q.sc.rankSigmas), lines, p.lo >= firm, S.Players.ProvSplit()))
@@ -169,20 +167,35 @@ func (s *site) playerTable(page int) (string, []ui.Item, error) {
 func playerCols(rankSigmas float64) []ui.Item {
 	place := numCol(S.Common.Col.Place())
 	if rankSigmas > 0 {
-		place = numCol(S.Common.Col.Place(), S.Players.Col.PlaceTitle(strings.Replace(strconv.FormatFloat(rankSigmas, 'f', -1, 64), ".", ",", 1)))
+		place = numCol(S.Common.Col.Place(), S.Players.Col.PlaceTitle(commaNum(rankSigmas)))
 	}
-	return []ui.Item{place, nameCol(S.Common.Col.Player()), numCol(S.Common.Col.Rating()),
-		numCol("±", S.Common.Col.SigmaTitle()), numCol(S.Players.Col.GamesYear()), numCol(S.Common.Col.Change(), S.Common.Col.ChangePlayerTitle())}
+	k := commaNum(rankSigmas)
+	return []ui.Item{place, nameCol(S.Common.Col.Player()), numCol(S.Common.Col.Rating(), S.Players.Col.RatingTitle(k)),
+		numCol("R", S.Players.Col.RTitle()), numCol("±", S.Common.Col.SigmaTitle()),
+		numCol("θ", S.Players.Col.ThetaTitle()), numCol("σ", S.Players.Col.SigmaTitle()), numCol("v", S.Players.Col.VolTitle()),
+		numCol(S.Players.Col.GamesYear()), numCol(S.Common.Col.Change(), S.Common.Col.ChangePlayerTitle())}
 }
 
-func playerLine(r playerRank, at *release) rankLine {
+// playerLine shows the rating, R_pub, which orders the table, beside the
+// estimate R it is the lower bound of, and the model's own numbers.
+func (s *site) playerLine(r playerRank, at *release) rankLine {
 	return rankLine{rank: r.rank, prov: r.prov, cells: []ui.Item{
 		nameCell(asOfHref(playerHref(r.id), at), playerName(r.name, r.id), provMark(r.prov)),
-		numCell(disp(num(r.display)), ui.Bold()),
+		numCell(disp(s.q.sc.floor(num(r.display), num(r.sigma))), ui.Bold()),
+		numCell(disp(num(r.display))),
 		numCell(disp(num(r.sigma)), ui.Faint()),
+		modelCell(r.theta), modelCell(r.sigmaT), modelCell(r.vol),
 		numCell(itoa(count(r.games))),
 		changeCell(r.change),
 	}}
+}
+
+// modelCell is one of the model's numbers, to the digits /method/ uses.
+func modelCell(v *float64) ui.Node {
+	if v == nil {
+		return dashCell()
+	}
+	return numCell(model(*v), ui.Faint())
 }
 
 // The digits the tournament table prints its metrics to.

@@ -53,6 +53,7 @@ var RU = Strings{
 		Brand: func() string { return "Рейтинг ЧГК" },
 		Chart: CommonChartStrings{
 			Empty:      func() string { return "Точек для графика пока нет." },
+			FloorPoint: func(pub string, r string, sd string) string { return fmt.Sprintf("%s · R %s ± %s", pub, r, sd) },
 			Place:      func() string { return "Место" },
 			PlacePoint: func(n string) string { return fmt.Sprintf("%s-е место", n) },
 			Rating:     func() string { return "Рейтинг" },
@@ -61,12 +62,12 @@ var RU = Strings{
 		Col: CommonColStrings{
 			After:  func() string { return "Стало" },
 			Before: func() string { return "Было" },
-			Change: func() string { return "Изменение" },
+			Change: func() string { return "ΔR" },
 			ChangePlayerTitle: func() string {
-				return "За неделю, вместе с недельным сдвигом шкалы"
+				return "Изменение R за неделю, вместе с недельным сдвигом шкалы"
 			},
 			ChangeTeamTitle: func() string {
-				return "За неделю: прибавка от новых результатов минус угасание старых. Без новых результатов рейтинг каждую неделю немного снижается"
+				return "Изменение рейтинга за неделю: прибавка от новых результатов минус угасание старых. Без новых результатов рейтинг каждую неделю немного снижается"
 			},
 			Date:            func() string { return "Дата" },
 			Difficulty:      func() string { return "Сложность" },
@@ -164,11 +165,12 @@ var RU = Strings{
 			Games:      func() string { return "Всего игр" },
 			Games365:   func() string { return "Игр за 365 дней" },
 			LastRating: func() string { return "Последний рейтинг" },
+			R:          func() string { return "Оценка силы R" },
 			Sigma:      func() string { return "Неопределённость" },
 			SigmaTheta: func() string { return "Неопределённость σ" },
 			Theta:      func() string { return "Сила θ" },
 			Vol:        func() string { return "Волатильность v" },
-			Week:       func() string { return "Изменение за неделю" },
+			Week:       func() string { return "ΔR за неделю" },
 		},
 	},
 	Players: PlayersStrings{
@@ -177,6 +179,13 @@ var RU = Strings{
 			PlaceTitle: func(k string) string {
 				return fmt.Sprintf("Место — по рейтингу за вычетом %s неопределённостей: игрок, о котором известно мало, стоит не выше, чем позволяют его результаты", k)
 			},
+			RTitle: func() string { return "R — оценка силы в очках" },
+			RatingTitle: func(k string) string {
+				return fmt.Sprintf("R_pub = R − %s · ±: нижняя граница оценки силы, по ней игроки упорядочены", k)
+			},
+			SigmaTitle: func() string { return "σ — неопределённость θ" },
+			ThetaTitle: func() string { return "θ — сила" },
+			VolTitle:   func() string { return "v — волатильность" },
 		},
 		Lede: func(date string, n int) string {
 			return fmt.Sprintf("Релиз от %s. В таблице %d %s.", date, n, core.Plural("ru", n, "игрок", "игрока", "игроков"))

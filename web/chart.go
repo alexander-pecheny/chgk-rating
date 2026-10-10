@@ -26,7 +26,13 @@ type series struct {
 	// invert puts 1 at the top: places count downwards.
 	invert bool
 	band   bool
+	// floor, when above 0, draws the line that many sigmas under the value
+	// and the value itself dotted: a player's rating, R_pub, under R.
+	floor float64
 }
+
+// shown is where a point's solid line runs.
+func (sr series) shown(p pt) float64 { return p.mid - sr.floor*p.sigma }
 
 // frame is a chart's size in viewBox units. A phone gets its own, narrower
 // and taller, so the chart fits the screen with its labels still legible.
@@ -144,7 +150,7 @@ func newYScale(sr series, h float64) yScale {
 	lo, hi := math.MaxFloat64, -math.MaxFloat64
 	bandLo, bandHi := lo, hi
 	for _, p := range sr.pts {
-		lo, hi = math.Min(lo, p.mid), math.Max(hi, p.mid)
+		lo, hi = math.Min(lo, sr.shown(p)), math.Max(hi, p.mid)
 		if sr.band {
 			bandLo, bandHi = math.Min(bandLo, p.mid-p.sigma), math.Max(bandHi, p.mid+p.sigma)
 		}
@@ -180,13 +186,16 @@ func (f xScale) view(sr series, hidden bool) string {
 	if sr.band && len(sr.pts) > 1 {
 		fmt.Fprintf(&band, `<polygon points="%s" class="c-band"/>`, f.bandPoints(sr.pts, ys))
 	}
-	fmt.Fprintf(&line, `<polyline points="%s" class="c-line"/>`, f.linePoints(sr.pts, ys))
+	if sr.floor > 0 {
+		fmt.Fprintf(&line, `<polyline points="%s" class="c-line c-mid"/>`, f.linePoints(sr.pts, ys, series{}))
+	}
+	fmt.Fprintf(&line, `<polyline points="%s" class="c-line"/>`, f.linePoints(sr.pts, ys, sr))
 	attr := ""
 	if hidden {
 		attr = " hidden"
 	}
 	return fmt.Sprintf(`<g class="c-view" data-points="%s"%s>%s%s%s</g>`,
-		html.EscapeString(f.pointsData(sr.pts, ys)), attr, grid(ys, f.fr.w), band.String(), line.String())
+		html.EscapeString(f.pointsData(sr, ys)), attr, grid(ys, f.fr.w), band.String(), line.String())
 }
 
 // grid is the value lines with their labels, at round steps; a place axis
@@ -217,20 +226,22 @@ func (f xScale) bandPoints(run []pt, ys yScale) string {
 	return strings.Join(poly, " ")
 }
 
-func (f xScale) linePoints(run []pt, ys yScale) string {
+// linePoints run through the series' solid line; an empty series gives the
+// values themselves.
+func (f xScale) linePoints(run []pt, ys yScale, sr series) string {
 	var pl []string
 	for _, p := range run {
-		pl = append(pl, fmt.Sprintf("%.1f,%.1f", f.px(p.x), ys.py(p.mid)))
+		pl = append(pl, fmt.Sprintf("%.1f,%.1f", f.px(p.x), ys.py(sr.shown(p))))
 	}
 	return strings.Join(pl, " ")
 }
 
 // pointsData is the series for the crosshair: each point's position, date
 // and tooltip.
-func (f xScale) pointsData(pts []pt, ys yScale) string {
-	data := make([][4]any, len(pts))
-	for j, p := range pts {
-		data[j] = [4]any{math.Round(f.px(p.x)*decimeter) / decimeter, math.Round(ys.py(p.mid)*decimeter) / decimeter, p.date, p.text}
+func (f xScale) pointsData(sr series, ys yScale) string {
+	data := make([][4]any, len(sr.pts))
+	for j, p := range sr.pts {
+		data[j] = [4]any{math.Round(f.px(p.x)*decimeter) / decimeter, math.Round(ys.py(sr.shown(p))*decimeter) / decimeter, p.date, p.text}
 	}
 	js, _ := json.Marshal(data)
 	return string(js)

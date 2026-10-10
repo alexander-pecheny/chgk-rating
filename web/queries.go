@@ -47,22 +47,26 @@ func (st *store) teamRanks(lo, hi int) ([]teamRank, error) {
 		where k.rank > ? and k.rank <= ? order by k.rank`, lo, hi)
 }
 
+// playerRank is a row of the player table: display and sigma are R and its
+// plus-minus in points, theta, sigmaT and vol the model's own numbers.
 type playerRank struct {
-	rank, id       int64
-	name           *string
-	display, sigma *float64
-	games          *int64
-	change         *float64
-	prov           bool
+	rank, id           int64
+	name               *string
+	display, sigma     *float64
+	games              *int64
+	change             *float64
+	prov               bool
+	theta, sigmaT, vol *float64
 }
 
 func (r *playerRank) fields() []any {
-	return []any{&r.rank, &r.id, &r.name, &r.display, &r.sigma, &r.games, &r.change, &r.prov}
+	return []any{&r.rank, &r.id, &r.name, &r.display, &r.sigma, &r.games, &r.change, &r.prov, &r.theta, &r.sigmaT, &r.vol}
 }
 
 func (st *store) playerRanks(lo, hi int) ([]playerRank, error) {
 	return all[playerRank](st.db, `select k.rank, k.player_id, p.name, k.display, k.sigma, k.games, k.change,
-		k.provisional from x.player_rank k left join x.player p on p.id = k.player_id
+		k.provisional, f.theta, f.sigma, f.vol from x.player_rank k left join x.player p on p.id = k.player_id
+		left join player_ratings f on f.player_id = k.player_id and f.release_id = (select max(release_id) from player_ratings)
 		where k.rank > ? and k.rank <= ? order by k.rank`, lo, hi)
 }
 

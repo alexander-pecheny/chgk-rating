@@ -20,9 +20,9 @@ func (st *store) teamRanksAt(rel int64, lo, hi int) ([]teamRank, error) {
 func (st *store) playerRanksAt(rel int64, lo, hi int) ([]playerRank, error) {
 	c := st.sc
 	return all[playerRank](st.db, `with r as (select player_id, coalesce(display, ? + ? * theta) as display, ? * sigma as sd,
-		games_365, delta, sigma > ? as prov from player_ratings where release_id = ?)
+		games_365, delta, sigma > ? as prov, theta, sigma, vol from player_ratings where release_id = ?)
 		select row_number() over (order by r.display - ? * r.sd desc, r.player_id) + ?, r.player_id, p.name, r.display, r.sd,
-		r.games_365, r.delta, r.prov from r left join x.player p on p.id = r.player_id
+		r.games_365, r.delta, r.prov, r.theta, r.sigma, r.vol from r left join x.player p on p.id = r.player_id
 		order by r.display - ? * r.sd desc, r.player_id limit ? offset ?`,
 		c.aPlayer, c.bPlayer, abs(c.bPlayer), c.provSigma, rel, c.rankSigmas, lo, c.rankSigmas, hi-lo, lo)
 }
@@ -88,7 +88,7 @@ func (s *site) pastPlayers(r release, page int) (string, []ui.Item, error) {
 	rows, err := s.q.playerRanksAt(r.id, p.lo, p.hi())
 	lines := make([]rankLine, len(rows))
 	for i, x := range rows {
-		lines[i] = playerLine(x, &r)
+		lines[i] = s.playerLine(x, &r)
 		lines[i].ranked = true
 	}
 	head := pastHead(S.Players.Lede(r.date, n), base, S.Releases.Teams())

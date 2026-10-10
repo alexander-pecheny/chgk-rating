@@ -6,10 +6,12 @@ not_listed_at = 'Не в таблице игроков релиза от {{.date
 
 [stat]
 last_rating = "Последний рейтинг"
+# R_pub and R of /method/: the rating is the lower bound, R the estimate.
+r = "Оценка силы R"
 sigma = "Неопределённость"
 games365 = "Игр за 365 дней"
 games = "Всего игр"
-week = "Изменение за неделю"
+week = "ΔR за неделю"
 # The model's own numbers, on the scale of the formulas at /method/.
 theta = "Сила θ"
 sigma_theta = "Неопределённость σ"

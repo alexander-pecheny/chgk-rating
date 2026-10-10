@@ -145,3 +145,18 @@ func prefix(s string, n int) string {
 	}
 	return s[:n]
 }
+
+// modelDigits is how many decimals the model's own numbers get, as on /method/.
+const modelDigits = 3
+
+// model is one of the model's numbers, θ, σ or v, with a decimal comma and a
+// typographic minus.
+func model(v float64) string {
+	s := strings.Replace(strconv.FormatFloat(v, 'f', modelDigits, float64Bits), ".", ",", 1)
+	return strings.Replace(s, "-", "−", 1)
+}
+
+// commaNum is a number as Russian writes it, with a decimal comma.
+func commaNum(v float64) string {
+	return strings.Replace(strconv.FormatFloat(v, 'f', -1, float64Bits), ".", ",", 1)
+}

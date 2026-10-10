@@ -4,7 +4,6 @@ import (
 	"errors"
 	"sort"
 	"strconv"
-	"strings"
 
 	"ratingweb/ui"
 )
@@ -40,19 +39,26 @@ func (s *site) chartSection(kind int, id int64, band bool, at *release) (ui.Node
 	}
 	pl, err := s.q.places(kind, id)
 	from, to := hist[0].rel, hist[len(hist)-1].rel
+	var floor float64
+	if kind == kindPlayer {
+		floor = s.q.sc.rankSigmas
+	}
 	ss := []series{
-		{name: S.Common.Chart.Rating(), pts: thin(s.ratingPts(hist, band), chartPoints), band: band},
+		{name: S.Common.Chart.Rating(), pts: thin(s.ratingPts(hist, band, floor), chartPoints), band: band, floor: floor},
 		{name: S.Common.Chart.Place(), pts: thin(s.placePts(hist, pl), chartPoints), invert: true},
 	}
 	ticks := func(marks int) []tick { return s.ticks(from, to, marks) }
 	return section(S.Common.Chart.Title(), charts(ss, ticks, S.Common.Chart.Title())...), err
 }
 
-func (s *site) ratingPts(hist []histPt, band bool) []pt {
+func (s *site) ratingPts(hist []histPt, band bool, floor float64) []pt {
 	out := make([]pt, len(hist))
 	for i, h := range hist {
 		text := disp(h.mid)
-		if band {
+		switch {
+		case floor > 0:
+			text = S.Common.Chart.FloorPoint(disp(h.mid-floor*h.sigma), disp(h.mid), disp(h.sigma))
+		case band:
 			text = disp(h.mid) + " ± " + disp(h.sigma)
 		}
 		out[i] = pt{x: float64(h.rel), mid: h.mid, sigma: h.sigma, date: s.rels[h.rel].date, text: text}
@@ -107,7 +113,7 @@ func (s *site) playerPage(id int64, at *release) (string, []ui.Item, error) {
 		}
 		p, unlisted = s.playerAt(p, f, hasRow, rank, len(games)), S.Player.NotListedAt(at.date)
 	}
-	stats := playerStats(p)
+	stats := s.playerStats(p)
 	if hasRow {
 		stats = append(stats, fitStats(f)...)
 	}
@@ -122,13 +128,9 @@ func (s *site) playerPage(id int64, at *release) (string, []ui.Item, error) {
 // fitStats are the model's own numbers behind the rating: the strength, its
 // uncertainty and the volatility, each on the scale of the formulas.
 func fitStats(f fitRow) []ui.Item {
-	const digits = 3
-	d := func(x float64) string {
-		return strings.Replace(strconv.FormatFloat(x, 'f', digits, float64Bits), ".", ",", 1)
-	}
-	stats := []ui.Item{stat(S.Player.Stat.Theta(), d(f.theta)), stat(S.Player.Stat.SigmaTheta(), d(f.sigma))}
+	stats := []ui.Item{stat(S.Player.Stat.Theta(), model(f.theta)), stat(S.Player.Stat.SigmaTheta(), model(f.sigma))}
 	if f.vol != nil {
-		stats = append(stats, stat(S.Player.Stat.Vol(), d(*f.vol)))
+		stats = append(stats, stat(S.Player.Stat.Vol(), model(*f.vol)))
 	}
 	return stats
 }
@@ -141,17 +143,19 @@ func orNotFound(err error) error {
 	return err
 }
 
-func playerStats(p standing) []ui.Item {
+func (s *site) playerStats(p standing) []ui.Item {
 	stats := []ui.Item{stat(S.Common.Col.Rating(), dash)}
+	rating, r, sd := disp(s.q.sc.floor(num(p.display), num(p.sigma))), disp(num(p.display)), "±"+disp(num(p.sigma))
 	switch {
 	case p.rated() && p.rank == nil:
 		// Not in this week's table: the rating is the one they last had, and
 		// a count of games in the past year would be that year's, not this one.
-		stats = []ui.Item{stat(S.Player.Stat.LastRating(), disp(num(p.display))), stat(S.Player.Stat.Sigma(), "±"+disp(num(p.sigma)))}
+		stats = []ui.Item{stat(S.Player.Stat.LastRating(), rating), stat(S.Player.Stat.R(), r), stat(S.Player.Stat.Sigma(), sd)}
 	case p.rated():
 		stats = []ui.Item{
-			stat(S.Common.Col.Rating(), disp(num(p.display))),
-			stat(S.Player.Stat.Sigma(), "±"+disp(num(p.sigma))),
+			stat(S.Common.Col.Rating(), rating),
+			stat(S.Player.Stat.R(), r),
+			stat(S.Player.Stat.Sigma(), sd),
 			stat(S.Player.Stat.Games365(), itoa(count(p.games365))),
 		}
 	}

@@ -57,6 +57,10 @@ func (c scale) team(mu float64) float64 { return c.aTeam + c.bTeam*mu }
 
 // player is the published number of a player of strength theta with the
 // in-person effect phi.
+// floor is R_pub, the rating: the estimate R less rankSigmas of its
+// plus-minus, both in points.
+func (c scale) floor(r, sd float64) float64 { return r - c.rankSigmas*sd }
+
 func (c scale) player(theta, phi float64) float64 {
 	return c.aPlayer + c.bPlayer*(theta+c.playerPhi*phi)
 }

@@ -306,10 +306,10 @@
   }
 
   // A panel line is labelled by its column's name, or by the explanation
-  // of a name too short to read on its own (Δ, ±).
+  // of a one-letter name (±, θ, v), which is too short to read on its own.
   function label(th) {
     var text = th.textContent.trim();
-    return text.length <= 2 && th.title ? th.title : text;
+    return text.length <= 1 && th.title ? th.title : text;
   }
 
   function setup(table) {
