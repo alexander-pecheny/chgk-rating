@@ -27,6 +27,8 @@ def render(md_text):
     md.add_render_rule("math_block", lambda self, tokens, idx, options, env: math(tokens[idx].content, True) + "\n")
     # The page's title is the bar's last crumb, so the post's own heading goes.
     body = re.sub(r"\A# [^\n]*\n", "", md_text)
+    # {llm}…{/llm} marks prose the owner has not yet rewritten; the page shows it plain.
+    body = re.sub(r"\{/?llm\}", "", body)
     # A footnote cited twice is still one note: [3], not [3:1].
     return re.sub(r'(<a href="#fn\d+" id="fnref[\d:]+">)\[(\d+)(?::\d+)?\]', r"\1\2", md.render(body))
 

@@ -548,6 +548,21 @@ td:has(.roster-open input:checked) .roster-open span {
   color: var(--muted);
 }
 
+/* Noto Sans Math has the MATH table and the math alphabets the text face lacks;
+   Cyrillic inside \text{} falls through to the page's own face. Only this page
+   sets math, so only it loads the file. */
+@font-face {
+  font-family: "Noto Sans Math";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/static/noto-sans-math.woff2") format("woff2");
+}
+
+.post math {
+  font-family: "Noto Sans Math", var(--font-sans), math;
+}
+
 /* A wide formula scrolls in its own line rather than widening the page. */
 .post math[display="block"] {
   margin: var(--space-3) 0;
