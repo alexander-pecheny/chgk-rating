@@ -4,6 +4,7 @@
 # rating points, f(t) the fade and ω the share of the roster kept.
 rank = '{{.n}}-е место · {{.town}}'
 not_listed = 'Не в текущем релизе · {{.town}}'
+not_listed_at = 'Не в таблице релиза от {{.date}} · {{.town}}'
 no_town = "город не указан"
 roster = 'Базовый состав ({{.n}})'
 

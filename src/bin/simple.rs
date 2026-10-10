@@ -323,7 +323,7 @@ impl<'a> Sweep<'a> {
         let (prows, trows) = (st.player_rows(self.arena), st.team_rows(self.arena));
         // The display map is affine, so the published move is the raw one times its slope.
         let b = self.cfg.display.b_player;
-        let rows: Vec<_> = prows.iter().map(|&(p, t, s, g, c)| (p, t, s, g, c, b * c)).collect();
+        let rows: Vec<_> = prows.iter().map(|&(p, t, s, g, c)| (p, t, s, g, c, b * c, f64::NAN)).collect();
         w.player_ratings(id, &rows, |t| chgk_rating::display::player(t, self.cfg))?;
         w.team_ratings(id, &trows, |m| chgk_rating::display::team(m, self.cfg))
     }

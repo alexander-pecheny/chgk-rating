@@ -71,7 +71,7 @@ func (s *site) pastTeams(r release, page int) (string, []ui.Item, error) {
 	rows, err := s.q.teamRanksAt(r.id, p.lo, p.hi())
 	lines := make([]rankLine, len(rows))
 	for i, x := range rows {
-		lines[i] = s.teamLine(x)
+		lines[i] = s.teamLine(x, &r)
 	}
 	head := pastHead(S.Teams.Lede(r.date, n), base+"players/", S.Releases.Players())
 	t := rankTable(s.teamCols(), lines, true, "")
@@ -88,7 +88,7 @@ func (s *site) pastPlayers(r release, page int) (string, []ui.Item, error) {
 	rows, err := s.q.playerRanksAt(r.id, p.lo, p.hi())
 	lines := make([]rankLine, len(rows))
 	for i, x := range rows {
-		lines[i] = playerLine(x)
+		lines[i] = playerLine(x, &r)
 		lines[i].ranked = true
 	}
 	head := pastHead(S.Players.Lede(r.date, n), base, S.Releases.Teams())

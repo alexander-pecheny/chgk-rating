@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sort"
 	"strconv"
+	"strings"
 
 	"ratingweb/ui"
 )
@@ -31,8 +32,9 @@ func (s *site) history(kind int, id int64) ([]histPt, error) {
 
 // chartSection is the rating history and, beside it, the same weeks as a place
 // in the table; nothing for an entity with fewer than two releases.
-func (s *site) chartSection(kind int, id int64, band bool) (ui.Node, error) {
+func (s *site) chartSection(kind int, id int64, band bool, at *release) (ui.Node, error) {
 	hist, err := s.history(kind, id)
+	hist = s.upTo(hist, at)
 	if err != nil || len(hist) < 2 {
 		return nil, err
 	}
@@ -83,18 +85,52 @@ func byline(e standing, ranked func(string) string, unlisted string) ui.Node {
 	return ui.Pagehead(ui.Byline(ui.Inline(items...)))
 }
 
-func (s *site) playerPage(id int64) (string, []ui.Item, error) {
+func (s *site) playerPage(id int64, at *release) (string, []ui.Item, error) {
 	p, ok, err := s.q.player(id)
 	if !ok || err != nil {
 		return "", nil, orNotFound(err)
 	}
-	out := []ui.Item{byline(p, S.Player.Rank, S.Player.NotListed(str(p.last))), ui.Stats(playerStats(p)...)}
-	c, err := s.chartSection(kindPlayer, id, true)
+	f, hasRow, err := s.q.fitRowAt(id, at)
 	if err != nil {
 		return "", nil, err
 	}
-	games, err := s.playerGames(id)
-	return playerName(p.name, id), append(out, c, games), err
+	games, err := s.q.games(id)
+	games = before(games, at, func(g game) string { return str(g.date) })
+	if err != nil {
+		return "", nil, err
+	}
+	href, unlisted := playerHref(id), S.Player.NotListed(str(p.last))
+	if at != nil {
+		rank, err := s.rankAt(kindPlayer, id, *at)
+		if err != nil {
+			return "", nil, err
+		}
+		p, unlisted = s.playerAt(p, f, hasRow, rank, len(games)), S.Player.NotListedAt(at.date)
+	}
+	stats := playerStats(p)
+	if hasRow {
+		stats = append(stats, fitStats(f)...)
+	}
+	out := []ui.Item{s.asOfHead(href, at), byline(p, S.Player.Rank, unlisted), ui.Stats(stats...)}
+	if at == nil {
+		out = append(out, s.pastLink(href))
+	}
+	c, err := s.chartSection(kindPlayer, id, true, at)
+	return playerName(p.name, id), append(out, c, gamesSection(games)), err
+}
+
+// fitStats are the model's own numbers behind the rating: the strength, its
+// uncertainty and the volatility, each on the scale of the formulas.
+func fitStats(f fitRow) []ui.Item {
+	const digits = 3
+	d := func(x float64) string {
+		return strings.Replace(strconv.FormatFloat(x, 'f', digits, float64Bits), ".", ",", 1)
+	}
+	stats := []ui.Item{stat(S.Player.Stat.Theta(), d(f.theta)), stat(S.Player.Stat.SigmaTheta(), d(f.sigma))}
+	if f.vol != nil {
+		stats = append(stats, stat(S.Player.Stat.Vol(), d(*f.vol)))
+	}
+	return stats
 }
 
 // orNotFound is err, or errNotFound when the query found nothing.
@@ -122,23 +158,19 @@ func playerStats(p standing) []ui.Item {
 	return append(stats, stat(S.Player.Stat.Games(), itoa(count(p.games))), stat(S.Player.Stat.Week(), signedOpt(p.change)))
 }
 
-// playerGames is every tournament the player played, with the number before
+// gamesSection is every tournament the player played, with the number before
 // and after it.
-func (s *site) playerGames(id int64) (ui.Node, error) {
-	games, err := s.q.games(id)
-	if err != nil {
-		return nil, err
-	}
+func gamesSection(games []game) ui.Node {
 	title := S.Player.Games(itoa(int64(len(games))))
 	if len(games) == 0 {
-		return section(title, ui.Empty(ui.Text(S.Common.NoTournaments()))), nil
+		return section(title, ui.Empty(ui.Text(S.Common.NoTournaments())))
 	}
 	rows := make([]ui.Item, len(games))
 	for i, g := range games {
 		rows[i] = gameRow(g)
 	}
 	cols := append(tourCols(), hcell(S.Common.Col.Team()), numCol(S.Common.Col.Place()), numCol(S.Common.Col.Taken()))
-	return section(title, table(append(cols, stepCols()...), rows...)), nil
+	return section(title, table(append(cols, stepCols()...), rows...))
 }
 
 func gameRow(g game) ui.Node {
@@ -161,10 +193,23 @@ func taken(score, nQ *int64) string {
 	return itoa(*score)
 }
 
-func (s *site) teamPage(id int64) (string, []ui.Item, error) {
+func (s *site) teamPage(id int64, at *release) (string, []ui.Item, error) {
 	t, ok, err := s.q.team(id)
 	if !ok || err != nil {
 		return "", nil, orNotFound(err)
+	}
+	href := teamHref(id)
+	if at != nil {
+		row, hasRow, err := s.q.teamRowAt(id, *at)
+		rank, err2 := s.rankAt(kindTeam, id, *at)
+		if err = errors.Join(err, err2); err != nil {
+			return "", nil, err
+		}
+		t = teamAt(t, row, hasRow, rank)
+		head := []ui.Item{s.asOfHead(href, at), teamByline(t, at), ui.Stats(teamStats(t)...)}
+		c, err := s.chartSection(kindTeam, id, false, at)
+		results, err2 := s.teamResults(id, at)
+		return teamName(t.name, id), append(head, c, results), errors.Join(err, err2)
 	}
 	rules, err := s.q.achieveRules()
 	if err != nil {
@@ -174,18 +219,22 @@ func (s *site) teamPage(id int64) (string, []ui.Item, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	head := []ui.Item{teamByline(t), ui.Stats(teamStats(t)...)}
+	head := []ui.Item{teamByline(t, nil), ui.Stats(teamStats(t)...), s.pastLink(href)}
 	body, err := s.teamBody(id, a, hasAchieve, rules)
 	return teamName(t.name, id), append(head, body...), err
 }
 
-func teamByline(t standing) ui.Node {
+func teamByline(t standing, at *release) ui.Node {
 	town := str(t.town)
 	if town == "" {
 		town = S.Team.NoTown()
 	}
 	ranked := func(rank string) string { return S.Team.Rank(rank, town) }
-	return byline(t, ranked, S.Team.NotListed(town))
+	unlisted := S.Team.NotListed(town)
+	if at != nil {
+		unlisted = S.Team.NotListedAt(at.date, town)
+	}
+	return byline(t, ranked, unlisted)
 }
 
 func teamStats(t standing) []ui.Item {
@@ -211,9 +260,9 @@ func (s *site) teamBody(id int64, a achieved, hasAchieve bool, rules map[string]
 		}
 		out = append(out, b)
 	}
-	c, err := s.chartSection(kindTeam, id, false)
+	c, err := s.chartSection(kindTeam, id, false, nil)
 	roster, err2 := s.baseRoster(id)
-	results, err3 := s.teamResults(id)
+	results, err3 := s.teamResults(id, nil)
 	return append(out, c, roster, results), errors.Join(err, err2, err3)
 }
 

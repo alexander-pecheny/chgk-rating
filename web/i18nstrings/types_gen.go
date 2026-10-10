@@ -45,12 +45,14 @@ type AnomalyExplainStrings struct {
 
 // CommonStrings is the common Surface.
 type CommonStrings struct {
+	AsOf           CommonAsOfStrings
 	Brand          func() string
 	Chart          CommonChartStrings
 	Col            CommonColStrings
 	Failed         CommonFailedStrings
 	Foot           CommonFootStrings
 	Format         CommonFormatStrings
+	ModelVersion   func(v string) string
 	Nav            CommonNavStrings
 	NoTournaments  func() string
 	NotFound       CommonNotFoundStrings
@@ -64,6 +66,14 @@ type CommonStrings struct {
 	Title          func(title string) string
 	Unrated        CommonUnratedStrings
 	Untitled       func() string
+}
+
+type CommonAsOfStrings struct {
+	Earlier func(date string) string
+	Lede    func(date string) string
+	Next    func(date string) string
+	Now     func() string
+	Prev    func(date string) string
 }
 
 type CommonChartStrings struct {
@@ -152,10 +162,11 @@ type CommonUnratedStrings struct {
 
 // PlayerStrings is the player Surface.
 type PlayerStrings struct {
-	Games     func(n string) string
-	NotListed func(date string) string
-	Rank      func(n string) string
-	Stat      PlayerStatStrings
+	Games       func(n string) string
+	NotListed   func(date string) string
+	NotListedAt func(date string) string
+	Rank        func(n string) string
+	Stat        PlayerStatStrings
 }
 
 type PlayerStatStrings struct {
@@ -163,6 +174,9 @@ type PlayerStatStrings struct {
 	Games365   func() string
 	LastRating func() string
 	Sigma      func() string
+	SigmaTheta func() string
+	Theta      func() string
+	Vol        func() string
 	Week       func() string
 }
 
@@ -214,13 +228,14 @@ type SearchColStrings struct {
 
 // TeamStrings is the team Surface.
 type TeamStrings struct {
-	Breakdown TeamBreakdownStrings
-	NoTown    func() string
-	NotListed func(town string) string
-	Rank      func(n string, town string) string
-	Results   TeamResultsStrings
-	Roster    func(n string) string
-	Stat      TeamStatStrings
+	Breakdown   TeamBreakdownStrings
+	NoTown      func() string
+	NotListed   func(town string) string
+	NotListedAt func(date string, town string) string
+	Rank        func(n string, town string) string
+	Results     TeamResultsStrings
+	Roster      func(n string) string
+	Stat        TeamStatStrings
 }
 
 type TeamBreakdownStrings struct {
@@ -375,6 +390,8 @@ func (s Strings) Lookup(id string) (string, bool) {
 		return s.Anomaly.Explain.Summary(), true
 	case "anomaly.title":
 		return s.Anomaly.Title(), true
+	case "common.as_of.now":
+		return s.Common.AsOf.Now(), true
 	case "common.brand":
 		return s.Common.Brand(), true
 	case "common.chart.empty":
@@ -485,6 +502,12 @@ func (s Strings) Lookup(id string) (string, bool) {
 		return s.Player.Stat.LastRating(), true
 	case "player.stat.sigma":
 		return s.Player.Stat.Sigma(), true
+	case "player.stat.sigma_theta":
+		return s.Player.Stat.SigmaTheta(), true
+	case "player.stat.theta":
+		return s.Player.Stat.Theta(), true
+	case "player.stat.vol":
+		return s.Player.Stat.Vol(), true
 	case "player.stat.week":
 		return s.Player.Stat.Week(), true
 	case "players.col.games_year":
@@ -634,7 +657,7 @@ func (s Strings) Lookup(id string) (string, bool) {
 // Defines reports whether the Catalog holds the id at all, templated or not.
 func (Strings) Defines(id string) bool {
 	switch id {
-	case "anomaly.col.forecast", "anomaly.col.hard", "anomaly.col.in_person", "anomaly.col.score", "anomaly.col.sync", "anomaly.explain.count", "anomaly.explain.forecast", "anomaly.explain.forecast_name", "anomaly.explain.gap", "anomaly.explain.hard", "anomaly.explain.hard_name", "anomaly.explain.shrink", "anomaly.explain.summary", "anomaly.title", "common.brand", "common.chart.empty", "common.chart.place", "common.chart.place_point", "common.chart.rating", "common.chart.title", "common.col.after", "common.col.before", "common.col.change", "common.col.change_player_title", "common.col.change_team_title", "common.col.date", "common.col.difficulty", "common.col.difficulty_title", "common.col.gain", "common.col.gain_title", "common.col.place", "common.col.player", "common.col.rating", "common.col.sigma_title", "common.col.taken", "common.col.team", "common.col.tournament", "common.col.type", "common.col.value", "common.col.value_title", "common.failed.lede", "common.failed.title", "common.foot.note", "common.format.async", "common.format.in_person", "common.format.strict_sync", "common.format.sync", "common.nav.method", "common.nav.picker", "common.nav.players", "common.nav.releases", "common.nav.teams", "common.nav.tournaments", "common.no_tournaments", "common.not_found.lede", "common.not_found.title", "common.of_n", "common.page_title", "common.pager.label", "common.player_fallback", "common.prov.badge", "common.prov.from_page", "common.prov.hidden", "common.prov.title", "common.prov.toggle", "common.search.close", "common.search.label", "common.search.placeholder", "common.team_fallback", "common.title", "common.unrated.tag", "common.unrated.title", "common.untitled", "player.games", "player.not_listed", "player.rank", "player.stat.games", "player.stat.games365", "player.stat.last_rating", "player.stat.sigma", "player.stat.week", "players.col.games_year", "players.col.place_title", "players.lede", "players.prov_split", "releases.col.players", "releases.col.shift", "releases.col.shift_cum", "releases.col.teams", "releases.lede", "releases.players", "releases.teams", "releases.title", "search.col.games", "search.col.last", "search.col.tournaments", "search.nothing", "search.page_title", "search.players", "search.prompt", "search.query", "search.teams", "search.title", "team.breakdown.empty_slot", "team.breakdown.equals", "team.breakdown.fade", "team.breakdown.fade_overlap", "team.breakdown.left", "team.breakdown.left_title", "team.breakdown.merged", "team.breakdown.now", "team.breakdown.now_title", "team.breakdown.place", "team.breakdown.points", "team.breakdown.strength", "team.breakdown.sum", "team.breakdown.title", "team.breakdown.w", "team.breakdown.w_format", "team.breakdown.w_top", "team.breakdown.w_towns", "team.no_town", "team.not_listed", "team.rank", "team.results.counts", "team.results.counts_col_title", "team.results.counts_title", "team.results.older_count", "team.results.older_toggle", "team.results.title", "team.results.value_how", "team.results.value_how_place", "team.roster", "team.stat.week", "teams.col.results", "teams.col.results_title", "teams.lede", "teams.prov_split", "tournament.byline", "tournament.field.all_venues", "tournament.field.by_place", "tournament.field.by_place_title", "tournament.field.empty", "tournament.field.forecast", "tournament.field.gain_title", "tournament.field.lineup", "tournament.field.lineup_title", "tournament.field.played_as", "tournament.field.roster_open", "tournament.field.roster_toggle", "tournament.field.title", "tournament.field.to_lineup", "tournament.field.to_lineup_title", "tournament.field.unrated", "tournament.field.value_title", "tournament.field.venue", "tournament.field.venue_col", "tournament.field.venue_option", "tournament.field.venue_place", "tournament.field.winner", "tournament.field.winner_title", "tournament.forecast.col_system", "tournament.forecast.col_teams", "tournament.forecast.fun", "tournament.forecast.gg", "tournament.forecast.ours", "tournament.forecast.quest", "tournament.forecast.title", "tournament.questions.bar", "tournament.questions.hint", "tournament.questions.title", "tournament.stat.ll_cross", "tournament.stat.ll_in", "tournament.stat.questions", "tournament.stat.rho_forecast", "tournament.stat.rho_old", "tournament.stat.teams", "tournament.stat.venues", "tournament.untitled", "tournament.venues", "tournaments.col.questions", "tournaments.col.teams", "tournaments.col.weight", "tournaments.lede":
+	case "anomaly.col.forecast", "anomaly.col.hard", "anomaly.col.in_person", "anomaly.col.score", "anomaly.col.sync", "anomaly.explain.count", "anomaly.explain.forecast", "anomaly.explain.forecast_name", "anomaly.explain.gap", "anomaly.explain.hard", "anomaly.explain.hard_name", "anomaly.explain.shrink", "anomaly.explain.summary", "anomaly.title", "common.as_of.earlier", "common.as_of.lede", "common.as_of.next", "common.as_of.now", "common.as_of.prev", "common.brand", "common.chart.empty", "common.chart.place", "common.chart.place_point", "common.chart.rating", "common.chart.title", "common.col.after", "common.col.before", "common.col.change", "common.col.change_player_title", "common.col.change_team_title", "common.col.date", "common.col.difficulty", "common.col.difficulty_title", "common.col.gain", "common.col.gain_title", "common.col.place", "common.col.player", "common.col.rating", "common.col.sigma_title", "common.col.taken", "common.col.team", "common.col.tournament", "common.col.type", "common.col.value", "common.col.value_title", "common.failed.lede", "common.failed.title", "common.foot.note", "common.format.async", "common.format.in_person", "common.format.strict_sync", "common.format.sync", "common.model_version", "common.nav.method", "common.nav.picker", "common.nav.players", "common.nav.releases", "common.nav.teams", "common.nav.tournaments", "common.no_tournaments", "common.not_found.lede", "common.not_found.title", "common.of_n", "common.page_title", "common.pager.label", "common.player_fallback", "common.prov.badge", "common.prov.from_page", "common.prov.hidden", "common.prov.title", "common.prov.toggle", "common.search.close", "common.search.label", "common.search.placeholder", "common.team_fallback", "common.title", "common.unrated.tag", "common.unrated.title", "common.untitled", "player.games", "player.not_listed", "player.not_listed_at", "player.rank", "player.stat.games", "player.stat.games365", "player.stat.last_rating", "player.stat.sigma", "player.stat.sigma_theta", "player.stat.theta", "player.stat.vol", "player.stat.week", "players.col.games_year", "players.col.place_title", "players.lede", "players.prov_split", "releases.col.players", "releases.col.shift", "releases.col.shift_cum", "releases.col.teams", "releases.lede", "releases.players", "releases.teams", "releases.title", "search.col.games", "search.col.last", "search.col.tournaments", "search.nothing", "search.page_title", "search.players", "search.prompt", "search.query", "search.teams", "search.title", "team.breakdown.empty_slot", "team.breakdown.equals", "team.breakdown.fade", "team.breakdown.fade_overlap", "team.breakdown.left", "team.breakdown.left_title", "team.breakdown.merged", "team.breakdown.now", "team.breakdown.now_title", "team.breakdown.place", "team.breakdown.points", "team.breakdown.strength", "team.breakdown.sum", "team.breakdown.title", "team.breakdown.w", "team.breakdown.w_format", "team.breakdown.w_top", "team.breakdown.w_towns", "team.no_town", "team.not_listed", "team.not_listed_at", "team.rank", "team.results.counts", "team.results.counts_col_title", "team.results.counts_title", "team.results.older_count", "team.results.older_toggle", "team.results.title", "team.results.value_how", "team.results.value_how_place", "team.roster", "team.stat.week", "teams.col.results", "teams.col.results_title", "teams.lede", "teams.prov_split", "tournament.byline", "tournament.field.all_venues", "tournament.field.by_place", "tournament.field.by_place_title", "tournament.field.empty", "tournament.field.forecast", "tournament.field.gain_title", "tournament.field.lineup", "tournament.field.lineup_title", "tournament.field.played_as", "tournament.field.roster_open", "tournament.field.roster_toggle", "tournament.field.title", "tournament.field.to_lineup", "tournament.field.to_lineup_title", "tournament.field.unrated", "tournament.field.value_title", "tournament.field.venue", "tournament.field.venue_col", "tournament.field.venue_option", "tournament.field.venue_place", "tournament.field.winner", "tournament.field.winner_title", "tournament.forecast.col_system", "tournament.forecast.col_teams", "tournament.forecast.fun", "tournament.forecast.gg", "tournament.forecast.ours", "tournament.forecast.quest", "tournament.forecast.title", "tournament.questions.bar", "tournament.questions.hint", "tournament.questions.title", "tournament.stat.ll_cross", "tournament.stat.ll_in", "tournament.stat.questions", "tournament.stat.rho_forecast", "tournament.stat.rho_old", "tournament.stat.teams", "tournament.stat.venues", "tournament.untitled", "tournament.venues", "tournaments.col.questions", "tournaments.col.teams", "tournaments.col.weight", "tournaments.lede":
 		return true
 	}
 	return false

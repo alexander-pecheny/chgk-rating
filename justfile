@@ -53,6 +53,20 @@ ship:
     cargo build --release --manifest-path {{prod}}/Cargo.toml
     cd {{prod}}/web && go build -o serve .
 
+# It builds, fits into out/ from production's buff.db when out/ has no index
+# yet or `refit` is given, and (re)starts the instance through ~/.local/bin/a2-dev.
+# Serve this worktree at https://<name>.a2-dev.pecheny.me.
+dev name refit="":
+    #!/bin/sh
+    set -eu
+    [ -e buff.db ] || ln -s {{prod}}/buff.db buff.db
+    [ -e data/external ] || ln -s {{prod}}/data/external data/external
+    just build
+    if [ -n "{{refit}}" ] || [ ! -e out/web.db ]; then
+        SKIP_SYNC=1 SKIP_RESTART=1 REPO="{{repo}}" deploy/update.sh
+    fi
+    a2-dev add {{name}} "{{repo}}"
+
 # The last lines of the daily log, and whether the site is up.
 status:
     @tail -n 12 out/update.log 2>/dev/null || echo "no out/update.log yet"

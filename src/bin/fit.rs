@@ -191,10 +191,12 @@ struct Fit<'a> {
 impl<'a> Fit<'a> {
     fn new(arena: &'a Arena, cfg: &'a Config, features: Option<Features>, start: Instant) -> rusqlite::Result<Fit<'a>> {
         let diag = arg("--diag-player").and_then(|v| v.parse::<i64>().ok());
+        let w = Writer::create(&cfg.data.out_path)?;
+        w.meta("model_version", &cfg.model.version)?;
         Ok(Fit {
             arena,
             cfg,
-            w: Writer::create(&cfg.data.out_path)?,
+            w,
             features,
             pre: None,
             diag: diag.and_then(|id| arena.player_ids.iter().position(|x| *x == id)),
@@ -328,7 +330,8 @@ impl Observer for Fit<'_> {
             // forecast reads `theta` and `phi` separately and never this.
             let theta = r.players.published(i) + cfg.display.player_phi * r.players.phi(i);
             let delta = since(chgk_rating::display::player(theta, cfg), &mut self.prev_d[i]);
-            prows.push((arena.player_ids[i], theta, r.players.sigma_at(i, r.day, cfg), r.activity.count[i], change, delta));
+            let vol = r.players.state[i].vol;
+            prows.push((arena.player_ids[i], theta, r.players.sigma_at(i, r.day, cfg), r.activity.count[i], change, delta, vol));
         }
         self.w.player_ratings(id, &prows, |t| chgk_rating::display::player(t, cfg))?;
         let trows: Vec<(i64, f64, f64, f64, f64, f64)> = r

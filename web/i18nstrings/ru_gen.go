@@ -41,6 +41,15 @@ var RU = Strings{
 		Title: func() string { return "Аномалии" },
 	},
 	Common: CommonStrings{
+		AsOf: CommonAsOfStrings{
+			Earlier: func(date string) string {
+				return fmt.Sprintf("Как было на прошлых релизах: %s и раньше →", date)
+			},
+			Lede: func(date string) string { return fmt.Sprintf("Как было на релизе от %s.", date) },
+			Next: func(date string) string { return fmt.Sprintf("%s →", date) },
+			Now:  func() string { return "сейчас" },
+			Prev: func(date string) string { return fmt.Sprintf("← %s", date) },
+		},
 		Brand: func() string { return "Рейтинг ЧГК" },
 		Chart: CommonChartStrings{
 			Empty:      func() string { return "Точек для графика пока нет." },
@@ -96,6 +105,7 @@ var RU = Strings{
 			StrictSync: func() string { return "строгий синхрон" },
 			Sync:       func() string { return "синхрон" },
 		},
+		ModelVersion: func(v string) string { return fmt.Sprintf("Версия модели %s", v) },
 		Nav: CommonNavStrings{
 			Method:      func() string { return "Методика" },
 			Picker:      func() string { return "Разделы" },
@@ -146,12 +156,18 @@ var RU = Strings{
 		NotListed: func(date string) string {
 			return fmt.Sprintf("Не в текущем релизе — последняя игра %s", date)
 		},
+		NotListedAt: func(date string) string {
+			return fmt.Sprintf("Не в таблице игроков релиза от %s", date)
+		},
 		Rank: func(n string) string { return fmt.Sprintf("%s-е место в таблице игроков", n) },
 		Stat: PlayerStatStrings{
 			Games:      func() string { return "Всего игр" },
 			Games365:   func() string { return "Игр за 365 дней" },
 			LastRating: func() string { return "Последний рейтинг" },
 			Sigma:      func() string { return "Неопределённость" },
+			SigmaTheta: func() string { return "Неопределённость σ" },
+			Theta:      func() string { return "Сила θ" },
+			Vol:        func() string { return "Волатильность v" },
 			Week:       func() string { return "Изменение за неделю" },
 		},
 	},
@@ -224,7 +240,10 @@ var RU = Strings{
 		},
 		NoTown:    func() string { return "город не указан" },
 		NotListed: func(town string) string { return fmt.Sprintf("Не в текущем релизе · %s", town) },
-		Rank:      func(n string, town string) string { return fmt.Sprintf("%s-е место · %s", n, town) },
+		NotListedAt: func(date string, town string) string {
+			return fmt.Sprintf("Не в таблице релиза от %s · %s", date, town)
+		},
+		Rank: func(n string, town string) string { return fmt.Sprintf("%s-е место · %s", n, town) },
 		Results: TeamResultsStrings{
 			Counts:         func() string { return "В рейтинге" },
 			CountsColTitle: func() string { return "Входит ли результат в рейтинг сейчас" },

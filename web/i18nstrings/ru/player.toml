@@ -2,6 +2,7 @@
 rank = '{{.n}}-е место в таблице игроков'
 not_listed = 'Не в текущем релизе — последняя игра {{.date}}'
 games = 'Сыгранные турниры ({{.n}})'
+not_listed_at = 'Не в таблице игроков релиза от {{.date}}'
 
 [stat]
 last_rating = "Последний рейтинг"
@@ -9,3 +10,7 @@ sigma = "Неопределённость"
 games365 = "Игр за 365 дней"
 games = "Всего игр"
 week = "Изменение за неделю"
+# The model's own numbers, on the scale of the formulas at /method/.
+theta = "Сила θ"
+sigma_theta = "Неопределённость σ"
+vol = "Волатильность v"

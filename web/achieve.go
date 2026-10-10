@@ -130,16 +130,21 @@ func (b breakdown) footRow(sum float64) ui.Node {
 
 // teamResults is every result the team has played, with what it was worth and
 // whether it counts today.
-func (s *site) teamResults(id int64) (ui.Node, error) {
+func (s *site) teamResults(id int64, at *release) (ui.Node, error) {
 	evs, err := s.q.results(id)
 	if err != nil {
 		return nil, err
+	}
+	evs = before(evs, at, func(e result) string { return str(e.date) })
+	day := s.releaseDate
+	if at != nil {
+		day = at.date
 	}
 	title := S.Team.Results.Title(itoa(int64(len(evs))))
 	if len(evs) == 0 {
 		return section(title, ui.Empty(ui.Text(S.Common.NoTournaments()))), nil
 	}
-	cutoff := s.cutoff()
+	cutoff := cutoff(day)
 	rows := make([]ui.Item, len(evs))
 	for i, e := range evs {
 		rows[i] = resultRow(e, cutoff)
@@ -148,18 +153,18 @@ func (s *site) teamResults(id int64) (ui.Node, error) {
 	return section(title, append(kids, table(resultCols(), rows...))...), nil
 }
 
-// cutoff is the date three years before the release: older results are
+// cutoff is the date three years before the release day: older results are
 // folded away behind the switch.
-func (s *site) cutoff() string {
+func cutoff(day string) string {
 	const (
 		yearLen = len("2006")
 		years   = 3
 	)
-	y, err := strconv.Atoi(prefix(s.releaseDate, yearLen))
-	if err != nil || len(s.releaseDate) < yearLen {
+	y, err := strconv.Atoi(prefix(day, yearLen))
+	if err != nil || len(day) < yearLen {
 		return ""
 	}
-	return strconv.Itoa(y-years) + s.releaseDate[yearLen:]
+	return strconv.Itoa(y-years) + day[yearLen:]
 }
 
 // olderToggle is the switch for the results before the cutoff, when there are any.

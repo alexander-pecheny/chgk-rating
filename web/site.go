@@ -19,6 +19,9 @@ type site struct {
 	nAnomaly    int
 	// method is the post at /method/, as HTML.
 	method string
+	// model is the version of the rules that made the numbers; empty for a
+	// fit from before versions.
+	model string
 }
 
 func loadSite(q *store) (*site, error) {
@@ -32,7 +35,8 @@ func loadSite(q *store) (*site, error) {
 	players, e3 := q.metaInt("n_player_rank")
 	anomaly, e4 := q.anomalyCount()
 	method, e5 := renderMethod()
-	s.releaseDate, s.nTeams, s.nPlayers, s.nAnomaly, s.method = date, teams, players, anomaly, method
+	model, _ := q.meta("model_version")
+	s.releaseDate, s.nTeams, s.nPlayers, s.nAnomaly, s.method, s.model = date, teams, players, anomaly, method, model
 	return s, errors.Join(err, e1, e2, e3, e4, e5)
 }
 

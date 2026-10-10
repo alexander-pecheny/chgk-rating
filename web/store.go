@@ -15,7 +15,7 @@ import (
 
 // indexVersion is the web.db this server reads: schema.rs's VERSION on the
 // Rust side, bumped with it.
-const indexVersion = "15"
+const indexVersion = "16"
 
 // The kinds of place_hist, as schema.rs numbers them.
 const (

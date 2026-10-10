@@ -59,7 +59,15 @@ func renderMethod() (string, error) {
 }
 
 func (s *site) methodPage() (string, []ui.Item) {
-	return S.Common.Nav.Method(), []ui.Item{ui.Article(ui.Raw(s.method))}
+	return S.Common.Nav.Method(), []ui.Item{s.modelLine(), ui.Article(ui.Raw(s.method))}
+}
+
+// modelLine names the version of the rules behind the numbers.
+func (s *site) modelLine() ui.Node {
+	if s.model == "" {
+		return nil
+	}
+	return head(ui.Text(S.Common.ModelVersion(s.model)))
 }
 
 // texMath reads $…$ inside a line and a $$ … $$ block of its own lines as TeX.

@@ -10,7 +10,7 @@ use std::path::Path;
 
 /// Bumped whenever the index grows a table or column the server reads, so a
 /// deploy rebuilds it instead of serving a page with nothing behind it.
-pub const VERSION: &str = "15";
+pub const VERSION: &str = "16";
 
 /// `place_hist.kind`: whose places a blob holds.
 pub const KIND_PLAYER: i64 = 0;
@@ -67,7 +67,7 @@ CREATE INDEX idx_venue_field ON venue(field_id);
 /// and per-result tables too large to copy here. A file that lacks one fails
 /// the index build rather than a page.
 const SITE_READS: &[(&str, &[&str])] = &[
-    ("player_ratings", &["release_id", "player_id", "theta", "sigma"]),
+    ("player_ratings", &["release_id", "player_id", "theta", "sigma", "vol"]),
     ("team_ratings", &["release_id", "team_id", "mu", "sigma"]),
     ("player_events", &["tournament_id", "player_id", "theta_before", "theta_after", "phi_before", "sigma_before"]),
     ("team_events", &["tournament_id", "team_id", "date", "forecast", "forecast_place", "actual_place",

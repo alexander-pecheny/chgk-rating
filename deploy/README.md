@@ -35,3 +35,15 @@ SKIP_SYNC=1 SKIP_RESTART=1 REPO=$PWD deploy/update.sh   # a dry run elsewhere
 `SKIP_SYNC=1` keeps the current `buff.db`, `SKIP_RESTART=1` leaves the service
 alone, and `REPO` points the run at another checkout. Runs cannot overlap:
 `out/update.lock` is held for the length of one.
+
+## Previews
+
+`just dev <name>` in a worktree serves it at `https://<name>.a2-dev.pecheny.me`.
+It links production's `buff.db` and `data/external` into the worktree, builds,
+fits into the worktree's own `out/` if it has no index yet (`just dev <name>
+refit` fits again), and starts the instance with `~/.local/bin/a2-dev`. Each
+instance is an `a2-dev@<name>` unit running the worktree's `web/serve` on its
+own port, behind a route in `/etc/caddy/a2-dev.d/`; the wildcard DNS record and
+certificate cover every name. `a2-dev ls` lists the instances and `a2-dev rm
+<name>` removes one. A rebuild of the server alone needs `just web` and
+`a2-dev restart <name>`.

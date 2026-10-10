@@ -1,3 +1,8 @@
+[model]
+# The version of the rules. Bump it with any change that moves a published
+# number, so two outputs can be compared knowing which rules made each.
+version = "1.0"
+
 [data]
 db_path = "buff.db"
 out_path = "out/ratings.db"

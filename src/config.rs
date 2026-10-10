@@ -3,6 +3,8 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default)]
+    pub model: Model,
     pub data: Data,
     pub question: Question,
     pub player: Player,
@@ -13,6 +15,14 @@ pub struct Config {
     pub numeric: Numeric,
     #[serde(default)]
     pub simple: Option<Simple>,
+}
+
+/// What the fit writes into `meta` to say which rules made its numbers.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Model {
+    #[serde(default)]
+    pub version: String,
 }
 
 /// Model S, the spreadsheet-reproducible prototype of `src/bin/simple.rs`.

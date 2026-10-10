@@ -368,7 +368,11 @@ fn change_factor(db: &Connection, table: &str, release: i64, b: f64) -> f64 {
 fn meta(c: &Ctx, last: &Release, (players, teams): (usize, usize), reads: &Reads) {
     let d = c.d;
     let flag = |b: bool| (b as u8).to_string();
+    // A fit from before the rules had a version leaves it empty.
+    let model: String =
+        c.r.query_row("select value from meta where key = 'model_version'", [], |r| r.get(0)).unwrap_or_default();
     for (k, v) in [
+        ("model_version", model),
         ("index_version", VERSION.to_string()),
         ("release_id", last.0.to_string()),
         ("release_date", last.1.clone()),

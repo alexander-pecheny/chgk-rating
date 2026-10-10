@@ -101,10 +101,14 @@ var listings = map[string]func(*site, int) (string, []ui.Item, error){
 }
 
 // entities are the pages of one team, player or tournament.
-var entities = map[string]func(*site, int64) (string, []ui.Item, error){
-	"players":     (*site).playerPage,
-	"teams":       (*site).teamPage,
-	"tournaments": (*site).tournamentPage,
+// A player's and a team's page take ?release=id for the page as of that
+// release.
+var entities = map[string]func(*site, int64, *release) (string, []ui.Item, error){
+	"players": (*site).playerPage,
+	"teams":   (*site).teamPage,
+	"tournaments": func(s *site, id int64, _ *release) (string, []ui.Item, error) {
+		return s.tournamentPage(id)
+	},
 }
 
 // singles are the pages with an address of one segment and no listing.
@@ -170,12 +174,13 @@ func entity(kind string) page {
 	if f == nil {
 		return nil
 	}
-	return func(s *site, _ *http.Request, segs []string) (string, []ui.Item, error) {
+	return func(s *site, r *http.Request, segs []string) (string, []ui.Item, error) {
 		id, err := strconv.ParseInt(segs[1], decimal, idBits)
-		if err != nil {
+		at, known := s.releaseParam(r)
+		if err != nil || !known {
 			return "", nil, errNotFound
 		}
-		return f(s, id)
+		return f(s, id, at)
 	}
 }
 

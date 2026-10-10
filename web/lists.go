@@ -107,7 +107,7 @@ func (s *site) teamTable(page int) (string, []ui.Item, error) {
 	}
 	lines := make([]rankLine, len(rows))
 	for i, r := range rows {
-		lines[i] = s.teamLine(r)
+		lines[i] = s.teamLine(r, nil)
 	}
 	var sec []ui.Item
 	// The switch only matters when some team is provisional.
@@ -130,12 +130,14 @@ func (s *site) teamCols() []ui.Item {
 		spread, numCol(S.Common.Col.Change(), S.Common.Col.ChangeTeamTitle())}
 }
 
-func (s *site) teamLine(r teamRank) rankLine {
+// teamLine and playerLine link a name to the page as of the release the
+// table is from; nil is today's.
+func (s *site) teamLine(r teamRank, at *release) rankLine {
 	spread := numCell(disp(num(r.sigma)), ui.Faint())
 	if s.q.s2 {
 		spread = numCell(fmt.Sprintf("%.0f", num(r.evi)), ui.Faint())
 	}
-	name := nameCell(teamHref(r.id), teamName(r.name, r.id), provMark(r.prov), town(str(r.town)))
+	name := nameCell(asOfHref(teamHref(r.id), at), teamName(r.name, r.id), provMark(r.prov), town(str(r.town)))
 	return rankLine{rank: r.rank, prov: r.prov, cells: []ui.Item{name, numCell(disp(num(r.display)), ui.Bold()), spread, changeCell(r.change)}}
 }
 
@@ -149,7 +151,7 @@ func (s *site) playerTable(page int) (string, []ui.Item, error) {
 	single := s.q.sc.rankSigmas > 0
 	lines := make([]rankLine, len(rows))
 	for i, r := range rows {
-		lines[i] = playerLine(r)
+		lines[i] = playerLine(r, nil)
 		lines[i].ranked = single
 	}
 	sec := p.framed(rankTable(playerCols(s.q.sc.rankSigmas), lines, p.lo >= firm, S.Players.ProvSplit()))
@@ -173,9 +175,9 @@ func playerCols(rankSigmas float64) []ui.Item {
 		numCol("±", S.Common.Col.SigmaTitle()), numCol(S.Players.Col.GamesYear()), numCol(S.Common.Col.Change(), S.Common.Col.ChangePlayerTitle())}
 }
 
-func playerLine(r playerRank) rankLine {
+func playerLine(r playerRank, at *release) rankLine {
 	return rankLine{rank: r.rank, prov: r.prov, cells: []ui.Item{
-		nameCell(playerHref(r.id), playerName(r.name, r.id), provMark(r.prov)),
+		nameCell(asOfHref(playerHref(r.id), at), playerName(r.name, r.id), provMark(r.prov)),
 		numCell(disp(num(r.display)), ui.Bold()),
 		numCell(disp(num(r.sigma)), ui.Faint()),
 		numCell(itoa(count(r.games))),
@@ -236,8 +238,11 @@ func (s *site) releasesPage() (string, []ui.Item, error) {
 	}
 	cols := []ui.Item{numCol("№"), nameCol(S.Common.Col.Date()), numCol(S.Releases.Col.Players()),
 		numCol(S.Releases.Col.Teams()), numCol(S.Releases.Col.Shift()), numCol(S.Releases.Col.ShiftCum())}
-	lede := head(ui.Text(S.Releases.Lede(itoa(int64(len(s.rels))))))
-	return S.Common.Nav.Releases(), []ui.Item{lede, ui.Section(table(cols, trs...))}, nil
+	lede := S.Releases.Lede(itoa(int64(len(s.rels))))
+	if s.model != "" {
+		lede += " " + S.Common.ModelVersion(s.model) + "."
+	}
+	return S.Common.Nav.Releases(), []ui.Item{head(ui.Text(lede)), ui.Section(table(cols, trs...))}, nil
 }
 
 func releaseRow(r releaseLine) ui.Node {

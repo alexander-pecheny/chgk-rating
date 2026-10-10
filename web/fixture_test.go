@@ -15,16 +15,20 @@ import (
 // one in-person tournament of two teams and three players. No achievement
 // tables, so the field shows the step of the rating and its parts.
 const fixtureRatings = `
-CREATE TABLE player_ratings (release_id INTEGER, player_id INTEGER, theta REAL, sigma REAL);
-CREATE TABLE team_ratings (release_id INTEGER, team_id INTEGER, mu REAL, sigma REAL);
+CREATE TABLE player_ratings (release_id INTEGER, player_id INTEGER, theta REAL, sigma REAL, games_365 INTEGER,
+                             delta REAL, vol REAL, display REAL);
+CREATE TABLE team_ratings (release_id INTEGER, team_id INTEGER, mu REAL, sigma REAL, display REAL, change REAL,
+                           evidence REAL);
 CREATE TABLE player_events (tournament_id INTEGER, player_id INTEGER, theta_before REAL, theta_after REAL,
                             phi_before REAL, sigma_before REAL);
 CREATE TABLE team_events (tournament_id INTEGER, team_id INTEGER, date TEXT, forecast REAL, forecast_place REAL,
                           actual_place REAL, mu_before REAL, mu_after REAL, rated INTEGER, s_r REAL,
                           d_place REAL, d_pull REAL);
 CREATE TABLE question_params (tournament_id INTEGER, q INTEGER, b REAL);
-INSERT INTO player_ratings VALUES (1, 100, 0.40, 0.1), (2, 100, 0.50, 0.1), (1, 101, 0.20, 0.5), (2, 101, 0.25, 0.5);
-INSERT INTO team_ratings VALUES (1, 10, 9.0, 0.1), (2, 10, 9.05, 0.1), (1, 11, 8.0, 0.1), (2, 11, 7.9, 0.1);
+INSERT INTO player_ratings VALUES (1, 100, 0.40, 0.1, 3, 20, 0.08, 400), (2, 100, 0.50, 0.1, 1, 100, 0.0731, 500),
+                                  (1, 101, 0.20, 0.5, 2, 0, 0.1, 200), (2, 101, 0.25, 0.5, 1, 50, 0.1, 250);
+INSERT INTO team_ratings VALUES (1, 10, 9.0, 0.1, 9000, 10, 1), (2, 10, 9.05, 0.1, 9050, 50, 1), (1, 11, 8.0, 0.1, 8000, 0, 1),
+                                (2, 11, 7.9, 0.1, 7900, -100, 1);
 INSERT INTO player_events VALUES (500, 100, 0.40, 0.50, 0.10, 0.1), (500, 101, 0.20, 0.25, NULL, 0.5),
                                  (500, 102, 0.10, 0.08, 0.0, 0.1);
 INSERT INTO team_events VALUES (500, 10, '2026-09-01', 2.0, 2, 1, 9.0, 9.05, 1, 9.5, 0.03, 0.02),
@@ -61,7 +65,7 @@ CREATE VIRTUAL TABLE team_fts USING fts5(name, town, aliases);
 INSERT INTO meta VALUES ('index_version', '` + indexVersion + `'), ('release_id', '2'), ('release_date', '2026-09-03'),
   ('n_player_rank', '2'), ('n_team_rank', '2'), ('a_team', '0'), ('b_team', '1000'), ('a_player', '0'),
   ('b_player', '1000'), ('player_phi', '1'), ('provisional_sigma', '0.3'), ('rank_sigmas', '0'), ('clean_from', ''), ('s2', '1'), ('achieve', '0'),
-  ('team_steps', '1');
+  ('team_steps', '1'), ('model_version', '1.0');
 INSERT INTO release_ VALUES (1, '2026-08-27', 0, 0, 2, 2), (2, '2026-09-03', 0.01, 0.01, 2, 2);
 INSERT INTO player VALUES (100, 'Анна Иванова', 1, '2026-09-01', 500, 100, 1, 0),
                           (101, 'Борис Петров', 1, '2026-09-01', 250, 500, 1, 1),
@@ -113,12 +117,22 @@ func TestFixturePages(t *testing.T) {
 		{"/players/", 200, []string{"Анна Иванова", "Борис Петров"}},
 		{"/teams/10/", 200, []string{"Москва", "1-е место", "Анна Иванова", "Кубок"}},
 		// Before and after at an in-person table, theta + phi: 500 and 600.
-		{"/players/100/", 200, []string{"Анна Иванова", ">500<", ">600<", "+100"}},
+		{"/players/100/", 200, []string{"Анна Иванова", ">500<", ">600<", "+100", ">0,500<", ">0,100<", ">0,073<", `href="/players/100/?release=1"`}},
+		// As of the first release: its numbers, and no tournament yet, since
+		// the only one was played after it.
+		{"/players/100/?release=1", 200, []string{"Как было на релизе от 2026-08-27", ">400<", ">0,400<", ">0,080<", "+20",
+			"Сыгранные турниры (0)", `href="/players/100/"`}},
+		{"/players/100/?release=2", 200, []string{"Сыгранные турниры (1)"}},
+		{"/players/100/?release=9", 404, nil},
+		{"/teams/10/?release=1", 200, []string{"Как было на релизе от 2026-08-27", ">9000<", "+10", "Все результаты (0)"}},
+		{"/releases/1/", 200, []string{`href="/teams/10/?release=1"`}},
+		{"/releases/1/players/", 200, []string{`href="/players/100/?release=1"`}},
+		{"/method/", 200, []string{"Версия модели 1.0"}},
 		// The step of Альфа is +50: +30 by place and +20 of pull. Бета entered
 		// as Бета-2 and its result did not count.
 		{"/tournaments/500/", 200, []string{">9000<", ">9050<", "+50", "+30", "+20", "Бета-2", ">9500<"}},
 		{"/search/?q=%D0%B1", 200, []string{`href="/teams/11/"`, `href="/players/101/"`}},
-		{"/releases/", 200, []string{"2026-09-03"}},
+		{"/releases/", 200, []string{"2026-09-03", "Версия модели 1.0"}},
 		{"/anomaly/", 200, nil},
 		{"/tournaments/1/", 404, nil},
 		{"/teams/x/", 404, nil},

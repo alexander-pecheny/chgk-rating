@@ -8,6 +8,15 @@ team_fallback = 'Команда {{.n}}'
 player_fallback = 'Игрок {{.n}}'
 of_n = 'из {{.n}}'
 no_tournaments = "Рейтинговых турниров нет."
+model_version = 'Версия модели {{.v}}'
+
+# A player's or team's page as of a past release, at ?release=id.
+[as_of]
+lede = 'Как было на релизе от {{.date}}.'
+prev = '← {{.date}}'
+next = '{{.date}} →'
+now = "сейчас"
+earlier = 'Как было на прошлых релизах: {{.date}} и раньше →'
 
 [nav]
 teams = "Команды"
