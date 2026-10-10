@@ -246,7 +246,7 @@ var RU = Strings{
 				return "Field: the average strength of the tournament's twenty strongest lineups, placed between 5000, which weighs 0, and 10000, which weighs 1. A tournament with fewer than twenty lineups is averaged over the lineups it has, and its weight is then multiplied by the square root of its number of lineups over twenty, so a strong small field counts, but less than a strong full one."
 			},
 			Format: func() string {
-				return "Format: in-person 1, strictly synchronous 0.9, synchronous 0.5. Asynchronous tournaments do not count."
+				return "Format: in-person 1, strictly synchronous 2/3, synchronous 0.5. Asynchronous tournaments do not count."
 			},
 			Merged: func() string {
 				return "Several cities playing one package within two days of each other are one tournament for the team rating, with one set of places by questions taken, ties sharing the place. They are merged only when they have the same editors and question count, their questions' take rates agree (a correlation of at least 0.5), and no team played at two of them. A question that a whole venue did not play is dropped at all of them, so every team plays for the same questions. A tournament played in one place keeps its official places, shootouts included. Individual ratings treat every venue as its own tournament."

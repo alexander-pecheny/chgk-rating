@@ -107,7 +107,7 @@ pub struct Knobs {
 }
 
 /// The variant on the site: the user's constraints (seven results,
-/// synchronous 0.5, strictly synchronous 0.9, a divisor that never lets an
+/// synchronous 0.5, strictly synchronous 2/3 as in the official rules, a divisor that never lets an
 /// idle rating grow) and the rest from `achieve --search --fix`.
 const DEFAULT: Knobs = Knobs {
     perf: "strength_place",
@@ -115,7 +115,7 @@ const DEFAULT: Knobs = Knobs {
     mix: 0.5,
     shift: SHIFT,
     w_sync: 0.5,
-    w_strict: 0.9,
+    w_strict: 2.0 / 3.0,
     w_async: 0.0,
     field_mode: "anchors",
     field_k: 20,
