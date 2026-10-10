@@ -205,4 +205,4 @@ $$
 
 ## Код
 
-https://code.pecheny.me/pecheny/chgk-rating
+<https://code.pecheny.me/pecheny/chgk-rating>
