@@ -4,6 +4,8 @@ import (
 	"bytes"
 	_ "embed"
 	"regexp"
+	"slices"
+	"strings"
 
 	"github.com/wyatt915/treeblood"
 	"github.com/yuin/goldmark"
@@ -151,7 +153,30 @@ func writeTex(w util.BufWriter, tex []byte, display, entering bool) (ast.WalkSta
 	}
 	mml, err := treeblood.TexToMML(string(bytes.TrimSpace(tex)), nil, display, false)
 	if err == nil {
-		_, err = w.WriteString(mml)
+		_, err = w.WriteString(sortAttrs(mml))
 	}
 	return ast.WalkSkipChildren, err
+}
+
+// treeblood writes a tag's attributes, and a style's declarations, in map order, which differs from run to
+// run; sorted, the page is the same bytes on every start.
+var (
+	mmlTag  = regexp.MustCompile(`<([a-z]+)((?:\s+[a-z:-]+="[^"]*")+)>`)
+	mmlAttr = regexp.MustCompile(`[a-z:-]+="[^"]*"`)
+)
+
+func sortAttrs(mml string) string {
+	return mmlTag.ReplaceAllStringFunc(mml, func(tag string) string {
+		m := mmlTag.FindStringSubmatch(tag)
+		attrs := mmlAttr.FindAllString(m[2], -1)
+		for i, a := range attrs {
+			if css, ok := strings.CutPrefix(a, `style="`); ok {
+				decls := strings.FieldsFunc(strings.TrimSuffix(css, `"`), func(r rune) bool { return r == ';' })
+				slices.Sort(decls)
+				attrs[i] = `style="` + strings.Join(decls, ";") + `;"`
+			}
+		}
+		slices.Sort(attrs)
+		return "<" + m[1] + " " + strings.Join(attrs, " ") + ">"
+	})
 }

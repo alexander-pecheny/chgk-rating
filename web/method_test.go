@@ -19,3 +19,12 @@ func TestMethodRenders(t *testing.T) {
 		t.Error("no display formula in the rendered post")
 	}
 }
+
+func TestMethodIsStable(t *testing.T) {
+	first, _ := renderMethod()
+	for range 20 {
+		if again, _ := renderMethod(); again != first {
+			t.Fatal("two renders of the post differ")
+		}
+	}
+}
