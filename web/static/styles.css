@@ -512,7 +512,8 @@ td:has(.roster-open input:checked) .roster-open span {
 
 /* ── the method page: the post, with its MathML ─────────── */
 
-.post {
+/* As specific as the frame's sticky rule above, which would widen it. */
+.site-body > .post {
   max-width: min(99ch, calc(100vw - 2 * var(--space-3-5) - 2 * var(--space-2)));
   line-height: var(--leading-relaxed);
 }
