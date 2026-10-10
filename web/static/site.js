@@ -146,12 +146,18 @@
   }
 
   function layout() {
-    frames.forEach(function (f) {
+    if (window.matchMedia("(max-width: 760px)").matches) return;
+    var lefts = frames.map(function (f) {
       var left = 0;
-      f.cols.forEach(function (i) {
-        var x = left + "px";
-        f.rows.forEach(function (r) { r.cells[i].style.left = x; });
+      return f.cols.map(function (i) {
+        var x = left;
         left += f.heads[i].getBoundingClientRect().width;
+        return x + "px";
+      });
+    });
+    frames.forEach(function (f, k) {
+      f.cols.forEach(function (i, j) {
+        f.rows.forEach(function (r) { r.cells[i].style.left = lefts[k][j]; });
       });
     });
   }
@@ -228,7 +234,15 @@
     panel.style.top = r.bottom + 2 + "px";
     panel.style.right = "auto";
   }
-  picker.addEventListener("click", function () { open(panel.hidden); });
+  picker.addEventListener("pointerdown", function (ev) {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    open(panel.hidden);
+  });
+  picker.addEventListener("click", function (ev) {
+    // A keyboard's Enter or Space arrives as a click with no press before it.
+    if (ev.detail === 0) open(panel.hidden);
+  });
   document.addEventListener("pointerdown", function (ev) {
     if (!panel.hidden && !strip.contains(ev.target)) open(false);
   });

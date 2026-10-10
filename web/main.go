@@ -67,6 +67,10 @@ func (h *handler) mux() *http.ServeMux {
 	// signs in here: an empty answer is one the menu cannot read, and it leaves
 	// the entry out.
 	mux.HandleFunc("/api/auth/me", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=604800")
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.Handle("/", h)
 	return mux
 }
