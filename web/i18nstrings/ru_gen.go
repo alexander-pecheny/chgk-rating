@@ -134,7 +134,7 @@ var RU = Strings{
 		TeamFallback: func(n string) string { return fmt.Sprintf("Команда %s", n) },
 		Title:        func(title string) string { return fmt.Sprintf("%s — Рейтинг ЧГК", title) },
 		Unrated: CommonUnratedStrings{
-			Tag: func() string { return "не в зачёт команде" },
+			Tag: func() string { return "не в рейтинг" },
 			Title: func() string {
 				return "Результат не учтён в рейтинге команды; рейтинги игроков он меняет"
 			},
