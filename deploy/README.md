@@ -2,7 +2,9 @@
 
 `chgk-rating.service` runs `web/serve`, the Go server, on port 9684 and Caddy
 proxies a2.pecheny.me to it. `deploy/chgk-rating.service` is the copy of
-the unit file.
+the unit file. At start-up the server runs `typst` to draw the formulas on
+/method/, and finds it through `/usr/local/bin/typst`, a link to
+`~/.local/bin/typst`, since a unit's PATH leaves out `~/.local/bin`.
 
 ## The daily update
 

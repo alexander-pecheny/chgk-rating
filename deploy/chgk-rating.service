@@ -5,8 +5,6 @@ After=network.target
 [Service]
 User=pecheny
 Group=pecheny
-# typst, which draws the formulas on /method/ at start-up, is in ~/.local/bin.
-Environment=PATH=/home/pecheny/.local/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=/home/pecheny/new_chgk_rating
 ExecStart=/home/pecheny/new_chgk_rating/web/serve --addr 127.0.0.1:9684
 Restart=on-failure
