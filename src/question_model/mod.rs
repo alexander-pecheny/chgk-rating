@@ -80,7 +80,7 @@ pub fn build_field(t: &Tournament, players: &Players, chem: &Chemistry, cfg: &Co
     let mut rng = Rng::new(cfg.numeric.crossfit_seed ^ (t.id as u64));
     let best = t.teams.iter().map(|r| r.position).filter(|&p| p > 0.0).fold(f64::INFINITY, f64::min);
     let obs = |tr: &TeamResult| TeamObs {
-        z: lineup(tr, players, &vbar, chem, a_fix, cfg),
+        z: lineup(tr, players, &vbar, chem, a_fix, t.day, cfg),
         members: tr.members.clone(),
         mask: tr.mask.clone(),
         half: rng.bit(),
@@ -96,9 +96,11 @@ pub fn build_field(t: &Tournament, players: &Players, chem: &Chemistry, cfg: &Co
 /// that is exactly `chem_u T / a` added to every member's strength, so it needs
 /// no new term anywhere else — and it reaches the difficulties and the player
 /// gradients for free.
-fn lineup(tr: &TeamResult, players: &Players, vbar: &[f64], chem: &Chemistry, a_fix: f64, cfg: &Config) -> Vec<f64> {
+fn lineup(tr: &TeamResult, players: &Players, vbar: &[f64], chem: &Chemistry, a_fix: f64, day: i32, cfg: &Config) -> Vec<f64> {
     let bonus = if cfg.question.chem_u != 0.0 { cfg.question.chem_u * chem.t(&tr.members) / a_fix } else { 0.0 };
-    tr.members.iter().map(|&i| players.theta(i as usize) + players.affinity(i as usize, vbar) + bonus).collect()
+    let k = cfg.question.var_boost;
+    let spread = |i: usize| if k != 0.0 { k * a_fix * players.sigma_at(i, day, cfg).powi(2) } else { 0.0 };
+    tr.members.iter().map(|&i| players.theta(i as usize) + players.affinity(i as usize, vbar) + bonus + spread(i as usize)).collect()
 }
 
 /// For every question, the lineups that answered or missed it.

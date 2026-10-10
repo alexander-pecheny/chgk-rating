@@ -465,11 +465,14 @@ impl Players {
             return;
         }
         for team in t.teams.iter().filter(|team| team.members.len() >= 2) {
+            let n = team.members.len() as f64;
             let sum: f64 = team.members.iter().map(|&i| self.state[i as usize].theta_raw).sum();
-            let mean = sum / team.members.len() as f64;
+            let mean = sum / n;
+            let var_mean = team.members.iter().map(|&i| self.state[i as usize].var).sum::<f64>() / n;
             for &i in &team.members {
                 let s = &mut self.state[i as usize];
-                s.theta_raw += f * (mean - s.theta_raw);
+                let share = if cfg.player.shrink_by_var && var_mean > 0.0 { s.var / var_mean } else { 1.0 };
+                s.theta_raw += (f * share).min(1.0) * (mean - s.theta_raw);
             }
         }
     }

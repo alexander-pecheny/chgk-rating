@@ -641,6 +641,14 @@ pub struct Question {
     /// 0 leaves the likelihood alone.
     #[serde(default)]
     pub chem_u: f64,
+    /// Each member enters the likelihood at `theta + var_boost * var`, `var`
+    /// being their uncertainty diffused to the day. Intensity is convex in
+    /// `theta`, so a player known only roughly answers, on average, like one
+    /// `a var / 2` stronger than their point estimate: 0.5 is that mean. A
+    /// lineup of one established player and several unsettled ones then
+    /// credits the unsettled ones with more of what it answers. 0 is off.
+    #[serde(default)]
+    pub var_boost: f64,
     /// Whether the editor affinity of section 3.6 is a property of every player
     /// or of a strong one; `none` is the shipped model.
     #[serde(default = "flat_affinity")]
@@ -721,6 +729,12 @@ pub struct Player {
     /// lineup's mean that follows is not allowed to undo that.
     #[serde(default)]
     pub shrink_keeps_floor: bool,
+    /// The pull towards the lineup mean is shared by uncertainty: each member
+    /// moves `teammate_shrink * var / mean var` of their gap, so the unsettled
+    /// members of a lineup come up to an established one rather than the
+    /// established one going down to them. Off is the same pull for everyone.
+    #[serde(default)]
+    pub shrink_by_var: bool,
     /// A newcomer starts this share of the way from `mu_new` to the mean of
     /// the lineup's players who already have a rating; 0 starts every newcomer
     /// at `mu_new`, however strong the table they join.
