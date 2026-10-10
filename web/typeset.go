@@ -129,7 +129,17 @@ func typstDoc(pieces []string, display []bool) string {
 }
 
 func typstString(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", " ").Replace(s)
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", " ").Replace(primes(s))
+}
+
+var primeRun = regexp.MustCompile(`'+`)
+
+// primes writes t' as t^{\prime}: inside a superscript Typst sets a bare
+// prime full size on the baseline, but \prime as a script of its own.
+func primes(tex string) string {
+	return primeRun.ReplaceAllStringFunc(tex, func(run string) string {
+		return `^{` + strings.Repeat(`\prime`, len(run)) + `}`
+	})
 }
 
 func run(args ...string) error {

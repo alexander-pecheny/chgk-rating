@@ -355,7 +355,7 @@
     if (!sel.rangeCount || !e.clipboardData) return;
     var frag = sel.getRangeAt(0).cloneContents();
     if (!frag.querySelector(".tex-src")) return;
-    Array.prototype.forEach.call(frag.querySelectorAll("svg, math"), function (n) { n.remove(); });
+    Array.prototype.forEach.call(frag.querySelectorAll("svg, .tex-mml"), function (n) { n.remove(); });
     var box = document.createElement("div");
     box.className = "post tex-copy";
     box.appendChild(frag);

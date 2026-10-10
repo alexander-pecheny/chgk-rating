@@ -515,6 +515,8 @@ td:has(.roster-open input:checked) .roster-open span {
 .site-body > .post {
   max-width: min(99ch, calc(100vw - 2 * var(--space-3-5) - 2 * var(--space-2)));
   line-height: var(--leading-relaxed);
+  /* Nothing in the post widens the page: what is wide scrolls in its own box. */
+  overflow-x: clip;
 }
 
 .site-body .post p {
@@ -587,18 +589,15 @@ td:has(.roster-open input:checked) .roster-open span {
   top: 0;
 }
 
-.tex math,
-.tex-block math {
+.tex-mml {
   position: absolute;
+  top: 0;
+  left: 0;
   width: 1px;
   height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
-}
-
-.tex math,
-.tex-block math {
   user-select: none;
 }
 

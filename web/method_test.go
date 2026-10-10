@@ -44,3 +44,9 @@ func TestSplitDisplay(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestPrimes(t *testing.T) {
+	if got := primes(`x^{t'/3} + f''`); got != `x^{t^{\prime}/3} + f^{\prime\prime}` {
+		t.Errorf("got %q", got)
+	}
+}

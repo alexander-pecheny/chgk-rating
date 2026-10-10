@@ -186,7 +186,9 @@ func writeTex(w util.BufWriter, t *tex, entering bool) (ast.WalkStatus, error) {
 	if err != nil {
 		return ast.WalkSkipChildren, err
 	}
-	mml = strings.TrimSpace(sortAttrs(mml))
+	// In a box of its own: a browser does not clip MathML's own children,
+	// which would otherwise widen a phone's page.
+	mml = `<span class="tex-mml">` + strings.TrimSpace(sortAttrs(mml)) + `</span>`
 	src := html.EscapeString(t.src)
 	if !t.display {
 		_, err = w.WriteString(`<span class="tex">` + t.svgs[0][0] + `<span class="tex-src" aria-hidden="true">$` + src + `$</span>` + mml + `</span>`)
