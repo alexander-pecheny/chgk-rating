@@ -2,7 +2,7 @@
 
 ## Problem
 
-https://rating2.pecheny.me/teams/308/ is titled "Maroon 6". The team is
+https://a2.pecheny.me/teams/308/ is titled "Maroon 6". The team is
 "Номер 2" (Донецк); "Maroon 6" is the name it entered one tournament under.
 `web/src/index.rs` (the "one pass over the results" block, ~line 163) takes the
 team's name and town from `tournament_results.team_current_name` /

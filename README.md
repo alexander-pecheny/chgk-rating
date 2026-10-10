@@ -55,7 +55,7 @@ Write large outputs to `out/`, not to `/tmp` — `/tmp` is a 3.8 GB tmpfs and a 
 Everything done by hand has a recipe; `just` with no argument lists them.
 
 ```
-just deploy          # publish this checkout to rating2.pecheny.me
+just deploy          # publish this checkout to a2.pecheny.me
 just ship my-branch  # merge a branch into main and publish it
 just deploy-dry      # the same pipeline here, no service touched
 just status          # the last lines of out/update.log and whether the site answers
@@ -232,7 +232,7 @@ authority: a team that alternates between two names would alternate with it. The
 tournament under is kept per result and shown on that tournament's page, and
 every name it has used is searchable.
 
-Live at https://rating2.pecheny.me: `chgk-rating.service` runs `web/serve` on
+Live at https://a2.pecheny.me: `chgk-rating.service` runs `web/serve` on
 port 9684 and Caddy proxies to it. After a refit, run `webindex`, then `sudo
 systemctl restart chgk-rating` to pick up the new numbers. Cron does all of
 that at 06:30 UTC every day; `deploy/README.md` says how.

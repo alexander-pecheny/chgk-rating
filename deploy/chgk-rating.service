@@ -1,5 +1,5 @@
 [Unit]
-Description=chgk rating site (rating2.pecheny.me)
+Description=chgk rating site (a2.pecheny.me)
 After=network.target
 
 [Service]

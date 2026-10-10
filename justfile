@@ -1,5 +1,5 @@
 # Everything that is done by hand, in one place. `just` with no recipe lists them.
-# The live site is rating2.pecheny.me, served by the chgk-rating unit out of
+# The live site is a2.pecheny.me, served by the chgk-rating unit out of
 # /home/pecheny/new_chgk_rating; see deploy/README.md.
 
 repo := justfile_directory()
@@ -31,7 +31,7 @@ ui:
 test-web:
     cd web && go vet ./... && go test ./...
 
-# Publish this checkout to rating2.pecheny.me (about five minutes).
+# Publish this checkout to a2.pecheny.me (about five minutes).
 deploy: build
     deploy/update.sh
 

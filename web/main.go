@@ -1,4 +1,4 @@
-// Command serve is the rating site: rating2.pecheny.me. It reads the fit's
+// Command serve is the rating site: a2.pecheny.me. It reads the fit's
 // out/ratings.db with the serving index out/web.db attached, both built by the
 // Rust side (`fit`, then `webindex`), and renders every page per request
 // through DopeUIKit's kit. Nothing here computes a rating.

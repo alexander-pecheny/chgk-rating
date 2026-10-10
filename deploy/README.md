@@ -1,7 +1,7 @@
 # Deployment
 
 `chgk-rating.service` runs `web/serve`, the Go server, on port 9684 and Caddy
-proxies rating2.pecheny.me to it. `deploy/chgk-rating.service` is the copy of
+proxies a2.pecheny.me to it. `deploy/chgk-rating.service` is the copy of
 the unit file.
 
 ## The daily update
