@@ -649,6 +649,24 @@ pub struct Question {
     /// credits the unsettled ones with more of what it answers. 0 is off.
     #[serde(default)]
     pub var_boost: f64,
+    /// How a lineup's credit for a question is shared among its members: each
+    /// takes `λ^(1/share_temp)` of it, normalised, instead of their own share
+    /// `λ / u` of the intensity. The team's total gradient and the likelihood
+    /// are untouched. 1 (or 0) is the plain noisy-OR share; larger spreads the
+    /// credit towards an even split, as rating.chgk.fun does, so a constant
+    /// member of a lineup of unsettled players does not take all of it.
+    #[serde(default)]
+    pub share_temp: f64,
+    /// A strength per team id, added to every member of that team's lineup in
+    /// the likelihood and in the forecast, with this prior sd; it takes a
+    /// Kalman step on the team's whole gradient, so a stable team's surplus
+    /// over its members goes to the team rather than to its constant member.
+    /// 0 is off.
+    #[serde(default)]
+    pub team_effect_sd: f64,
+    /// The team strength's random walk per year.
+    #[serde(default)]
+    pub team_effect_tau: f64,
     /// Whether the editor affinity of section 3.6 is a property of every player
     /// or of a strong one; `none` is the shipped model.
     #[serde(default = "flat_affinity")]
@@ -805,6 +823,25 @@ pub struct Player {
     /// first. 0 is off. Measured and off: -0.0018 +/- 0.0007 on tune at 0.2.
     #[serde(default)]
     pub tau_gap: f64,
+    /// Newcomer boost: a player with fewer than `new_boost_games` games enters
+    /// each Kalman step with their prior variance multiplied by
+    /// `1 + new_boost * (1 - games / new_boost_games)`, so they move further on
+    /// what their lineups do, as rating.chgk.fun's newcomer multiplier does.
+    /// 0 is off.
+    #[serde(default)]
+    pub new_boost: f64,
+    #[serde(default)]
+    pub new_boost_games: u32,
+    /// Star cap: a player whose strength led their lineup by at least
+    /// `star_margin` gains at most `star_cap` of theta per year from such
+    /// tournaments (a ledger decaying with a one-year time constant). 0 is off.
+    #[serde(default)]
+    pub star_cap: f64,
+    #[serde(default)]
+    pub star_margin: f64,
+    /// The star cap applies from this date; empty is from the start.
+    #[serde(default)]
+    pub star_from: String,
     /// The format columns learn from `v / (v + var)` of each tournament's
     /// evidence, `var` being `theta`'s: little while `theta` is unsettled.
     /// 0 is off. On the one-pass burn-in, tune against the burn-in is -0.0011

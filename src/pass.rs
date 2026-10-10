@@ -394,6 +394,7 @@ impl<'a> Sweep<'a> {
             next_release: self.next_rel,
         })?;
         self.learn(t, &q.grads, &events, &q.params);
+        self.learn_teams(t, &q.team_grads, &events);
         obs.evening(&Evening { index: n, t, players: self.players, grads: &q.grads, events: &events })
     }
 
@@ -407,7 +408,8 @@ impl<'a> Sweep<'a> {
         let params = qm::fit_all(&field, None, cfg);
         let scores = cross.map(|cross| FitScores { in_sample: qm::score(&field, &params, None, cfg), cross });
         let grads = qm::player_grads(&field, &params, cfg);
-        Questions { field, params, scores, grads }
+        let team_grads = qm::team_grads_by_id(&field, &params, cfg);
+        Questions { field, params, scores, grads, team_grads }
     }
 
     /// Everything that learns from a tournament once it has been forecast: the
@@ -429,12 +431,18 @@ impl<'a> Sweep<'a> {
         let collect = t.format == Format::InPerson && t.day >= self.zfrom;
         let steered = steer(grads, events, t, cfg);
         let floor = self.floored(t, events);
+        let before: HashMap<u32, f64> = if cfg.player.star_cap > 0.0 {
+            grads.iter().map(|&(i, _, _)| (i, self.players.state[i as usize].theta_raw)).collect()
+        } else {
+            HashMap::new()
+        };
         self.players.absorb(t, steered.as_deref().unwrap_or(grads), &mut self.ed_seen, collect, cfg);
         self.players.shrink_to_lineups(t, cfg);
         for (i, before) in floor {
             let s = &mut self.players.state[i as usize];
             s.theta_raw = s.theta_raw.max(before);
         }
+        self.players.cap_stars(t, &before, cfg);
         for &(i, _, info) in grads {
             self.activity.push(t.day, i, t.weight * info);
         }
@@ -442,6 +450,33 @@ impl<'a> Sweep<'a> {
 }
 
 impl Sweep<'_> {
+    /// `question.team_effect_sd`: each team's strength steps on its lineup's
+    /// gradient, steered by its forecast place as the players are.
+    fn learn_teams(&mut self, t: &Tournament, team_grads: &[(u32, f64, f64)], events: &[TeamEvent]) {
+        let cfg = self.cfg;
+        if team_grads.is_empty() || t.train_only {
+            return;
+        }
+        let dir: HashMap<u32, f64> = if cfg.question.rel_place {
+            events
+                .iter()
+                .filter(|e| e.actual_place > 0.0 && e.forecast_place > 0.0)
+                .map(|e| (e.team, e.forecast_place - e.actual_place))
+                .collect()
+        } else {
+            HashMap::new()
+        };
+        let steered: Vec<(u32, f64, f64)> = team_grads
+            .iter()
+            .map(|&(team, g, info)| match dir.get(&team) {
+                Some(&s) if s >= 0.0 => (team, g.max(0.0), info),
+                Some(_) => (team, g.min(0.0), info),
+                None => (team, g, info),
+            })
+            .collect();
+        self.players.absorb_teams(t, &steered, cfg);
+    }
+
     /// Under `player.shrink_keeps_floor`, every member of a lineup a floor
     /// protects, with the strength they came in with: under `rel_place` a
     /// lineup at or above its forecast place, under `rel_winner` the winners.
@@ -471,6 +506,8 @@ struct Questions {
     params: Vec<QParams>,
     scores: Option<FitScores>,
     grads: Vec<(u32, f64, f64)>,
+    /// `question.team_effect_sd`: `(team, gradient, information)` per lineup.
+    team_grads: Vec<(u32, f64, f64)>,
 }
 
 /// The question log-likelihood of each half of the field, fitted on the other.

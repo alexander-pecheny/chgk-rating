@@ -39,6 +39,19 @@ pub struct PlayerState {
     pub games_ip: u32,
     pub last_ip: i32,
     pub seen: bool,
+    /// `player.star_cap`: theta gained as a lineup's star, decayed yearly,
+    /// and the day it was last moved.
+    pub star_gain: f64,
+    pub star_day: i32,
+}
+
+/// `question.team_effect_sd`: one team's strength, its variance and the day
+/// it last moved.
+#[derive(Clone, Copy)]
+pub struct TeamEffect {
+    pub c: f64,
+    pub var: f64,
+    pub day: i32,
 }
 
 /// A column of the affinity state whose value is fixed by the tournament's
@@ -77,6 +90,8 @@ pub struct Players {
     /// The same cut point for the editor memory of the team side, which has its
     /// own share and is read by the forecast only.
     pub ed_gate_theta: f64,
+    /// `question.team_effect_sd`: the strength of each team id seen so far.
+    pub teams: HashMap<u32, TeamEffect>,
 }
 
 /// The format indicator `phi` is multiplied by: DESIGN 3.7.
@@ -149,6 +164,8 @@ impl PlayerState {
             games_ip: 0,
             last_ip: 0,
             seen: false,
+            star_gain: 0.0,
+            star_day: 0,
         }
     }
 
@@ -163,6 +180,8 @@ impl PlayerState {
         self.last_ip = day;
         self.aff.iter_mut().for_each(|a| *a = 0.0);
         self.aff_var.copy_from_slice(aff_prior);
+        self.star_gain = 0.0;
+        self.star_day = day;
         let warm_var = cfg.player.warm_sigma * cfg.player.warm_sigma;
         let (theta, var) = warm.map_or((cfg.player.mu_new, cfg.player.sigma_new * cfg.player.sigma_new), |t| (t, warm_var));
         self.theta_raw = theta;
@@ -198,6 +217,7 @@ impl Players {
             // Nothing is above the gate until the first release sets it.
             aff_gate_theta: f64::INFINITY,
             ed_gate_theta: f64::NEG_INFINITY,
+            teams: HashMap::new(),
         }
     }
 
@@ -336,6 +356,68 @@ impl Players {
         self.shift_cum = 0.0;
         self.shift_pub = 0.0;
         self.zstat = (0.0, 0.0, 0.0);
+        self.teams.clear();
+    }
+
+    /// The strength `question.team_effect_sd` gives team `team`; 0 when off
+    /// or not yet seen.
+    pub fn team_effect(&self, team: u32) -> f64 {
+        self.teams.get(&team).map_or(0.0, |e| e.c)
+    }
+
+    /// One Kalman step for each team's strength on its lineup's summed
+    /// gradient and information; `grads` is `(team, g, info)`.
+    pub fn absorb_teams(&mut self, t: &Tournament, grads: &[(u32, f64, f64)], cfg: &Config) {
+        let q = &cfg.question;
+        if q.team_effect_sd <= 0.0 {
+            return;
+        }
+        let k = t.weight * cfg.player.info_scale;
+        let max = cfg.numeric.theta_max_step;
+        for &(team, g, info) in grads {
+            let e = self.teams.entry(team).or_insert(TeamEffect { c: 0.0, var: q.team_effect_sd * q.team_effect_sd, day: t.day });
+            e.var += q.team_effect_tau * q.team_effect_tau * years(e.day, t.day);
+            let prec = 1.0 / e.var + (k * info).max(cfg.numeric.info_floor);
+            e.c += (k * g / prec).clamp(-max, max);
+            e.var = 1.0 / prec;
+            e.day = t.day;
+        }
+    }
+
+    /// `player.star_cap`: the ledger of `i` decayed to `day`.
+    fn star_ledger(&self, i: usize, day: i32) -> f64 {
+        let s = &self.state[i];
+        s.star_gain * (-years(s.star_day, day)).exp()
+    }
+
+    /// Caps what each lineup's star gained from this tournament; `before` is
+    /// every moved player's `theta_raw` before the step.
+    pub fn cap_stars(&mut self, t: &Tournament, before: &HashMap<u32, f64>, cfg: &Config) {
+        let p = &cfg.player;
+        if p.star_cap <= 0.0 || crate::util::parse_date(&p.star_from).is_some_and(|d| t.day < d) {
+            return;
+        }
+        for r in t.teams.iter().filter(|r| r.members.len() >= 2) {
+            let mut th: Vec<(f64, u32)> = r.members.iter().filter_map(|&i| before.get(&i).map(|&b| (b, i))).collect();
+            if th.len() < 2 {
+                continue;
+            }
+            th.sort_by(|a, b| b.0.total_cmp(&a.0));
+            if th[0].0 - th[1].0 < p.star_margin {
+                continue;
+            }
+            let (b, i) = th[0];
+            let led = self.star_ledger(i as usize, t.day);
+            let s = &mut self.state[i as usize];
+            let gain = s.theta_raw - b;
+            if gain <= 0.0 {
+                continue;
+            }
+            let allowed = (p.star_cap - led).max(0.0).min(gain);
+            s.theta_raw = b + allowed;
+            s.star_gain = led + allowed;
+            s.star_day = t.day;
+        }
     }
 
     /// `player.team_joint`: for each player, the sum over the other members of
@@ -630,6 +712,9 @@ impl Step {
             return None;
         }
         s.var += drift(s, o.dt, cfg);
+        if p.new_boost > 0.0 && s.games < p.new_boost_games {
+            s.var *= 1.0 + p.new_boost * (1.0 - s.games as f64 / p.new_boost_games as f64);
+        }
         let prior = s.var;
         let ieff = self.weight * o.info * p.info_scale;
         if o.extra > 0.0 {

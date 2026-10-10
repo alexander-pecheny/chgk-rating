@@ -78,6 +78,14 @@ a_in_person = 0.515
 # blind set, -0.0007 +/- 0.0015 at 0.25 and -0.0054 +/- 0.0018 at 0.5 on
 # 2025-01-01..2026-08-27.
 var_boost = 0.0
+# Credit inside a lineup shared as lambda^(1/share_temp) instead of lambda / u.
+# Measured and off: it moves player 101843 from 15th to 33rd at 6 (-0.0008 +/-
+# 0.0019 on 2025-01-01..2026-08-27) and leaves his teammates where they were.
+share_temp = 0.0
+# A strength per team id, added to its members. Measured and off: -0.008 to
+# -0.010 on 2025-01-01..2026-08-27 at prior sds 0.3 to 1.
+team_effect_sd = 0.0
+team_effect_tau = 0.0
 # Lineup chemistry inside the likelihood: u -> u * exp(chem_u * T(L)).
 # Measured and off; -0.0018 at 0.05 and -0.031 at 0.2.
 chem_u = 0.0
@@ -130,6 +138,18 @@ tau_phi_own = false
 # teammates' mean. Measured and off on the blind set: -0.0014 +/- 0.0018 at 0.5
 # and -0.0027 +/- 0.0014 at 0.25 on 2025-01-01..2026-08-27.
 seed_w = 0.0
+# Newcomer boost, rating.chgk.fun's multiplier. Measured and off: -0.005 to
+# -0.028 on 2025-01-01..2026-08-27.
+new_boost = 0.0
+new_boost_games = 0
+# The star cap: a player leading their lineup by star_margin or more gains at
+# most star_cap of theta a year from such tournaments, so a team's surplus
+# over a lineup of unsettled players goes to them rather than to its one
+# established member (player 101843: 15th -> 110th). Free on the forecast:
+# -0.0001 +/- 0.0015 on 2023-2024 and +0.0010 +/- 0.0021 on 2025-01-01..
+# 2026-08-27; caps 0.03 and 0.07 and margins 0.3 and 0.7 are all within noise.
+star_cap = 0.05
+star_margin = 0.5
 # Volatility floor of a second, fast estimate of the same strength, read only by
 # the forecast through team.s2.k_fast. Measured and off: recent form is a worse
 # predictor than the long-run estimate at every setting tried.

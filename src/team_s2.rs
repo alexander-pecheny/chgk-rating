@@ -276,6 +276,7 @@ impl<'a> Reader<'a> {
         let q = if listed {
             lineup_strength(rs, pt) + p.sigma_v * seat.spread + p.chemistry * self.ctx.chem.t(&res.members)
                 - p.q_sigma_c * roster_sd(rs, &seat.sigmas, p)
+                + p.player_scale * players.team_effect(res.team)
         } else {
             f64::NAN
         };

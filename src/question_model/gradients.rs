@@ -39,6 +39,35 @@ pub fn player_grads(field: &Field, params: &[QParams], cfg: &Config) -> Grads {
     merge(out)
 }
 
+/// `question.team_effect_sd`: per lineup, `(team, gradient, information)` of
+/// the log-likelihood in a strength added to every member, which is the sum
+/// of the members' gradients and the whole lineup's curvature.
+pub fn team_grads_by_id(field: &Field, params: &[QParams], cfg: &Config) -> Vec<(u32, f64, f64)> {
+    if cfg.question.team_effect_sd <= 0.0 {
+        return Vec::new();
+    }
+    let shift = relative_shifts(field, params, cfg);
+    let mut out = Vec::new();
+    for (t, &dlt) in field.teams.iter().zip(&shift).filter(|(t, _)| !t.z.is_empty()) {
+        let (mut g, mut info) = (0.0, 0.0);
+        for (q, &y) in t.mask.iter().enumerate().filter(|(_, &y)| y != SKIP) {
+            let p = &params[q];
+            let (a, m) = (p.a(), p.m());
+            let u: f64 = t.z.iter().map(|&zi| clamped_exp(a * (zi - p.b - dlt), cfg)).sum();
+            let s = u_scale(u, cfg);
+            let (g0, g1, g2) = step_derivs(u * s);
+            let (p1, p2) = phi(m * g0, y);
+            let d1 = p1 * m * g1;
+            let d2 = p2 * (m * g1) * (m * g1) + p1 * m * g2;
+            let uz = a * u * s;
+            g += d1 * uz;
+            info -= d2 * uz * uz + d1 * a * uz;
+        }
+        out.push((t.team, g, info));
+    }
+    out
+}
+
 /// One lineup's per-member `(gradient, information)` over the questions it
 /// was asked, at the difficulties shifted by `dlt`.
 fn team_grads(t: &TeamObs, params: &[QParams], dlt: f64, cfg: &Config) -> Vec<(f64, f64)> {
@@ -56,6 +85,18 @@ fn team_grads(t: &TeamObs, params: &[QParams], dlt: f64, cfg: &Config) -> Vec<(f
         let (p1, p2) = phi(m * g0, y);
         let d1 = p1 * m * g1;
         let d2 = p2 * (m * g1) * (m * g1) + p1 * m * g2;
+        let temp = cfg.question.share_temp;
+        if temp > 1.0 {
+            // The same total `a u` handed out by the tempered shares.
+            let total: f64 = lam.iter().sum();
+            let w: f64 = lam.iter().map(|l| l.powf(1.0 / temp)).sum();
+            for (k, &l) in lam.iter().enumerate() {
+                let uz = a * total * l.powf(1.0 / temp) / w;
+                acc[k].0 += d1 * uz;
+                acc[k].1 -= d2 * uz * uz + d1 * a * uz;
+            }
+            continue;
+        }
         for (k, &l) in lam.iter().enumerate() {
             let uz = a * l;
             acc[k].0 += d1 * uz;

@@ -7,7 +7,7 @@ mod likelihood;
 mod players;
 
 pub use fit::fit_question;
-pub use gradients::player_grads;
+pub use gradients::{player_grads, team_grads_by_id};
 pub use players::{Pin, PlayerState, Players};
 
 use crate::chemistry::Chemistry;
@@ -47,6 +47,8 @@ impl QParams {
 pub struct TeamObs {
     pub z: Vec<f64>,
     pub members: Vec<u32>,
+    /// The team id the lineup played under.
+    pub team: u32,
     pub mask: Vec<u8>,
     pub half: u8,
     /// Finished first, sole or shared.
@@ -82,6 +84,7 @@ pub fn build_field(t: &Tournament, players: &Players, chem: &Chemistry, cfg: &Co
     let obs = |tr: &TeamResult| TeamObs {
         z: lineup(tr, players, &vbar, chem, a_fix, t.day, cfg),
         members: tr.members.clone(),
+        team: tr.team,
         mask: tr.mask.clone(),
         half: rng.bit(),
         first: tr.position == best,
@@ -100,6 +103,7 @@ fn lineup(tr: &TeamResult, players: &Players, vbar: &[f64], chem: &Chemistry, a_
     let bonus = if cfg.question.chem_u != 0.0 { cfg.question.chem_u * chem.t(&tr.members) / a_fix } else { 0.0 };
     let k = cfg.question.var_boost;
     let spread = |i: usize| if k != 0.0 { k * a_fix * players.sigma_at(i, day, cfg).powi(2) } else { 0.0 };
+    let bonus = bonus + players.team_effect(tr.team);
     tr.members.iter().map(|&i| players.theta(i as usize) + players.affinity(i as usize, vbar) + bonus + spread(i as usize)).collect()
 }
 
