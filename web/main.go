@@ -109,8 +109,8 @@ var entities = map[string]func(*site, int64) (string, []ui.Item, error){
 // singles are the pages with an address of one segment and no listing.
 var singles = map[string]page{
 	"releases": func(s *site, _ *http.Request, _ []string) (string, []ui.Item, error) { return s.releasesPage() },
-	"method": func(*site, *http.Request, []string) (string, []ui.Item, error) {
-		title, body := methodPage()
+	"method": func(s *site, _ *http.Request, _ []string) (string, []ui.Item, error) {
+		title, body := s.methodPage()
 		return title, body, nil
 	},
 	"search": func(s *site, r *http.Request, _ []string) (string, []ui.Item, error) {

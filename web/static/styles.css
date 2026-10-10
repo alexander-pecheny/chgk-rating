@@ -548,9 +548,9 @@ td:has(.roster-open input:checked) .roster-open span {
   color: var(--muted);
 }
 
-/* Noto Sans Math has the MATH table and the math alphabets the text face lacks;
-   Cyrillic inside \text{} falls through to the page's own face. Only this page
-   sets math, so only it loads the file. */
+/* Noto Sans Math, cut by `just math-font`, has the MATH table and the math
+   alphabets the text face lacks; Cyrillic inside \text{} falls through to the
+   page's own face. Only /method/ sets math, so only it loads the file. */
 @font-face {
   font-family: "Noto Sans Math";
   font-style: normal;
@@ -588,7 +588,7 @@ td:has(.roster-open input:checked) .roster-open span {
   font-size: var(--text-sm);
 }
 
-.post .footnotes-sep {
+.post .footnotes hr {
   border: 0;
   border-top: 1px solid var(--structure);
 }

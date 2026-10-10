@@ -3,6 +3,8 @@ module ratingweb
 go 1.26.4
 
 require (
+	github.com/wyatt915/treeblood v0.1.16
+	github.com/yuin/goldmark v1.8.6
 	modernc.org/sqlite v1.50.0
 	pecheny.me/dopecore v0.0.0
 	pecheny.me/dopeuikit v0.0.0

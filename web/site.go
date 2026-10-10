@@ -17,6 +17,8 @@ type site struct {
 	nTeams      int
 	nPlayers    int
 	nAnomaly    int
+	// method is the post at /method/, as HTML.
+	method string
 }
 
 func loadSite(q *store) (*site, error) {
@@ -29,8 +31,9 @@ func loadSite(q *store) (*site, error) {
 	teams, e2 := q.metaInt("n_team_rank")
 	players, e3 := q.metaInt("n_player_rank")
 	anomaly, e4 := q.anomalyCount()
-	s.releaseDate, s.nTeams, s.nPlayers, s.nAnomaly = date, teams, players, anomaly
-	return s, errors.Join(err, e1, e2, e3, e4)
+	method, e5 := renderMethod()
+	s.releaseDate, s.nTeams, s.nPlayers, s.nAnomaly, s.method = date, teams, players, anomaly, method
+	return s, errors.Join(err, e1, e2, e3, e4, e5)
 }
 
 type tick struct {
