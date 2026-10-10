@@ -64,7 +64,7 @@ func (s *site) tournamentHead(id int64, t tourHead, venues []venue, ids []int64)
 			teams = *sum
 		}
 	}
-	return []ui.Item{ui.Pagehead(kids...), ui.Stats(tournamentStats(t, teams, venues)...), ui.Hint(ui.Text(rhoNote(t)))}, nil
+	return []ui.Item{ui.Pagehead(kids...), ui.Stats(tournamentStats(t, teams, venues)...)}, nil
 }
 
 // venueLine names every venue of a merged field, this one in bold.
@@ -110,13 +110,6 @@ func forecastStats(t tourHead) []ui.Item {
 		stat(S.Tournament.Stat.RhoOld(), opt(t.spO, metricDigits)))
 }
 
-func rhoNote(t tourHead) string {
-	if count(t.nObs) > 0 {
-		return S.Tournament.Rho() + " " + S.Tournament.LlObs(itoa(*t.nObs))
-	}
-	return S.Tournament.Rho() + " " + S.Tournament.LlNone()
-}
-
 // tournamentBody is the question strip, when there is one, and the field.
 func (s *site) tournamentBody(id int64, ids []int64, venues []venue) ([]ui.Item, error) {
 	qs, err := s.q.questions(id)
@@ -131,7 +124,7 @@ func (s *site) tournamentBody(id int64, ids []int64, venues []venue) ([]ui.Item,
 	if err != nil {
 		return nil, err
 	}
-	if q := forecastSection(fc, s.q.cleanFrom); q != nil {
+	if q := forecastSection(fc); q != nil {
 		out = append(out, q)
 	}
 	f, err := s.field(ids, venues)
@@ -140,7 +133,7 @@ func (s *site) tournamentBody(id int64, ids []int64, venues []venue) ([]ui.Item,
 
 // forecastSection is every system's forecast quality on this tournament, in
 // the clean test window only; none outside it.
-func forecastSection(rows []forecastRow, from string) ui.Node {
+func forecastSection(rows []forecastRow) ui.Node {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -157,7 +150,7 @@ func forecastSection(rows []forecastRow, from string) ui.Node {
 		return nil
 	}
 	header := []ui.Item{nameCol(S.Tournament.Forecast.ColSystem()), numCol("NDCG"), numCol("NDCG@3"), numCol(S.Tournament.Forecast.ColTeams())}
-	return section(S.Tournament.Forecast.Title(), table(header, body...), ui.Hint(ui.Text(S.Tournament.Forecast.Hint(from))))
+	return section(S.Tournament.Forecast.Title(), table(header, body...))
 }
 
 // The question strip's bars run from barMin to barMin+barSpan percent tall.

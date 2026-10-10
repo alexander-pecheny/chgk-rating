@@ -14,11 +14,9 @@ import (
 // field, input, data-table, table-scroll, scroll-fade-xy) are core.css's.
 
 var expanders = map[string]base.ExpandFunc{
-	"sitebar": expandSitebar,
-	"tablinks": func(c *base.ExpandCtx, p *base.Element) []base.Node {
-		return one(base.El("nav", base.RootAttrs([]string{"match-tabs"}, p), c.Nodes(p.Block)...))
-	},
-	"tablink": expandTablink,
+	"sitebar":  expandSitebar,
+	"tablinks": expandTablinks,
+	"tablink":  expandTablink,
 	// sitebody is the page's content inside the frame: as wide as its widest
 	// table, so what sticks to the frame's left edge has room to stick in.
 	"sitebody": func(c *base.ExpandCtx, p *base.Element) []base.Node {
@@ -53,6 +51,7 @@ var expanders = map[string]base.ExpandFunc{
 	"count":  func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(inlineCount(c, p).(*base.Element)) },
 	"link":   func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(inlineLink(c, p).(*base.Element)) },
 	"sup":    func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(inlineSup(c, p).(*base.Element)) },
+	"sub":    func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(inlineSub(c, p).(*base.Element)) },
 	"fig":    func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(inlineFig(c, p).(*base.Element)) },
 	"em":     func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(inlineEm(c, p).(*base.Element)) },
 	"dotin":  func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(inlineDotin(c, p).(*base.Element)) },
@@ -69,16 +68,20 @@ var expanders = map[string]base.ExpandFunc{
 	"rosteropen":  expandRosteropen,
 	"venuefilter": expandVenuefilter,
 	"explainer":   expandExplainer,
-	"table":       expandTable,
-	"trow":        expandTrow,
-	"hcell":       func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(cell(c, "th", p)) },
-	"cell":        func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(cell(c, "td", p)) },
+	"article": func(c *base.ExpandCtx, p *base.Element) []base.Node {
+		return one(base.El("article", base.RootAttrs([]string{"post"}, p), c.Nodes(p.Block)...))
+	},
+	"table": expandTable,
+	"trow":  expandTrow,
+	"hcell": func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(cell(c, "th", p)) },
+	"cell":  func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(cell(c, "td", p)) },
 }
 
 var inliners = map[string]base.InlineFunc{
 	"link":  inlineLink,
 	"count": inlineCount,
 	"sup":   inlineSup,
+	"sub":   inlineSub,
 	"flag":  inlineFlag,
 	"fig":   inlineFig,
 	"em":    inlineEm,
@@ -98,12 +101,13 @@ func expandSitebar(c *base.ExpandCtx, p *base.Element) []base.Node {
 	))
 }
 
-// searchBox is the bar's search form, its glyph inline.
+// searchBox is the bar's search form, its glyph inline. On a phone only the
+// button shows; site.js opens the form over the bar when it is tapped.
 func searchBox() *base.Element {
 	s := sitestrings.Default
-	glyph, _ := icons.Body("search")
 	return base.El("form", []base.Attr{base.ClassAttr("site-search"), base.At("action", "/search/"), base.At("method", "get"), base.At("role", "search")},
-		base.Raw(`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">`+glyph+`</svg>`),
+		base.El("button", []base.Attr{base.ClassAttr("action-icon", "search-open"), base.At("type", "button"), base.At("aria-label", s.Common.Search.Label())}, glyph("search")),
+		glyph("search"),
 		base.El("input", []base.Attr{
 			base.ClassAttr("input"),
 			base.At("type", "search"), base.At("name", "q"),
@@ -111,7 +115,14 @@ func searchBox() *base.Element {
 			base.At("aria-label", s.Common.Search.Label()),
 			base.At("autocomplete", "off"),
 		}),
+		base.El("button", []base.Attr{base.ClassAttr("action-icon", "search-close"), base.At("type", "button"), base.At("aria-label", s.Common.Search.Close())}, glyph("x")),
 	)
+}
+
+// glyph is one of the kit's icons, inline.
+func glyph(name string) base.Node {
+	body, _ := icons.Body(name)
+	return base.Raw(`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` + body + `</svg>`)
 }
 
 func expandStat(c *base.ExpandCtx, p *base.Element) []base.Node {
@@ -190,7 +201,11 @@ func expandChart(c *base.ExpandCtx, p *base.Element) []base.Node {
 		kids = append([]base.Node{base.El("div", []base.Attr{base.ClassAttr("c-tabs"), base.At("role", "group")}, tabs...)}, kids...)
 	}
 	kids = append(kids, base.El("div", []base.Attr{base.ClassAttr("c-tip"), base.BareAt("hidden")}))
-	return one(base.El("figure", base.RootAttrs([]string{"chart", "scroll-fade-xy"}, p), kids...))
+	classes := []string{"chart", "chart-wide"}
+	if base.Flag(p, "narrow") {
+		classes[1] = "chart-narrow"
+	}
+	return one(base.El("figure", base.RootAttrs(classes, p), kids...))
 }
 
 func expandCharttab(c *base.ExpandCtx, p *base.Element) []base.Node {
@@ -243,6 +258,38 @@ func expandSubline(c *base.ExpandCtx, p *base.Element) []base.Node {
 	return one(&base.Element{Tag: "span", Attrs: base.RootAttrs([]string{"u-row", "u-gap-xs", "u-align-center", "results-team-city"}, p), Inline: c.Items(p.Inline)})
 }
 
+// expandTablinks is the strip of the site's sections, dope's tab bar: the
+// pills, and the picker that stands in for them when they do not all fit
+// (site.js measures). The picker names the section the page is in and drops
+// a list of every section.
+func expandTablinks(c *base.ExpandCtx, p *base.Element) []base.Node {
+	label, _ := base.Get(p, "label")
+	s := sitestrings.Default
+	picker := base.El("button", []base.Attr{
+		base.ClassAttr("match-tab", "active", "tab-picker"), base.At("type", "button"),
+		base.At("aria-haspopup", "menu"), base.At("aria-expanded", "false"), base.At("title", s.Common.Nav.Picker()),
+	}, base.Inl("span", []base.Attr{base.ClassAttr("u-clip-fade")}, &base.TextNode{Value: label}), glyph("chevron-down"))
+	var items []base.Node
+	for _, n := range p.Block {
+		if e, ok := n.(*base.Element); ok && e.Tag == "tablink" {
+			items = append(items, pickerItem(c, e))
+		}
+	}
+	panel := base.El("div", []base.Attr{base.ClassAttr("popover", "menu-dropdown", "tab-picker-panel"), base.At("role", "menu"), base.BareAt("hidden")}, items...)
+	kids := append([]base.Node{picker}, c.Nodes(p.Block)...)
+	return one(base.El("nav", base.RootAttrs([]string{"match-tabs", "site-tabs"}, p), append(kids, panel)...))
+}
+
+// pickerItem is a section in the picker's list, the current one checked.
+func pickerItem(c *base.ExpandCtx, p *base.Element) base.Node {
+	href, _ := base.Get(p, "href")
+	checked := "false"
+	if base.Flag(p, "on") {
+		checked = "true"
+	}
+	return &base.Element{Tag: "a", Attrs: []base.Attr{base.ClassAttr("menu-item"), base.At("role", "menuitemradio"), base.At("aria-checked", checked), base.At("href", href)}, Inline: c.Items(p.Inline)}
+}
+
 // expandTablink is one pill of a strip of views: a section of the site, a
 // page of a listing. The one the reader is on is the active pill and no link.
 func expandTablink(c *base.ExpandCtx, p *base.Element) []base.Node {
@@ -260,6 +307,10 @@ func inlineFig(c *base.ExpandCtx, p *base.Element) base.Item {
 
 func inlineSup(c *base.ExpandCtx, p *base.Element) base.Item {
 	return &base.Element{Tag: "sup", Inline: c.Items(p.Inline)}
+}
+
+func inlineSub(c *base.ExpandCtx, p *base.Element) base.Item {
+	return &base.Element{Tag: "sub", Inline: c.Items(p.Inline)}
 }
 
 func inlineEm(c *base.ExpandCtx, p *base.Element) base.Item {

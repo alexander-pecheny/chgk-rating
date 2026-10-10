@@ -19,6 +19,10 @@ web:
 strings:
     cd web/i18nstrings && go generate .
 
+# Rebuild the methodology page from the post after editing docs/post.md.
+method:
+    uv run tools/method_html.py docs/post.md web/method.html
+
 # Regenerate the typed builder after editing web/ui/vocab.json.
 ui:
     cd web/ui && go generate .

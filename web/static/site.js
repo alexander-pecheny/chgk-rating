@@ -1,5 +1,6 @@
-/* Two small behaviours: the provisional switch on the listings, and the hover
-   crosshair on every history chart. Both degrade to nothing without JS. */
+/* Small behaviours that degrade to nothing without JS: the remembered
+   switches, the chart crosshair, pinned columns, the venue filter, the section
+   picker, the phone's search and the phone's card rows. */
 
 (function () {
   [[".prov-toggle input", "showprov"], [".roster-toggle input", "showroster"]].forEach(function (t) {
@@ -91,7 +92,7 @@
       tip.classList.toggle("flip", at.x - box.left > box.width - 120);
     }
 
-    svg.addEventListener("pointermove", function (ev) {
+    function show(ev) {
       if (series[active].length < 2) return;
       var ctm = svg.getScreenCTM();
       if (!ctm) return;
@@ -104,9 +105,18 @@
       // counts, so both are set through attributes.
       cursor.removeAttribute("hidden");
       tip.removeAttribute("hidden");
-    });
+    }
 
-    svg.addEventListener("pointerleave", hide);
+    // A finger has no hover: a tap shows the point under it and a drag along
+    // the line moves it; the crosshair stays until a tap elsewhere.
+    svg.addEventListener("pointermove", show);
+    svg.addEventListener("pointerdown", show);
+    svg.addEventListener("pointerleave", function (ev) {
+      if (ev.pointerType === "mouse") hide();
+    });
+    document.addEventListener("pointerdown", function (ev) {
+      if (!fig.contains(ev.target)) hide();
+    });
   });
 })();
 
@@ -194,5 +204,129 @@
     if (sel.value) u.searchParams.set("venue", sel.value);
     else u.searchParams.delete("venue");
     try { history.replaceState(null, "", u); } catch (e) {}
+  });
+})();
+
+/* The section strip shows every tab when they fit and only the picker, which
+   drops the list of sections, when they do not: dope's fitTabBar. */
+(function () {
+  var strip = document.querySelector(".site-tabs");
+  if (!strip) return;
+  var picker = strip.querySelector(".tab-picker");
+  var panel = strip.querySelector(".tab-picker-panel");
+  function fit() {
+    strip.classList.remove("tabs-collapsed");
+    strip.classList.toggle("tabs-collapsed", strip.scrollWidth > strip.clientWidth + 1);
+  }
+  function open(on) {
+    panel.hidden = !on;
+    picker.setAttribute("aria-expanded", on ? "true" : "false");
+    if (!on) return;
+    var r = picker.getBoundingClientRect();
+    panel.style.position = "fixed";
+    panel.style.left = Math.max(8, Math.min(r.left, window.innerWidth - panel.offsetWidth - 8)) + "px";
+    panel.style.top = r.bottom + 2 + "px";
+    panel.style.right = "auto";
+  }
+  picker.addEventListener("click", function () { open(panel.hidden); });
+  document.addEventListener("pointerdown", function (ev) {
+    if (!panel.hidden && !strip.contains(ev.target)) open(false);
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && !panel.hidden) { open(false); picker.focus(); }
+  });
+  fit();
+  window.addEventListener("resize", function () { open(false); fit(); });
+})();
+
+/* On a phone the bar shows the search as a button; a tap opens the form over
+   the whole bar, and closing it brings the bar back. */
+(function () {
+  var bar = document.querySelector(".game-host-top");
+  var form = bar && bar.querySelector(".site-search");
+  if (!form) return;
+  var input = form.querySelector("input");
+  form.querySelector(".search-open").addEventListener("click", function () {
+    bar.classList.add("searching");
+    input.focus();
+  });
+  function close() { bar.classList.remove("searching"); }
+  form.querySelector(".search-close").addEventListener("click", close);
+  input.addEventListener("keydown", function (ev) { if (ev.key === "Escape") close(); });
+})();
+
+/* A phone shows every results table as cards: a row is its lead number, its
+   name with the line under it, and its main value; the other columns form a
+   panel of «label: value» lines that a tap on the card opens. The roles come
+   from the header: numbers before the name lead, words before it go under it,
+   the bold column (else the first number after the name) is the value. */
+(function () {
+  var phone = window.matchMedia("(max-width: 760px)");
+  var tables = [].slice.call(document.querySelectorAll("table.rating-table"));
+
+  function roles(table) {
+    var heads = [].slice.call(table.tHead ? table.tHead.rows[0].cells : []);
+    var k = -1;
+    heads.forEach(function (th, i) { if (k < 0 && th.classList.contains("pin-name")) k = i; });
+    if (k < 0) return null;
+    var out = heads.map(function () { return "panel"; });
+    out[k] = "title";
+    var lead = false;
+    for (var i = 0; i < k; i++) {
+      var num = heads[i].classList.contains("results-num");
+      out[i] = num && !lead ? "lead" : "under";
+      if (num && !lead) lead = true;
+    }
+    var body = table.tBodies[0];
+    var bold = -1;
+    for (var j = k + 1; j < heads.length && body; j++) {
+      if (body.querySelector("td:nth-child(" + (j + 1) + ").rating-strong")) { bold = j; break; }
+    }
+    if (bold < 0) {
+      for (j = k + 1; j < heads.length; j++) {
+        if (heads[j].classList.contains("results-num")) { bold = j; break; }
+      }
+    }
+    if (bold >= 0) out[bold] = "value";
+    return { roles: out, heads: heads, k: k };
+  }
+
+  // A panel line is labelled by its column's name, or by the explanation
+  // of a name too short to read on its own (Δ, ±).
+  function label(th) {
+    var text = th.textContent.trim();
+    return text.length <= 2 && th.title ? th.title : text;
+  }
+
+  function setup(table) {
+    var r = roles(table);
+    if (!r) return;
+    table.classList.add("cards");
+    [].forEach.call(table.tBodies, function (tb) {
+      [].forEach.call(tb.rows, function (tr) {
+        if (tr.cells.length !== r.heads.length) return;
+        var under = [];
+        [].forEach.call(tr.cells, function (td, i) {
+          td.classList.add("card-" + r.roles[i]);
+          if (r.roles[i] === "panel") td.dataset.label = label(r.heads[i]);
+          if (r.roles[i] === "under" && td.textContent.trim()) under.push(td.textContent.trim());
+        });
+        if (under.length) {
+          var line = document.createElement("span");
+          line.className = "card-only results-team-city";
+          line.textContent = under.join(" · ");
+          tr.cells[r.k].appendChild(line);
+        }
+        if (tr.querySelector(".card-panel")) tr.classList.add("card-has-panel");
+      });
+    });
+  }
+  tables.forEach(setup);
+
+  document.addEventListener("click", function (ev) {
+    if (!phone.matches) return;
+    var tr = ev.target.closest && ev.target.closest("table.cards tr.card-has-panel");
+    if (!tr || ev.target.closest("a, input, label, select, button")) return;
+    tr.classList.toggle("card-open");
   });
 })();

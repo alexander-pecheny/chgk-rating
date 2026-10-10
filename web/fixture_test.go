@@ -111,7 +111,7 @@ func TestFixturePages(t *testing.T) {
 	}{
 		{"/", 200, []string{`href="/teams/10/"`, "Альфа", "9050", "Москва"}},
 		{"/players/", 200, []string{"Анна Иванова", "Борис Петров"}},
-		{"/teams/10/", 200, []string{"Москва", "№1", "Анна Иванова", "Кубок"}},
+		{"/teams/10/", 200, []string{"Москва", "1-е место", "Анна Иванова", "Кубок"}},
 		// Before and after at an in-person table, theta + phi: 500 and 600.
 		{"/players/100/", 200, []string{"Анна Иванова", ">500<", ">600<", "+100"}},
 		// The step of Альфа is +50: +30 by place and +20 of pull. Бета entered

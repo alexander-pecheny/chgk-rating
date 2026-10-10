@@ -42,7 +42,8 @@ func (s *site) chartSection(kind int, id int64, band bool) (ui.Node, error) {
 		{name: S.Common.Chart.Rating(), pts: thin(s.ratingPts(hist, band), chartPoints), band: band},
 		{name: S.Common.Chart.Place(), pts: thin(s.placePts(hist, pl), chartPoints), invert: true},
 	}
-	return section(S.Common.Chart.Title(), chart(ss, s.ticks(from, to), S.Common.Chart.Title())), err
+	ticks := func(marks int) []tick { return s.ticks(from, to, marks) }
+	return section(S.Common.Chart.Title(), charts(ss, ticks, S.Common.Chart.Title())...), err
 }
 
 func (s *site) ratingPts(hist []histPt, band bool) []pt {
@@ -64,7 +65,7 @@ func (s *site) placePts(hist []histPt, pl []uint32) []pt {
 	var out []pt
 	for i, h := range hist[:min(len(hist), len(pl))] {
 		n := pl[i]
-		out = append(out, pt{x: float64(h.rel), mid: float64(n), date: s.rels[h.rel].date, text: "№" + strconv.Itoa(int(n))})
+		out = append(out, pt{x: float64(h.rel), mid: float64(n), date: s.rels[h.rel].date, text: S.Common.Chart.PlacePoint(strconv.Itoa(int(n)))})
 	}
 	return out
 }
@@ -173,7 +174,7 @@ func (s *site) teamPage(id int64) (string, []ui.Item, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	head := []ui.Item{teamByline(t), ui.Stats(teamStats(t, a, hasAchieve, rules)...)}
+	head := []ui.Item{teamByline(t), ui.Stats(teamStats(t)...)}
 	body, err := s.teamBody(id, a, hasAchieve, rules)
 	return teamName(t.name, id), append(head, body...), err
 }
@@ -187,20 +188,16 @@ func teamByline(t standing) ui.Node {
 	return byline(t, ranked, S.Team.NotListed(town))
 }
 
-func teamStats(t standing, a achieved, hasAchieve bool, rules map[string]string) []ui.Item {
+func teamStats(t standing) []ui.Item {
 	place := dash
 	if t.rank != nil {
-		place = "№" + itoa(*t.rank)
+		place = itoa(*t.rank)
 	}
-	stats := []ui.Item{
+	return []ui.Item{
 		stat(S.Common.Col.Rating(), dispOpt(t.display)),
 		stat(S.Common.Col.Place(), place),
 		stat(S.Team.Stat.Week(), signedOpt(t.change)),
 	}
-	if x, ok := rules["top_x"]; ok && hasAchieve {
-		stats = append(stats, stat(S.Team.Stat.Results(), S.Team.Stat.ResultsOf(itoa(a.nResults), x)))
-	}
-	return stats
 }
 
 // teamBody is the team page under its stats: the achievement breakdown, the

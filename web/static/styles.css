@@ -56,13 +56,6 @@ a {
   align-items: center;
 }
 
-.site-search .ico {
-  position: absolute;
-  left: 9px;
-  color: var(--muted);
-  pointer-events: none;
-}
-
 .site-search .input {
   width: 220px;
   max-width: 40vw;
@@ -514,5 +507,328 @@ td:has(.roster-open input:checked) .roster-open span {
 
   .stats {
     gap: var(--space-3) var(--space-5);
+  }
+}
+
+/* ── the method page: the post, with its MathML ─────────── */
+
+.post {
+  max-width: min(99ch, calc(100vw - 2 * var(--space-3-5) - 2 * var(--space-2)));
+  line-height: var(--leading-relaxed);
+}
+
+.site-body .post p {
+  max-width: none;
+}
+
+.post h2 {
+  margin: var(--space-6) 0 var(--space-2);
+  font-size: var(--text-xl);
+}
+
+.post h3 {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: var(--text-lg);
+}
+
+.post h4 {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--text-base);
+}
+
+.post p,
+.post ul,
+.post blockquote {
+  margin: 0 0 var(--space-3);
+}
+
+.post blockquote {
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--structure);
+  color: var(--muted);
+}
+
+/* A wide formula scrolls in its own line rather than widening the page. */
+.post math[display="block"] {
+  margin: var(--space-3) 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.post table {
+  border-collapse: collapse;
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.post th,
+.post td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--structure);
+}
+
+.post .footnotes {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.post .footnotes-sep {
+  border: 0;
+  border-top: 1px solid var(--structure);
+}
+
+/* ── the section picker and the phone's search ──────────── */
+
+/* The strip shows its tabs or, when they do not fit, only the picker
+   (site.js): dope's tab bar. */
+.site-tabs:not(.tabs-collapsed) > .tab-picker,
+.site-tabs.tabs-collapsed > .match-tab:not(.tab-picker) {
+  display: none;
+}
+
+.match-tab.tab-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 100%;
+  border: 0;
+  border-radius: var(--cell-radius);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tab-picker .ico {
+  flex: none;
+  width: 1em;
+  height: 1em;
+}
+
+.tab-picker[aria-expanded="true"] .ico {
+  transform: rotate(180deg);
+}
+
+.tab-picker-panel {
+  overflow-y: auto;
+}
+
+.tab-picker-panel[hidden] {
+  display: none;
+}
+
+.tab-picker-panel .menu-item[aria-checked="true"] {
+  background: var(--hover-bg);
+  font-weight: var(--fw-bold);
+}
+
+.site-search .search-open,
+.site-search .search-close {
+  display: none;
+}
+
+.site-search > .ico {
+  position: absolute;
+  left: 9px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+/* The chart in the frame that fits the screen. */
+.chart-narrow {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .site-search > .ico,
+  .site-search .input {
+    display: none;
+  }
+
+  .site-search .search-open {
+    display: inline-flex;
+  }
+
+  /* Searching, the form takes the whole bar. */
+  .game-host-top.searching .game-header-main {
+    visibility: hidden;
+  }
+
+  .game-host-top.searching .host-actions {
+    position: static;
+  }
+
+  .game-host-top.searching .site-search {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    gap: var(--space-2);
+    padding: 0 var(--space-2-5);
+    background: var(--structure);
+  }
+
+  .game-host-top.searching .site-search > .ico {
+    display: block;
+    left: calc(var(--space-2-5) + 9px);
+  }
+
+  .game-host-top.searching .site-search .input {
+    display: block;
+    flex: 1 1 auto;
+    width: auto;
+    max-width: none;
+  }
+
+  .game-host-top.searching .search-open {
+    display: none;
+  }
+
+  .game-host-top.searching .search-close {
+    display: inline-flex;
+  }
+
+  .game-host-top {
+    position: relative;
+  }
+
+  .chart-wide {
+    display: none;
+  }
+
+  .chart-narrow {
+    display: block;
+  }
+
+  .chart svg {
+    min-width: 0;
+    touch-action: pan-y;
+  }
+
+  /* ── card rows ── */
+
+  .site-body:has(table.cards) {
+    width: auto;
+  }
+
+  table.cards,
+  table.cards tbody,
+  table.cards tfoot {
+    display: block;
+    width: 100%;
+  }
+
+  table.cards thead {
+    display: none;
+  }
+
+  .results-wrapper:has(table.cards) {
+    overflow: visible;
+  }
+
+  table.cards tr {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    margin-bottom: var(--space-1);
+    border-radius: var(--radius-md);
+    background: var(--paper);
+  }
+
+  table.cards tr.prov-row,
+  table.cards tr.older-row {
+    display: none;
+  }
+
+  .section:has(.prov-toggle input:checked) table.cards tr.prov-row,
+  .section:has(.older-toggle input:checked) table.cards tr.older-row {
+    display: grid;
+  }
+
+  table.cards tr.counts {
+    background: var(--wash-positive);
+  }
+
+  table.cards td {
+    display: block;
+    position: static !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  table.cards td.card-lead {
+    grid-row: 1;
+    grid-column: 1;
+    min-width: 2.5em;
+    text-align: center;
+  }
+
+  table.cards td.card-title {
+    grid-row: 1;
+    grid-column: 2;
+    max-width: none;
+    padding-left: var(--space-2);
+  }
+
+  table.cards td.card-value {
+    grid-row: 1;
+    grid-column: 3;
+    text-align: right;
+  }
+
+  table.cards td.card-under {
+    display: none;
+  }
+
+  table.cards td.card-panel {
+    display: none;
+    grid-column: 1 / -1;
+    padding: 2px var(--space-3);
+    text-align: left;
+    white-space: normal;
+  }
+
+  table.cards tr.card-open td.card-panel {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  table.cards tr.card-open {
+    padding-bottom: var(--space-2);
+  }
+
+  table.cards td.card-panel::before {
+    content: attr(data-label);
+    color: var(--muted);
+  }
+
+  table.cards td.card-panel:empty,
+  table.cards tr.card-open td.card-panel:empty {
+    display: none;
+  }
+
+  table.cards tr.card-has-panel {
+    cursor: pointer;
+  }
+
+  /* A band or a footer row is one cell across the card. */
+  table.cards tr.row-split,
+  table.cards tfoot tr {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  table.cards tr.row-split td {
+    grid-column: 1 / -1;
+  }
+}
+
+.card-only {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  table.cards .card-only {
+    display: block;
   }
 }

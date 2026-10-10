@@ -7,7 +7,6 @@ package i18nstrings
 type Strings struct {
 	Anomaly     AnomalyStrings
 	Common      CommonStrings
-	Method      MethodStrings
 	Player      PlayerStrings
 	Players     PlayersStrings
 	Releases    ReleasesStrings
@@ -68,10 +67,11 @@ type CommonStrings struct {
 }
 
 type CommonChartStrings struct {
-	Empty  func() string
-	Place  func() string
-	Rating func() string
-	Title  func() string
+	Empty      func() string
+	Place      func() string
+	PlacePoint func(n string) string
+	Rating     func() string
+	Title      func() string
 }
 
 type CommonColStrings struct {
@@ -103,8 +103,7 @@ type CommonFailedStrings struct {
 }
 
 type CommonFootStrings struct {
-	Note   func() string
-	Report func() string
+	Note func() string
 }
 
 type CommonFormatStrings struct {
@@ -116,6 +115,7 @@ type CommonFormatStrings struct {
 
 type CommonNavStrings struct {
 	Method      func() string
+	Picker      func() string
 	Players     func() string
 	Releases    func() string
 	Teams       func() string
@@ -140,6 +140,7 @@ type CommonProvStrings struct {
 }
 
 type CommonSearchStrings struct {
+	Close       func() string
 	Label       func() string
 	Placeholder func() string
 }
@@ -147,99 +148,6 @@ type CommonSearchStrings struct {
 type CommonUnratedStrings struct {
 	Tag   func() string
 	Title func() string
-}
-
-// MethodStrings is the method Surface.
-type MethodStrings struct {
-	Count       MethodCountStrings
-	Difficulty  MethodDifficultyStrings
-	Forecast    MethodForecastStrings
-	Lede        func() string
-	Player      MethodPlayerStrings
-	Publication MethodPublicationStrings
-	Reading     MethodReadingStrings
-	Report      func() string
-	Scale       MethodScaleStrings
-	Team        MethodTeamStrings
-	Time        MethodTimeStrings
-	Uncertainty MethodUncertaintyStrings
-	Weight      MethodWeightStrings
-}
-
-type MethodCountStrings struct {
-	Formats func() string
-	Players func() string
-	Title   func() string
-}
-
-type MethodDifficultyStrings struct {
-	Body  func() string
-	Title func() string
-}
-
-type MethodForecastStrings struct {
-	Editors func() string
-	Lineup  func() string
-	Quality func() string
-	Title   func() string
-}
-
-type MethodPlayerStrings struct {
-	Intensity    func() string
-	ModelAlone   func() string
-	ModelLead    func() string
-	ModelTable   func() string
-	ModelTail    func() string
-	Published    func() string
-	SupIntensity func() string
-	SupSum       func() string
-	Title        func() string
-}
-
-type MethodPublicationStrings struct {
-	Body  func() string
-	Title func() string
-}
-
-type MethodReadingStrings struct {
-	Lead  func() string
-	Title func() string
-}
-
-type MethodScaleStrings struct {
-	Anchor   func() string
-	Releases func() string
-	Tail     func() string
-	Title    func() string
-}
-
-type MethodTeamStrings struct {
-	Strength func() string
-	Sum      func() string
-	Title    func() string
-	Value    func() string
-}
-
-type MethodTimeStrings struct {
-	Fade   func() string
-	Listed func() string
-	Roster func() string
-	Search func() string
-	Title  func() string
-}
-
-type MethodUncertaintyStrings struct {
-	Body  func() string
-	Title func() string
-}
-
-type MethodWeightStrings struct {
-	Field   func() string
-	Format  func() string
-	Merged  func() string
-	Product func() string
-	Reach   func() string
-	Title   func() string
 }
 
 // PlayerStrings is the player Surface.
@@ -261,7 +169,7 @@ type PlayerStatStrings struct {
 // PlayersStrings is the players Surface.
 type PlayersStrings struct {
 	Col       PlayersColStrings
-	Lede      func(date string, n int, firm string) string
+	Lede      func(date string, n int) string
 	ProvSplit func() string
 }
 
@@ -272,8 +180,11 @@ type PlayersColStrings struct {
 
 // ReleasesStrings is the releases Surface.
 type ReleasesStrings struct {
-	Col  ReleasesColStrings
-	Lede func(n string) string
+	Col     ReleasesColStrings
+	Lede    func(n string) string
+	Players func() string
+	Teams   func() string
+	Title   func(date string) string
 }
 
 type ReleasesColStrings struct {
@@ -313,31 +224,30 @@ type TeamStrings struct {
 }
 
 type TeamBreakdownStrings struct {
-	ByPlace     func() string
 	EmptySlot   func() string
+	Equals      func(v string) string
 	Fade        func(fade string) string
 	FadeOverlap func(fade string, overlap string) string
-	Field       func(w string) string
-	Game        func(strength string) string
-	HowLead     func(x string) string
-	HowLink     func() string
-	HowTail     func(ip string, sync string) string
 	Left        func() string
 	LeftTitle   func() string
 	Merged      func(n int, place string) string
 	Now         func() string
 	NowTitle    func() string
-	Reach       func(w string) string
+	Place       func(v string) string
+	Points      func(v string) string
+	Strength    func(v string) string
 	Sum         func(sum string, divisor string) string
 	Title       func() string
-	Weight      func(w string, why string) string
+	W           func() string
+	WFormat     func() string
+	WTop        func() string
+	WTowns      func() string
 }
 
 type TeamResultsStrings struct {
 	Counts         func() string
 	CountsColTitle func() string
 	CountsTitle    func() string
-	Hint           func() string
 	OlderCount     func(n string, date string) string
 	OlderToggle    func() string
 	Title          func(n string) string
@@ -346,15 +256,12 @@ type TeamResultsStrings struct {
 }
 
 type TeamStatStrings struct {
-	Results   func() string
-	ResultsOf func(n string, x string) string
-	Week      func() string
+	Week func() string
 }
 
 // TeamsStrings is the teams Surface.
 type TeamsStrings struct {
 	Col       TeamsColStrings
-	How       func() string
 	Lede      func(date string, n int) string
 	ProvSplit func() string
 }
@@ -369,10 +276,7 @@ type TournamentStrings struct {
 	Byline    func(date string, format string, weight string) string
 	Field     TournamentFieldStrings
 	Forecast  TournamentForecastStrings
-	LlNone    func() string
-	LlObs     func(n string) string
 	Questions TournamentQuestionsStrings
-	Rho       func() string
 	Stat      TournamentStatStrings
 	Untitled  func() string
 	Venues    func(n int) string
@@ -387,12 +291,6 @@ type TournamentFieldStrings struct {
 	GainTitle     func() string
 	Lineup        func() string
 	LineupTitle   func() string
-	NoteFloor     func() string
-	NoteLineup    func() string
-	NoteMerged    func() string
-	NoteRoster    func() string
-	NoteSplit     func() string
-	NoteValue     func() string
 	PlayedAs      func(name string) string
 	RosterOpen    func() string
 	RosterToggle  func() string
@@ -414,7 +312,6 @@ type TournamentForecastStrings struct {
 	ColTeams  func() string
 	Fun       func() string
 	Gg        func() string
-	Hint      func(from string) string
 	Ours      func() string
 	Quest     func() string
 	Title     func() string
@@ -534,8 +431,6 @@ func (s Strings) Lookup(id string) (string, bool) {
 		return s.Common.Failed.Title(), true
 	case "common.foot.note":
 		return s.Common.Foot.Note(), true
-	case "common.foot.report":
-		return s.Common.Foot.Report(), true
 	case "common.format.async":
 		return s.Common.Format.Async(), true
 	case "common.format.in_person":
@@ -546,6 +441,8 @@ func (s Strings) Lookup(id string) (string, bool) {
 		return s.Common.Format.Sync(), true
 	case "common.nav.method":
 		return s.Common.Nav.Method(), true
+	case "common.nav.picker":
+		return s.Common.Nav.Picker(), true
 	case "common.nav.players":
 		return s.Common.Nav.Players(), true
 	case "common.nav.releases":
@@ -568,6 +465,8 @@ func (s Strings) Lookup(id string) (string, bool) {
 		return s.Common.Prov.Title(), true
 	case "common.prov.toggle":
 		return s.Common.Prov.Toggle(), true
+	case "common.search.close":
+		return s.Common.Search.Close(), true
 	case "common.search.label":
 		return s.Common.Search.Label(), true
 	case "common.search.placeholder":
@@ -578,96 +477,6 @@ func (s Strings) Lookup(id string) (string, bool) {
 		return s.Common.Unrated.Title(), true
 	case "common.untitled":
 		return s.Common.Untitled(), true
-	case "method.count.formats":
-		return s.Method.Count.Formats(), true
-	case "method.count.players":
-		return s.Method.Count.Players(), true
-	case "method.count.title":
-		return s.Method.Count.Title(), true
-	case "method.difficulty.body":
-		return s.Method.Difficulty.Body(), true
-	case "method.difficulty.title":
-		return s.Method.Difficulty.Title(), true
-	case "method.forecast.editors":
-		return s.Method.Forecast.Editors(), true
-	case "method.forecast.lineup":
-		return s.Method.Forecast.Lineup(), true
-	case "method.forecast.quality":
-		return s.Method.Forecast.Quality(), true
-	case "method.forecast.title":
-		return s.Method.Forecast.Title(), true
-	case "method.lede":
-		return s.Method.Lede(), true
-	case "method.player.intensity":
-		return s.Method.Player.Intensity(), true
-	case "method.player.model_alone":
-		return s.Method.Player.ModelAlone(), true
-	case "method.player.model_lead":
-		return s.Method.Player.ModelLead(), true
-	case "method.player.model_table":
-		return s.Method.Player.ModelTable(), true
-	case "method.player.model_tail":
-		return s.Method.Player.ModelTail(), true
-	case "method.player.published":
-		return s.Method.Player.Published(), true
-	case "method.player.sup_intensity":
-		return s.Method.Player.SupIntensity(), true
-	case "method.player.sup_sum":
-		return s.Method.Player.SupSum(), true
-	case "method.player.title":
-		return s.Method.Player.Title(), true
-	case "method.publication.body":
-		return s.Method.Publication.Body(), true
-	case "method.publication.title":
-		return s.Method.Publication.Title(), true
-	case "method.reading.lead":
-		return s.Method.Reading.Lead(), true
-	case "method.reading.title":
-		return s.Method.Reading.Title(), true
-	case "method.report":
-		return s.Method.Report(), true
-	case "method.scale.anchor":
-		return s.Method.Scale.Anchor(), true
-	case "method.scale.releases":
-		return s.Method.Scale.Releases(), true
-	case "method.scale.tail":
-		return s.Method.Scale.Tail(), true
-	case "method.scale.title":
-		return s.Method.Scale.Title(), true
-	case "method.team.strength":
-		return s.Method.Team.Strength(), true
-	case "method.team.sum":
-		return s.Method.Team.Sum(), true
-	case "method.team.title":
-		return s.Method.Team.Title(), true
-	case "method.team.value":
-		return s.Method.Team.Value(), true
-	case "method.time.fade":
-		return s.Method.Time.Fade(), true
-	case "method.time.listed":
-		return s.Method.Time.Listed(), true
-	case "method.time.roster":
-		return s.Method.Time.Roster(), true
-	case "method.time.search":
-		return s.Method.Time.Search(), true
-	case "method.time.title":
-		return s.Method.Time.Title(), true
-	case "method.uncertainty.body":
-		return s.Method.Uncertainty.Body(), true
-	case "method.uncertainty.title":
-		return s.Method.Uncertainty.Title(), true
-	case "method.weight.field":
-		return s.Method.Weight.Field(), true
-	case "method.weight.format":
-		return s.Method.Weight.Format(), true
-	case "method.weight.merged":
-		return s.Method.Weight.Merged(), true
-	case "method.weight.product":
-		return s.Method.Weight.Product(), true
-	case "method.weight.reach":
-		return s.Method.Weight.Reach(), true
-	case "method.weight.title":
-		return s.Method.Weight.Title(), true
 	case "player.stat.games":
 		return s.Player.Stat.Games(), true
 	case "player.stat.games365":
@@ -690,6 +499,10 @@ func (s Strings) Lookup(id string) (string, bool) {
 		return s.Releases.Col.ShiftCum(), true
 	case "releases.col.teams":
 		return s.Releases.Col.Teams(), true
+	case "releases.players":
+		return s.Releases.Players(), true
+	case "releases.teams":
+		return s.Releases.Teams(), true
 	case "search.col.games":
 		return s.Search.Col.Games(), true
 	case "search.col.last":
@@ -702,12 +515,8 @@ func (s Strings) Lookup(id string) (string, bool) {
 		return s.Search.Prompt(), true
 	case "search.title":
 		return s.Search.Title(), true
-	case "team.breakdown.by_place":
-		return s.Team.Breakdown.ByPlace(), true
 	case "team.breakdown.empty_slot":
 		return s.Team.Breakdown.EmptySlot(), true
-	case "team.breakdown.how_link":
-		return s.Team.Breakdown.HowLink(), true
 	case "team.breakdown.left":
 		return s.Team.Breakdown.Left(), true
 	case "team.breakdown.left_title":
@@ -718,6 +527,14 @@ func (s Strings) Lookup(id string) (string, bool) {
 		return s.Team.Breakdown.NowTitle(), true
 	case "team.breakdown.title":
 		return s.Team.Breakdown.Title(), true
+	case "team.breakdown.w":
+		return s.Team.Breakdown.W(), true
+	case "team.breakdown.w_format":
+		return s.Team.Breakdown.WFormat(), true
+	case "team.breakdown.w_top":
+		return s.Team.Breakdown.WTop(), true
+	case "team.breakdown.w_towns":
+		return s.Team.Breakdown.WTowns(), true
 	case "team.no_town":
 		return s.Team.NoTown(), true
 	case "team.results.counts":
@@ -726,20 +543,14 @@ func (s Strings) Lookup(id string) (string, bool) {
 		return s.Team.Results.CountsColTitle(), true
 	case "team.results.counts_title":
 		return s.Team.Results.CountsTitle(), true
-	case "team.results.hint":
-		return s.Team.Results.Hint(), true
 	case "team.results.older_toggle":
 		return s.Team.Results.OlderToggle(), true
-	case "team.stat.results":
-		return s.Team.Stat.Results(), true
 	case "team.stat.week":
 		return s.Team.Stat.Week(), true
 	case "teams.col.results":
 		return s.Teams.Col.Results(), true
 	case "teams.col.results_title":
 		return s.Teams.Col.ResultsTitle(), true
-	case "teams.how":
-		return s.Teams.How(), true
 	case "teams.prov_split":
 		return s.Teams.ProvSplit(), true
 	case "tournament.field.all_venues":
@@ -758,18 +569,6 @@ func (s Strings) Lookup(id string) (string, bool) {
 		return s.Tournament.Field.Lineup(), true
 	case "tournament.field.lineup_title":
 		return s.Tournament.Field.LineupTitle(), true
-	case "tournament.field.note_floor":
-		return s.Tournament.Field.NoteFloor(), true
-	case "tournament.field.note_lineup":
-		return s.Tournament.Field.NoteLineup(), true
-	case "tournament.field.note_merged":
-		return s.Tournament.Field.NoteMerged(), true
-	case "tournament.field.note_roster":
-		return s.Tournament.Field.NoteRoster(), true
-	case "tournament.field.note_split":
-		return s.Tournament.Field.NoteSplit(), true
-	case "tournament.field.note_value":
-		return s.Tournament.Field.NoteValue(), true
 	case "tournament.field.roster_open":
 		return s.Tournament.Field.RosterOpen(), true
 	case "tournament.field.roster_toggle":
@@ -804,12 +603,8 @@ func (s Strings) Lookup(id string) (string, bool) {
 		return s.Tournament.Forecast.Quest(), true
 	case "tournament.forecast.title":
 		return s.Tournament.Forecast.Title(), true
-	case "tournament.ll_none":
-		return s.Tournament.LlNone(), true
 	case "tournament.questions.title":
 		return s.Tournament.Questions.Title(), true
-	case "tournament.rho":
-		return s.Tournament.Rho(), true
 	case "tournament.stat.ll_cross":
 		return s.Tournament.Stat.LlCross(), true
 	case "tournament.stat.ll_in":
@@ -839,7 +634,7 @@ func (s Strings) Lookup(id string) (string, bool) {
 // Defines reports whether the Catalog holds the id at all, templated or not.
 func (Strings) Defines(id string) bool {
 	switch id {
-	case "anomaly.col.forecast", "anomaly.col.hard", "anomaly.col.in_person", "anomaly.col.score", "anomaly.col.sync", "anomaly.explain.count", "anomaly.explain.forecast", "anomaly.explain.forecast_name", "anomaly.explain.gap", "anomaly.explain.hard", "anomaly.explain.hard_name", "anomaly.explain.shrink", "anomaly.explain.summary", "anomaly.title", "common.brand", "common.chart.empty", "common.chart.place", "common.chart.rating", "common.chart.title", "common.col.after", "common.col.before", "common.col.change", "common.col.change_player_title", "common.col.change_team_title", "common.col.date", "common.col.difficulty", "common.col.difficulty_title", "common.col.gain", "common.col.gain_title", "common.col.place", "common.col.player", "common.col.rating", "common.col.sigma_title", "common.col.taken", "common.col.team", "common.col.tournament", "common.col.type", "common.col.value", "common.col.value_title", "common.failed.lede", "common.failed.title", "common.foot.note", "common.foot.report", "common.format.async", "common.format.in_person", "common.format.strict_sync", "common.format.sync", "common.nav.method", "common.nav.players", "common.nav.releases", "common.nav.teams", "common.nav.tournaments", "common.no_tournaments", "common.not_found.lede", "common.not_found.title", "common.of_n", "common.page_title", "common.pager.label", "common.player_fallback", "common.prov.badge", "common.prov.from_page", "common.prov.hidden", "common.prov.title", "common.prov.toggle", "common.search.label", "common.search.placeholder", "common.team_fallback", "common.title", "common.unrated.tag", "common.unrated.title", "common.untitled", "method.count.formats", "method.count.players", "method.count.title", "method.difficulty.body", "method.difficulty.title", "method.forecast.editors", "method.forecast.lineup", "method.forecast.quality", "method.forecast.title", "method.lede", "method.player.intensity", "method.player.model_alone", "method.player.model_lead", "method.player.model_table", "method.player.model_tail", "method.player.published", "method.player.sup_intensity", "method.player.sup_sum", "method.player.title", "method.publication.body", "method.publication.title", "method.reading.lead", "method.reading.title", "method.report", "method.scale.anchor", "method.scale.releases", "method.scale.tail", "method.scale.title", "method.team.strength", "method.team.sum", "method.team.title", "method.team.value", "method.time.fade", "method.time.listed", "method.time.roster", "method.time.search", "method.time.title", "method.uncertainty.body", "method.uncertainty.title", "method.weight.field", "method.weight.format", "method.weight.merged", "method.weight.product", "method.weight.reach", "method.weight.title", "player.games", "player.not_listed", "player.rank", "player.stat.games", "player.stat.games365", "player.stat.last_rating", "player.stat.sigma", "player.stat.week", "players.col.games_year", "players.col.place_title", "players.lede", "players.prov_split", "releases.col.players", "releases.col.shift", "releases.col.shift_cum", "releases.col.teams", "releases.lede", "search.col.games", "search.col.last", "search.col.tournaments", "search.nothing", "search.page_title", "search.players", "search.prompt", "search.query", "search.teams", "search.title", "team.breakdown.by_place", "team.breakdown.empty_slot", "team.breakdown.fade", "team.breakdown.fade_overlap", "team.breakdown.field", "team.breakdown.game", "team.breakdown.how_lead", "team.breakdown.how_link", "team.breakdown.how_tail", "team.breakdown.left", "team.breakdown.left_title", "team.breakdown.merged", "team.breakdown.now", "team.breakdown.now_title", "team.breakdown.reach", "team.breakdown.sum", "team.breakdown.title", "team.breakdown.weight", "team.no_town", "team.not_listed", "team.rank", "team.results.counts", "team.results.counts_col_title", "team.results.counts_title", "team.results.hint", "team.results.older_count", "team.results.older_toggle", "team.results.title", "team.results.value_how", "team.results.value_how_place", "team.roster", "team.stat.results", "team.stat.results_of", "team.stat.week", "teams.col.results", "teams.col.results_title", "teams.how", "teams.lede", "teams.prov_split", "tournament.byline", "tournament.field.all_venues", "tournament.field.by_place", "tournament.field.by_place_title", "tournament.field.empty", "tournament.field.forecast", "tournament.field.gain_title", "tournament.field.lineup", "tournament.field.lineup_title", "tournament.field.note_floor", "tournament.field.note_lineup", "tournament.field.note_merged", "tournament.field.note_roster", "tournament.field.note_split", "tournament.field.note_value", "tournament.field.played_as", "tournament.field.roster_open", "tournament.field.roster_toggle", "tournament.field.title", "tournament.field.to_lineup", "tournament.field.to_lineup_title", "tournament.field.unrated", "tournament.field.value_title", "tournament.field.venue", "tournament.field.venue_col", "tournament.field.venue_option", "tournament.field.venue_place", "tournament.field.winner", "tournament.field.winner_title", "tournament.forecast.col_system", "tournament.forecast.col_teams", "tournament.forecast.fun", "tournament.forecast.gg", "tournament.forecast.hint", "tournament.forecast.ours", "tournament.forecast.quest", "tournament.forecast.title", "tournament.ll_none", "tournament.ll_obs", "tournament.questions.bar", "tournament.questions.hint", "tournament.questions.title", "tournament.rho", "tournament.stat.ll_cross", "tournament.stat.ll_in", "tournament.stat.questions", "tournament.stat.rho_forecast", "tournament.stat.rho_old", "tournament.stat.teams", "tournament.stat.venues", "tournament.untitled", "tournament.venues", "tournaments.col.questions", "tournaments.col.teams", "tournaments.col.weight", "tournaments.lede":
+	case "anomaly.col.forecast", "anomaly.col.hard", "anomaly.col.in_person", "anomaly.col.score", "anomaly.col.sync", "anomaly.explain.count", "anomaly.explain.forecast", "anomaly.explain.forecast_name", "anomaly.explain.gap", "anomaly.explain.hard", "anomaly.explain.hard_name", "anomaly.explain.shrink", "anomaly.explain.summary", "anomaly.title", "common.brand", "common.chart.empty", "common.chart.place", "common.chart.place_point", "common.chart.rating", "common.chart.title", "common.col.after", "common.col.before", "common.col.change", "common.col.change_player_title", "common.col.change_team_title", "common.col.date", "common.col.difficulty", "common.col.difficulty_title", "common.col.gain", "common.col.gain_title", "common.col.place", "common.col.player", "common.col.rating", "common.col.sigma_title", "common.col.taken", "common.col.team", "common.col.tournament", "common.col.type", "common.col.value", "common.col.value_title", "common.failed.lede", "common.failed.title", "common.foot.note", "common.format.async", "common.format.in_person", "common.format.strict_sync", "common.format.sync", "common.nav.method", "common.nav.picker", "common.nav.players", "common.nav.releases", "common.nav.teams", "common.nav.tournaments", "common.no_tournaments", "common.not_found.lede", "common.not_found.title", "common.of_n", "common.page_title", "common.pager.label", "common.player_fallback", "common.prov.badge", "common.prov.from_page", "common.prov.hidden", "common.prov.title", "common.prov.toggle", "common.search.close", "common.search.label", "common.search.placeholder", "common.team_fallback", "common.title", "common.unrated.tag", "common.unrated.title", "common.untitled", "player.games", "player.not_listed", "player.rank", "player.stat.games", "player.stat.games365", "player.stat.last_rating", "player.stat.sigma", "player.stat.week", "players.col.games_year", "players.col.place_title", "players.lede", "players.prov_split", "releases.col.players", "releases.col.shift", "releases.col.shift_cum", "releases.col.teams", "releases.lede", "releases.players", "releases.teams", "releases.title", "search.col.games", "search.col.last", "search.col.tournaments", "search.nothing", "search.page_title", "search.players", "search.prompt", "search.query", "search.teams", "search.title", "team.breakdown.empty_slot", "team.breakdown.equals", "team.breakdown.fade", "team.breakdown.fade_overlap", "team.breakdown.left", "team.breakdown.left_title", "team.breakdown.merged", "team.breakdown.now", "team.breakdown.now_title", "team.breakdown.place", "team.breakdown.points", "team.breakdown.strength", "team.breakdown.sum", "team.breakdown.title", "team.breakdown.w", "team.breakdown.w_format", "team.breakdown.w_top", "team.breakdown.w_towns", "team.no_town", "team.not_listed", "team.rank", "team.results.counts", "team.results.counts_col_title", "team.results.counts_title", "team.results.older_count", "team.results.older_toggle", "team.results.title", "team.results.value_how", "team.results.value_how_place", "team.roster", "team.stat.week", "teams.col.results", "teams.col.results_title", "teams.lede", "teams.prov_split", "tournament.byline", "tournament.field.all_venues", "tournament.field.by_place", "tournament.field.by_place_title", "tournament.field.empty", "tournament.field.forecast", "tournament.field.gain_title", "tournament.field.lineup", "tournament.field.lineup_title", "tournament.field.played_as", "tournament.field.roster_open", "tournament.field.roster_toggle", "tournament.field.title", "tournament.field.to_lineup", "tournament.field.to_lineup_title", "tournament.field.unrated", "tournament.field.value_title", "tournament.field.venue", "tournament.field.venue_col", "tournament.field.venue_option", "tournament.field.venue_place", "tournament.field.winner", "tournament.field.winner_title", "tournament.forecast.col_system", "tournament.forecast.col_teams", "tournament.forecast.fun", "tournament.forecast.gg", "tournament.forecast.ours", "tournament.forecast.quest", "tournament.forecast.title", "tournament.questions.bar", "tournament.questions.hint", "tournament.questions.title", "tournament.stat.ll_cross", "tournament.stat.ll_in", "tournament.stat.questions", "tournament.stat.rho_forecast", "tournament.stat.rho_old", "tournament.stat.teams", "tournament.stat.venues", "tournament.untitled", "tournament.venues", "tournaments.col.questions", "tournaments.col.teams", "tournaments.col.weight", "tournaments.lede":
 		return true
 	}
 	return false

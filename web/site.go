@@ -38,17 +38,15 @@ type tick struct {
 	label string
 }
 
-// ticks are four dated marks across the releases a chart covers, each a
-// month.
-func (s *site) ticks(from, to int) []tick {
+// ticks are dated marks across the releases a chart covers, each a month.
+func (s *site) ticks(from, to, marks int) []tick {
 	const (
-		marks = 4
 		month = len("2006-01")
 		half  = 0.5
 	)
 	var v []tick
 	for k := 0; k < marks; k++ {
-		i := float64(from) + float64(to-from)*float64(k)/(marks-1)
+		i := float64(from) + float64(to-from)*float64(k)/float64(marks-1)
 		label := prefix(s.rels[int(i+half)].date, month)
 		if len(v) > 0 && v[len(v)-1].label == label {
 			continue

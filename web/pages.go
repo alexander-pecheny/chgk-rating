@@ -34,6 +34,14 @@ func sectionName(key string) string {
 	return ""
 }
 
+// orBrand is a section's name, or the site's on a page outside every section.
+func orBrand(name string) string {
+	if name == "" {
+		return S.Common.Brand()
+	}
+	return name
+}
+
 func sectionHref(key string) string {
 	for _, x := range sections {
 		if x.key == key {
@@ -53,12 +61,9 @@ func layout(title, section, leaf string, body ...ui.Item) *ui.Doc {
 	}
 	items := []ui.Item{
 		ui.Title(title), ui.PageSite, ui.Classicscripts("site.js"),
-		ui.Sitebar(ui.Crumbs(trail(section, leaf)...), ui.Tablinks(pills(section, leaf)...)),
+		ui.Sitebar(ui.Crumbs(trail(section, leaf)...), ui.Tablinks(append([]ui.Item{ui.Label(orBrand(sectionName(section)))}, pills(section, leaf)...)...)),
 	}
-	content := append(body, ui.Sitefoot(ui.Inline(
-		ui.Text(S.Common.Foot.Note()),
-		ui.Link(ui.Href("/report.pdf"), ui.Text(S.Common.Foot.Report())),
-	)))
+	content := append(body, ui.Sitefoot(ui.Text(S.Common.Foot.Note())))
 	items = append(items, ui.Sitebody(content...))
 	return &ui.Doc{Nodes: []ui.Node{ui.Page(items...)}}
 }

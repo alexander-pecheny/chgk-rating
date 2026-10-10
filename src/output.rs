@@ -164,6 +164,7 @@ impl Writer {
              CREATE INDEX idx_team_ratings_rel ON team_ratings(release_id);
              CREATE INDEX idx_team_ratings_tr ON team_ratings(team_id, release_id);
              CREATE INDEX idx_player_ratings_pr ON player_ratings(player_id, release_id);
+             CREATE INDEX idx_player_ratings_rel ON player_ratings(release_id);
              CREATE INDEX idx_player_events_pt ON player_events(player_id, tournament_id);",
         )?;
         Ok(())

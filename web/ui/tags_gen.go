@@ -328,6 +328,10 @@ func Sup(items ...Item) *Element {
 	return base.New("sup", items...)
 }
 
+func Sub(items ...Item) *Element {
+	return base.New("sub", items...)
+}
+
 func Em(items ...Item) *Element {
 	return base.New("em", items...)
 }
@@ -362,6 +366,10 @@ func Venuefilter(items ...Item) *Element {
 
 func Explainer(items ...Item) *Element {
 	return base.New("explainer", items...)
+}
+
+func Article(items ...Item) *Element {
+	return base.New("article", items...)
 }
 
 // Prop constructors.

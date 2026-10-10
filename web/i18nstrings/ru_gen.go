@@ -43,10 +43,11 @@ var RU = Strings{
 	Common: CommonStrings{
 		Brand: func() string { return "Рейтинг ЧГК" },
 		Chart: CommonChartStrings{
-			Empty:  func() string { return "Точек для графика пока нет." },
-			Place:  func() string { return "Место" },
-			Rating: func() string { return "Рейтинг" },
-			Title:  func() string { return "История рейтинга" },
+			Empty:      func() string { return "Точек для графика пока нет." },
+			Place:      func() string { return "Место" },
+			PlacePoint: func(n string) string { return fmt.Sprintf("%s-е место", n) },
+			Rating:     func() string { return "Рейтинг" },
+			Title:      func() string { return "История рейтинга" },
 		},
 		Col: CommonColStrings{
 			After:  func() string { return "Стало" },
@@ -73,8 +74,10 @@ var RU = Strings{
 			Team:       func() string { return "Команда" },
 			Tournament: func() string { return "Турнир" },
 			Type:       func() string { return "Тип" },
-			Value:      func() string { return "Ценность" },
-			ValueTitle: func() string { return "Сколько результат стоил в день турнира" },
+			Value:      func() string { return "Балл" },
+			ValueTitle: func() string {
+				return "Рейтинговый балл V: сколько результат стоил в день турнира"
+			},
 		},
 		Failed: CommonFailedStrings{
 			Lede: func() string {
@@ -84,9 +87,8 @@ var RU = Strings{
 		},
 		Foot: CommonFootStrings{
 			Note: func() string {
-				return "Экспериментальный рейтинг спортивного ЧГК. Данные — зеркало rating.chgk.info. "
+				return "Экспериментальный рейтинг спортивного ЧГК. Данные — зеркало rating.chgk.info."
 			},
-			Report: func() string { return "Отчёт (PDF)" },
 		},
 		Format: CommonFormatStrings{
 			Async:      func() string { return "асинхрон" },
@@ -96,6 +98,7 @@ var RU = Strings{
 		},
 		Nav: CommonNavStrings{
 			Method:      func() string { return "Методика" },
+			Picker:      func() string { return "Разделы" },
 			Players:     func() string { return "Игроки" },
 			Releases:    func() string { return "Релизы" },
 			Teams:       func() string { return "Команды" },
@@ -124,6 +127,7 @@ var RU = Strings{
 			Toggle: func() string { return "Показывать предварительные" },
 		},
 		Search: CommonSearchStrings{
+			Close:       func() string { return "Закрыть поиск" },
 			Label:       func() string { return "Поиск" },
 			Placeholder: func() string { return "Игрок или команда" },
 		},
@@ -136,127 +140,6 @@ var RU = Strings{
 			},
 		},
 		Untitled: func() string { return "без названия" },
-	},
-	Method: MethodStrings{
-		Count: MethodCountStrings{
-			Formats: func() string {
-				return "Rated tournaments from 1 January 2013 count; those before 2016 inform the ratings but no release is published for them. For individual ratings every rated format weighs the same; team ratings use the weights above. Asynchronous tournaments are never rated. Marathons are excluded."
-			},
-			Players: func() string {
-				return "The player table includes players who played at least one rated tournament in the last 365 days. A player entered under two ids that rating.chgk.info has since merged counts as one."
-			},
-			Title: func() string { return "Which tournaments count" },
-		},
-		Difficulty: MethodDifficultyStrings{
-			Body: func() string {
-				return "Package difficulty is a single estimate, shared by all tournaments, of how hard the questions were: the higher the number, the fewer questions teams of one and the same strength would answer. It comes from the same question model as the player ratings, so packages of different years, formats and fields compare directly."
-			},
-			Title: func() string { return "Package difficulty" },
-		},
-		Forecast: MethodForecastStrings{
-			Editors: func() string {
-				return "At an in-person tournament the forecast carries one small correction that is not about the lineup: how the team has fared before under the editors of this package. A weak player misses a question whoever wrote it, so only lineups with a player in the strongest 44% carry such a record, and a team and an editor need three shared tournaments before the record counts. Everything else in the system ignores it — no rating, no player number and no question difficulty moves because of it, and a synchronous forecast never reads it. It is worth a few points of forecast quality and it is the only place in the model where who wrote the questions changes what we expect."
-			},
-			Lineup: func() string {
-				return "The forecast for a tournament is separate from the rating and takes no part in the update. A team's forecast strength is the strength of the lineup it fielded, computed from individual ratings: the players are sorted from strongest to weakest and averaged with weights 6, 5, 4, 3, 2 and 1, and each seat short of six is filled by the weakest player less 700 points. The forecast places are the order of the field by that strength. About tomorrow, the lineup knows more than the accumulated team rating: on in-person tournaments of the last two seasons this forecast beats both the team rating and the forecast of the old system."
-			},
-			Quality: func() string {
-				return "The tournament page shows the forecast next to the result. Forecast quality is measured two ways and compared with the other systems: by Spearman rank correlation over the whole field, and by a top-weighted measure that counts a swap at the first places for far more than one deep in the table, averaged over tournaments with the strong fields counting most. The forecast's constants were chosen blind, from a random start, on in-person tournaments of 2023 and 2024, with no data from 2025 on; a few rules of principle, such as the forecast place that no lineup can lose by reaching, were fixed by hand. For tournaments from 1 January 2025 the tournament page also shows the same measure for the old system's own forecast and for rating.chgk.fun, chgk.quest and chgk.gg as we reimplement them."
-			},
-			Title: func() string { return "Forecast" },
-		},
-		Lede: func() string {
-			return "How the rating is computed, in short. An earlier version of the model, with formulas, is described in the"
-		},
-		Player: MethodPlayerStrings{
-			Intensity: func() string { return "intensity" },
-			ModelAlone: func() string {
-				return ", the rate at which they find the answer: 1 when their strength equals the difficulty, rising by a factor of e for every unit above it and falling by the same for every unit below. A player alone answers with probability 1 − e"
-			},
-			ModelLead: func() string {
-				return "Player strength is estimated from a question model. Each question has a difficulty, each player has a strength and an uncertainty. On each question a player has an"
-			},
-			ModelTable: func() string {
-				return ". Intensities of a table add up, and the team answers with probability (1 − e"
-			},
-			ModelTail: func() string {
-				return ")^1.59; the power makes a table less than the sum of its players. Uncertainty plays no part in this chance; it only sets how far the estimate moves afterwards. Each question also has a sharpness: how cleanly it separates strong lineups from weak ones. Its difficulty and sharpness are fitted to which lineups answered it, each pulled towards a typical value so that a question taken by two teams of thirty is not read as extreme. This is what makes packages from different years and levels comparable."
-			},
-			Published: func() string {
-				return "Individual numbers are published as they are, with their uncertainty, with no ladder rules and no rounding to grades. One number per player serves every format: a player is assumed to be as strong at a synchronous package as at a face-to-face table. A player with no history enters at the average strength of a newcomer with a wide uncertainty. After each tournament four more rules apply. A lineup's players are judged against the lineups whose expected score was close to their own (within about twelve answers), not against the whole field. Before the tournament every lineup gets a forecast place: if it finishes at or above that place its players cannot lose strength from the tournament, and if it finishes below it they cannot gain. Each player is pulled 0.07% of the way towards the mean of the lineup they played in. And a player who leads their lineup by more than about 2100 points gains at most about 210 points a year from such tournaments: what the lineup takes beyond that is left to their teammates, so a team of one established player and several new ones does not credit the established one with all of it."
-			},
-			SupIntensity: func() string { return "−intensity" },
-			SupSum:       func() string { return "−sum" },
-			Title:        func() string { return "Individual rating" },
-		},
-		Publication: MethodPublicationStrings{
-			Body: func() string {
-				return "Tournaments are processed once, in date order, and releases come out on Thursdays. Tournaments from 2013 to 2015 only teach the model where players stand; the first published release is the first Thursday of 2016, and every published number uses only results from before its date. Every morning the whole history is recomputed from the current data and rules, so a past release can change when either changes."
-			},
-			Title: func() string { return "Publication" },
-		},
-		Reading: MethodReadingStrings{
-			Lead:  func() string { return "Formulas, constant calibration and acceptance tests are in the" },
-			Title: func() string { return "Further reading" },
-		},
-		Report: func() string { return "report (PDF)" },
-		Scale: MethodScaleStrings{
-			Anchor: func() string {
-				return "At every release the scale is anchored to the population: the mean strength of players with at least eight rated tournaments in the past year is set to zero. This shift is subtracted from every player. Team values rest on the same anchor, because the strength a team showed is read on the same scale as the players. The published scale follows this anchor but moves at most 0.05 (about 210 points) from one release to the next, so a week in which the reference group shrinks, as in the lockdown of 2021, does not move every rating at once. The accumulated shift is shown on the"
-			},
-			Releases: func() string { return "releases" },
-			Tail:     func() string { return " page." },
-			Title:    func() string { return "Scale" },
-		},
-		Team: MethodTeamStrings{
-			Strength: func() string {
-				return "The strength the team showed is that of a lineup of six equal players who would expect to take as many questions on that package as the team took. Question difficulty comes from the question model below, so the same number of answers is worth more on a harder package, and a lead over the field counts in full."
-			},
-			Sum: func() string {
-				return "A team rating is the sum of the team's seven best current results, divided by seven. An empty slot counts as zero, so a team needs seven good results to reach its full level. Every team page shows the seven, what each was worth and what is left of it, so the number can be checked by hand."
-			},
-			Title: func() string { return "What a team rating is" },
-			Value: func() string {
-				return "A result is valued once, on the day of the tournament, and never revalued afterwards. Its value is the strength the team showed, divided by its place to the power 0.6, times the weight of the tournament. A win keeps the whole strength, second place 66% of it, fifth 38%, tenth 25%. A result with no per-question data is valued by the strength at which its place is what the field's lineups predict, under the same divisor."
-			},
-		},
-		Time: MethodTimeStrings{
-			Fade: func() string {
-				return "A result worth 9000 loses 10% of its value each year if it was played in person and 40% if it was synchronous. A result's age runs at (9000 / its value) to the power 0.6, so weaker results fade faster: a typical in-person result, worth about 700, loses about 40% a year, and a typical synchronous one nearly all of it within the year. A team that stops playing keeps its seven results, and its rating only falls; it can rise only by a new result that enters the seven."
-			},
-			Listed: func() string {
-				return "A team is in the table while it has a base roster for the season (in the first sixty days of a season, last season's roster is enough) and at least one counted result in the past 365 days. A result flagged as unrated counts for no team; the players who played it are rated on it as usual."
-			},
-			Roster: func() string {
-				return "A result counts for the team whose number it was played under, whoever sat at the table. If the team's base roster has since changed, the result keeps only part of its value: the share of that season's roster, weighted by the players' ratings over the six strongest, that is still on the roster today, to the power 0.6. A team that loses its strongest player loses more than one that loses its weakest."
-			},
-			Search: func() string {
-				return "The constants above were chosen by searching thousands of combinations for the one that best predicts the order of teams in real tournaments, with a few fixed in advance for clarity: seven results, the format weights, and a rating that never grows while a team is idle. On in-person tournaments of the last two seasons it orders fields of teams playing in their base rosters about as well as the previous rule did."
-			},
-			Title: func() string { return "Time and lineup" },
-		},
-		Uncertainty: MethodUncertaintyStrings{
-			Body: func() string {
-				return "Players carry a ± next to the rating: the root-mean-square uncertainty of the estimate. A rating with a large one is provisional. The width is driven by the player's own volatility. A steady, predictable history squeezes it towards the floor and a run of results unlike the past opens it again. It also grows with the time since the player's last game, at the rate of the player's own volatility. The player table ranks everyone, provisional or not, by the rating less 2.75 uncertainties, its lower 0.3% bound, so a rating resting on little evidence stands no higher than that evidence allows; the number shown is the rating itself."
-			},
-			Title: func() string { return "Uncertainty" },
-		},
-		Weight: MethodWeightStrings{
-			Field: func() string {
-				return "Field: the average strength of the tournament's twenty strongest lineups, placed between 5000, which weighs 0, and 10000, which weighs 1. A tournament with fewer than twenty lineups is averaged over the lineups it has, and its weight is then multiplied by the square root of its number of lineups over twenty, so a strong small field counts, but less than a strong full one."
-			},
-			Format: func() string {
-				return "Format: in-person 1, strictly synchronous 2/3, synchronous 0.5. Asynchronous tournaments do not count."
-			},
-			Merged: func() string {
-				return "Several cities playing one package within two days of each other are one tournament for the team rating, with one set of places by questions taken, ties sharing the place. They are merged only when they have the same editors and question count, their questions' take rates agree (a correlation of at least 0.5), and no team played at two of them. A question that a whole venue did not play is dropped at all of them, so every team plays for the same questions. A tournament played in one place keeps its official places, shootouts included. Individual ratings treat every venue as its own tournament."
-			},
-			Product: func() string { return "The weight is the product of three factors." },
-			Reach: func() string {
-				return "Reach, in person only: the number of towns the teams come from, divided by 24, to the power 0.6, and never more than 1. A field drawn from 24 towns or more keeps its whole weight; a league played within one city keeps about a seventh."
-			},
-			Title: func() string { return "The weight of a tournament" },
-		},
 	},
 	Player: PlayerStrings{
 		Games: func(n string) string { return fmt.Sprintf("Сыгранные турниры (%s)", n) },
@@ -279,8 +162,8 @@ var RU = Strings{
 				return fmt.Sprintf("Место — по рейтингу за вычетом %s неопределённостей: игрок, о котором известно мало, стоит не выше, чем позволяют его результаты", k)
 			},
 		},
-		Lede: func(date string, n int, firm string) string {
-			return fmt.Sprintf("Релиз от %s. В таблице %d %s, из них %s с установившимся рейтингом. Индивидуальный рейтинг — оценка из модели вопросов, без лестничных правил.", date, n, core.Plural("ru", n, "игрок", "игрока", "игроков"), firm)
+		Lede: func(date string, n int) string {
+			return fmt.Sprintf("Релиз от %s. В таблице %d %s.", date, n, core.Plural("ru", n, "игрок", "игрока", "игроков"))
 		},
 		ProvSplit: func() string {
 			return "Предварительные рейтинги — игроки, чья неопределённость ещё велика"
@@ -293,9 +176,10 @@ var RU = Strings{
 			ShiftCum: func() string { return "Накопленный сдвиг" },
 			Teams:    func() string { return "Команд" },
 		},
-		Lede: func(n string) string {
-			return fmt.Sprintf("Релиз — недельный снимок состояния, по четвергам. Каждое утро вся история пересчитывается заново, поэтому число в прошлом релизе может измениться, если изменились данные или правила. Сдвиг — калибровка шкалы к нулевому среднему на этом релизе, накопленный сдвиг показывает, насколько шкала ушла с начала счёта. Всего релизов: %s.", n)
-		},
+		Lede:    func(n string) string { return fmt.Sprintf("Всего релизов: %s.", n) },
+		Players: func() string { return "Игроки этого релиза" },
+		Teams:   func() string { return "Команды этого релиза" },
+		Title:   func(date string) string { return fmt.Sprintf("Релиз от %s", date) },
 	},
 	Search: SearchStrings{
 		Col: SearchColStrings{
@@ -313,58 +197,49 @@ var RU = Strings{
 	},
 	Team: TeamStrings{
 		Breakdown: TeamBreakdownStrings{
-			ByPlace:   func() string { return "÷ место" },
-			EmptySlot: func() string { return "пустой слот" },
-			Fade:      func(fade string) string { return fmt.Sprintf("затухание: осталось %s%%", fade) },
-			FadeOverlap: func(fade string, overlap string) string {
-				return fmt.Sprintf("затухание %s%% × доля нынешнего состава %s%%", fade, overlap)
+			EmptySlot:   func() string { return "пустой слот" },
+			Equals:      func(v string) string { return fmt.Sprintf(" = %s", v) },
+			Fade:        func(fade string) string { return fmt.Sprintf("f(t) = %s%%", fade) },
+			FadeOverlap: func(fade string, overlap string) string { return fmt.Sprintf("f(t) = %s%%, ω = %s%%", fade, overlap) },
+			Left:        func() string { return "Осталось" },
+			LeftTitle: func() string {
+				return "Доля балла, которая осталась сегодня: f(t) · ω"
 			},
-			Field: func(w string) string { return fmt.Sprintf("поле ×%s", w) },
-			Game:  func(strength string) string { return fmt.Sprintf("игра %s", strength) },
-			HowLead: func(x string) string {
-				return fmt.Sprintf("Рейтинг — сумма %s лучших результатов команды, делённая на %s. Результат стоит столько, насколько сильно команда сыграла, делённое на место", x, x)
-			},
-			HowLink: func() string { return "методике" },
-			HowTail: func(ip string, sync string) string {
-				return fmt.Sprintf(" и умноженное на вес турнира. Затем ценность убывает: очный результат теряет %s в год, синхронный — %s. Если из того состава в базе осталась только часть игроков, результат стоит меньше. Подробности — в", ip, sync)
-			},
-			Left:      func() string { return "Осталось" },
-			LeftTitle: func() string { return "Доля ценности, оставшаяся сегодня" },
 			Merged: func(n int, place string) string {
 				return fmt.Sprintf("сводный зачёт %d %s, на своей — %s", n, core.Plural("ru", n, "площадки", "площадки", "площадок"), place)
 			},
 			Now:      func() string { return "Сейчас" },
-			NowTitle: func() string { return "Ценность сегодня: ценность × осталось" },
-			Reach:    func(w string) string { return fmt.Sprintf("охват ×%s", w) },
+			NowTitle: func() string { return "Балл сегодня: V · f(t) · ω" },
+			Place:    func(v string) string { return fmt.Sprintf("M = %s", v) },
+			Points:   func(v string) string { return fmt.Sprintf("V = %s", v) },
+			Strength: func(v string) string { return fmt.Sprintf("S − 800 = %s", v) },
 			Sum: func(sum string, divisor string) string {
 				return fmt.Sprintf("Сумма %s ÷ %s = рейтинг", sum, divisor)
 			},
-			Title:  func() string { return "Из чего складывается рейтинг" },
-			Weight: func(w string, why string) string { return fmt.Sprintf("× вес %s (%s)", w, why) },
+			Title:   func() string { return "Из чего складывается рейтинг" },
+			W:       func() string { return "w" },
+			WFormat: func() string { return "формат" },
+			WTop:    func() string { return "топ" },
+			WTowns:  func() string { return "города" },
 		},
 		NoTown:    func() string { return "город не указан" },
 		NotListed: func(town string) string { return fmt.Sprintf("Не в текущем релизе · %s", town) },
-		Rank:      func(n string, town string) string { return fmt.Sprintf("№%s · %s", n, town) },
+		Rank:      func(n string, town string) string { return fmt.Sprintf("%s-е место · %s", n, town) },
 		Results: TeamResultsStrings{
 			Counts:         func() string { return "В рейтинге" },
 			CountsColTitle: func() string { return "Входит ли результат в рейтинг сейчас" },
 			CountsTitle:    func() string { return "входит в рейтинг" },
-			Hint: func() string {
-				return "Ценность — сколько результат стоил в день турнира. Прибавка — насколько вырос рейтинг, когда результат вошёл в семь лучших; результат, не вошедший в них, рейтинг не меняет. Отмеченные ● входят в рейтинг сейчас. Прочерк в ценности — результат вне рейтинга или без данных о взятых вопросах. Как получена ценность, видно при наведении."
-			},
-			OlderCount:  func(n string, date string) string { return fmt.Sprintf("ещё %s, до %s", n, date) },
-			OlderToggle: func() string { return "Показать и старые результаты" },
-			Title:       func(n string) string { return fmt.Sprintf("Все результаты (%s)", n) },
-			ValueHow:    func(strength string, w string) string { return fmt.Sprintf("игра %s × вес %s", strength, w) },
+			OlderCount:     func(n string, date string) string { return fmt.Sprintf("ещё %s, до %s", n, date) },
+			OlderToggle:    func() string { return "Показать и старые результаты" },
+			Title:          func(n string) string { return fmt.Sprintf("Все результаты (%s)", n) },
+			ValueHow:       func(strength string, w string) string { return fmt.Sprintf("S − 800 = %s, w = %s", strength, w) },
 			ValueHowPlace: func(strength string, place string, w string) string {
-				return fmt.Sprintf("игра %s ÷ место %s^0,6 × вес %s", strength, place, w)
+				return fmt.Sprintf("S − 800 = %s, M = %s, w = %s", strength, place, w)
 			},
 		},
 		Roster: func(n string) string { return fmt.Sprintf("Базовый состав (%s)", n) },
 		Stat: TeamStatStrings{
-			Results:   func() string { return "Результатов в рейтинге" },
-			ResultsOf: func(n string, x string) string { return fmt.Sprintf("%s из %s", n, x) },
-			Week:      func() string { return "За неделю" },
+			Week: func() string { return "За неделю" },
 		},
 	},
 	Teams: TeamsStrings{
@@ -374,9 +249,8 @@ var RU = Strings{
 				return "Сколько результатов из семи входит в рейтинг"
 			},
 		},
-		How: func() string { return "Как это считается" },
 		Lede: func(date string, n int) string {
-			return fmt.Sprintf("Релиз от %s. В таблице %d %s. Рейтинг команды — сумма семи её лучших результатов, делённая на семь: чем сильнее сыграно, чем выше место и сильнее поле, тем дороже результат, и со временем он дешевеет. В таблице команды с заявленной базой и хотя бы одним зачтённым результатом за последний год.", date, n, core.Plural("ru", n, "команда", "команды", "команд"))
+			return fmt.Sprintf("Релиз от %s. В таблице %d %s.", date, n, core.Plural("ru", n, "команда", "команды", "команд"))
 		},
 		ProvSplit: func() string {
 			return "Предварительные рейтинги — команды, чья неопределённость ещё велика"
@@ -401,24 +275,6 @@ var RU = Strings{
 			LineupTitle: func() string {
 				return "Сила вышедшего состава по рейтингам игроков на утро турнира"
 			},
-			NoteFloor: func() string {
-				return "Победитель не теряет очков: если шаги в сумме ушли в минус, разница возвращается."
-			},
-			NoteLineup: func() string {
-				return "Состав — сила вышедшего состава по рейтингам игроков на утро турнира; по ней и строится прогноз, рейтинг команды в прогноз не входит."
-			},
-			NoteMerged: func() string {
-				return "Один пакет сыгран на нескольких площадках, поэтому зачёт сводный: место — по взятым вопросам среди всех команд, прогноз — по силе составов. Выбор площадки оставляет её команды и показывает места на ней. В рейтинге команд вопрос, снятый на одной площадке, снят на всех, поэтому место там может отличаться."
-			},
-			NoteRoster: func() string {
-				return "В составе у каждого игрока — его рейтинг на утро турнира и сдвиг по итогам."
-			},
-			NoteSplit: func() string {
-				return "Δ складывается из двух шагов. За место — насколько команда обошла ожидание по силе команд в поле или не дотянула до него; чем больше поле, тем меньше весит одно место. К составу — доля разрыва между рейтингом и силой состава, которую рейтинг проходит за каждую зачтённую игру: так рейтинг узнаёт, кто сидит за столом, а не только кто кого обошёл."
-			},
-			NoteValue: func() string {
-				return "Ценность — сколько результат стоит в рейтинге команды: сила игры, делённая на место в степени 0,6 и умноженная на вес турнира. Прочерк — результат не идёт в зачёт команде. Прибавка — насколько вырос рейтинг команды, когда результат вошёл в семь её лучших; результат, не вошедший в них, рейтинг не меняет."
-			},
 			PlayedAs:     func(name string) string { return fmt.Sprintf("(как %s)", name) },
 			RosterOpen:   func() string { return "состав" },
 			RosterToggle: func() string { return "Показывать составы" },
@@ -430,9 +286,7 @@ var RU = Strings{
 			Unrated: func(n string, total string) string {
 				return fmt.Sprintf("Не зачтено результатов: %s из %s. Такая команда получает прогноз, но её рейтинг турнир не двигает — за старым номером вышел состав, ничего этой команде не наигравший.", n, total)
 			},
-			ValueTitle: func() string {
-				return "Сколько результат стоит в рейтинге команды в день турнира"
-			},
+			ValueTitle:  func() string { return "Рейтинговый балл команды V за этот турнир" },
 			Venue:       func() string { return "Площадка" },
 			VenueCol:    func() string { return "Площадка" },
 			VenueOption: func(name string, n string) string { return fmt.Sprintf("%s (%s)", name, n) },
@@ -447,26 +301,16 @@ var RU = Strings{
 			ColTeams:  func() string { return "Команд" },
 			Fun:       func() string { return "rating.chgk.fun" },
 			Gg:        func() string { return "chgk.gg" },
-			Hint: func(from string) string {
-				return fmt.Sprintf("NDCG: насколько порядок прогноза совпал с итоговыми местами, с бо́льшим весом у первых мест; 1 — полное совпадение. Считается для турниров с %s: константы прогноза этого рейтинга подбирались вслепую, без данных с этого дня. rating.chgk.fun, chgk.gg и chgk.quest — наши реализации их правил.", from)
-			},
-			Ours:  func() string { return "Этот рейтинг" },
-			Quest: func() string { return "chgk.quest" },
-			Title: func() string { return "Качество прогноза" },
+			Ours:      func() string { return "Этот рейтинг" },
+			Quest:     func() string { return "chgk.quest" },
+			Title:     func() string { return "Качество прогноза" },
 		},
-		LlNone: func() string {
-			return "Ответы по вопросам этого турнира не разобраны, поэтому log-loss не считался."
-		},
-		LlObs: func(n string) string { return fmt.Sprintf("Log-loss измерен на %s ответах.", n) },
 		Questions: TournamentQuestionsStrings{
 			Bar: func(n string, b string) string { return fmt.Sprintf("Вопрос %s: b = %s", n, b) },
 			Hint: func(lo string, hi string) string {
 				return fmt.Sprintf("Столбик — трудность вопроса b: выше значит сложнее. От %s до %s по этому пакету.", lo, hi)
 			},
 			Title: func() string { return "Трудность вопросов" },
-		},
-		Rho: func() string {
-			return "ρ — ранговая корреляция Спирмена между предсказанными и занятыми местами; чем ближе к единице, тем точнее прогноз."
 		},
 		Stat: TournamentStatStrings{
 			LlCross:     func() string { return "Log-loss (кросс-фит)" },

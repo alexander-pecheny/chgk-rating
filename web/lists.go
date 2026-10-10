@@ -115,7 +115,7 @@ func (s *site) teamTable(page int) (string, []ui.Item, error) {
 		sec = append(sec, provToggle(hiddenOf(lines), firm/pageSize+1, p.page))
 	}
 	sec = append(sec, p.framed(rankTable(s.teamCols(), lines, p.lo >= firm, S.Teams.ProvSplit()))...)
-	lede := head(ui.Text(S.Teams.Lede(s.releaseDate, s.nTeams)+" "), link("/method/", S.Teams.How()), ui.Text("."))
+	lede := head(ui.Text(S.Teams.Lede(s.releaseDate, s.nTeams)))
 	return p.title(S.Common.Nav.Teams()), []ui.Item{lede, ui.Section(sec...)}, nil
 }
 
@@ -160,7 +160,7 @@ func (s *site) playerTable(page int) (string, []ui.Item, error) {
 		}
 		sec = append([]ui.Item{provToggle(hiddenOf(lines), firstProv, p.page)}, sec...)
 	}
-	lede := head(ui.Text(S.Players.Lede(s.releaseDate, s.nPlayers, itoa(int64(firm)))))
+	lede := head(ui.Text(S.Players.Lede(s.releaseDate, s.nPlayers)))
 	return p.title(S.Common.Nav.Players()), []ui.Item{lede, ui.Section(sec...)}, nil
 }
 
@@ -234,7 +234,7 @@ func (s *site) releasesPage() (string, []ui.Item, error) {
 	for i, r := range rows {
 		trs[i] = releaseRow(r)
 	}
-	cols := []ui.Item{numCol("№"), hcell(S.Common.Col.Date()), numCol(S.Releases.Col.Players()),
+	cols := []ui.Item{numCol("№"), nameCol(S.Common.Col.Date()), numCol(S.Releases.Col.Players()),
 		numCol(S.Releases.Col.Teams()), numCol(S.Releases.Col.Shift()), numCol(S.Releases.Col.ShiftCum())}
 	lede := head(ui.Text(S.Releases.Lede(itoa(int64(len(s.rels))))))
 	return S.Common.Nav.Releases(), []ui.Item{lede, ui.Section(table(cols, trs...))}, nil
@@ -243,7 +243,7 @@ func (s *site) releasesPage() (string, []ui.Item, error) {
 func releaseRow(r releaseLine) ui.Node {
 	return ui.Trow(
 		numCell(itoa(r.id), ui.Faint()),
-		textCell(r.date, ui.NoWrap()),
+		nameCell(releaseHref(r.id), r.date),
 		numCell(itoa(r.nPlayers)),
 		numCell(itoa(r.nTeams)),
 		numCell(fmt.Sprintf("%+.4f", r.shift), ui.Faint()),

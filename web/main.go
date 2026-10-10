@@ -63,7 +63,6 @@ func (h *handler) mux() *http.ServeMux {
 	mux.Handle("/static/menu.js", h.assets.ServeShared("/static/menu.js"))
 	mux.Handle("/static/fonts/", h.assets.ServeFonts())
 	mux.Handle("/static/", h.assets.FileServer())
-	mux.Handle("/report.pdf", h.assets.ServeRoot("report.pdf", "application/pdf"))
 	// The kit's menu asks who is signed in so it can offer a login link. Nobody
 	// signs in here: an empty answer is one the menu cannot read, and it leaves
 	// the entry out.
@@ -126,6 +125,8 @@ func route(segs []string) page {
 	switch {
 	case len(segs) == 0:
 		return home
+	case len(segs) >= 2 && segs[0] == "releases":
+		return releaseRoute(segs)
 	case len(segs) == 1 && listings[segs[0]] != nil:
 		return listed(segs[0], -1)
 	case len(segs) == 1:
@@ -197,7 +198,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		title, body, err = p(h.site, r, segs)
 	}
 	leaf := ""
-	if len(segs) == 2 && segs[0] != "page" {
+	if len(segs) == 2 && segs[0] != "page" || len(segs) > 2 && segs[0] == "releases" {
 		leaf = title
 	}
 	h.respond(w, r, err, title, section, leaf, body)

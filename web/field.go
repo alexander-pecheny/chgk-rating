@@ -3,7 +3,6 @@ package main
 import (
 	"math"
 	"sort"
-	"strings"
 
 	"ratingweb/ui"
 )
@@ -125,7 +124,7 @@ func (f fieldView) section() ui.Node {
 	for i, v := range f.evs {
 		rows[i] = f.row(v)
 	}
-	kids = append(kids, table(f.header(), rows...), ui.Hint(ui.Text(strings.Join(f.notes(), " "))))
+	kids = append(kids, table(f.header(), rows...))
 	return section(S.Tournament.Field.Title(), kids...)
 }
 
@@ -301,20 +300,6 @@ func (f fieldView) partCells(v fieldRow) []ui.Item {
 		out = append(out, emptyCell(ui.Num(), ui.Faint()))
 	}
 	return out
-}
-
-func (f fieldView) notes() []string {
-	notes := []string{S.Tournament.Field.NoteLineup()}
-	for _, n := range []struct {
-		on   bool
-		text func() string
-	}{{f.values, S.Tournament.Field.NoteValue}, {f.split, S.Tournament.Field.NoteSplit}, {f.floor, S.Tournament.Field.NoteFloor},
-		{len(f.rosters) > 0, S.Tournament.Field.NoteRoster}, {f.merged, S.Tournament.Field.NoteMerged}} {
-		if n.on {
-			notes = append(notes, n.text())
-		}
-	}
-	return notes
 }
 
 // rankDesc places each value in its field, the largest first, ties sharing the

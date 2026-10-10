@@ -121,6 +121,7 @@ pub fn ensure_ratings_indexes(path: &Path) {
         "CREATE INDEX IF NOT EXISTS idx_player_events_pt ON player_events(player_id, tournament_id);
          CREATE INDEX IF NOT EXISTS idx_qp_tour ON question_params(tournament_id);
          CREATE INDEX IF NOT EXISTS idx_player_ratings_pr ON player_ratings(player_id, release_id);
+         CREATE INDEX IF NOT EXISTS idx_player_ratings_rel ON player_ratings(release_id);
          CREATE INDEX IF NOT EXISTS idx_team_ratings_tr ON team_ratings(team_id, release_id);
          CREATE INDEX IF NOT EXISTS idx_team_events_team ON team_events(team_id);
          CREATE INDEX IF NOT EXISTS idx_team_events_tt ON team_events(tournament_id, team_id);

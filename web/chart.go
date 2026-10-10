@@ -28,15 +28,24 @@ type series struct {
 	band   bool
 }
 
-// The chart's frame in viewBox units: its size and the margins the axis
-// labels sit in.
+// frame is a chart's size in viewBox units. A phone gets its own, narrower
+// and taller, so the chart fits the screen with its labels still legible.
+type frame struct {
+	w, h   float64
+	narrow bool
+}
+
+var (
+	wideFrame   = frame{w: 760, h: 210}
+	narrowFrame = frame{w: 380, h: 230, narrow: true}
+)
+
+// The margins the axis labels sit in, in viewBox units.
 const (
-	chartW = 760.0
-	chartH = 210.0
-	padL   = 46.0
-	padR   = 10.0
-	padT   = 10.0
-	padB   = 24.0
+	padL = 46.0
+	padR = 10.0
+	padT = 10.0
+	padB = 24.0
 	// headroom is the share of the range left free above and below the line.
 	headroom = 0.08
 	// bandReach is how far, as a share of the line's range, the band may push
@@ -51,16 +60,27 @@ const (
 	decimeter = 10
 )
 
-// chart is a line inside its uncertainty band, with a hover crosshair and, when
-// more than one series is given, a switch between them. The SVG carries the
-// shape; each view's data-points carries the same points in viewBox
-// coordinates, which is all the crosshair in site.js needs.
-func chart(ss []series, ticks []tick, label string) ui.Node {
-	usable := usableSeries(ss)
-	if len(usable) == 0 {
-		return ui.Empty(ui.Text(sitestrings.Default.Common.Chart.Empty()))
+// charts are the chart in both frames; the stylesheet shows one.
+func charts(ss []series, ticks func(marks int) []tick, label string) []ui.Item {
+	if len(usableSeries(ss)) == 0 {
+		return []ui.Item{ui.Empty(ui.Text(sitestrings.Default.Common.Chart.Empty()))}
 	}
-	f := newXScale(usable[0].pts)
+	return []ui.Item{chart(wideFrame, ss, ticks(wideMarks), label), chart(narrowFrame, ss, ticks(narrowMarks), label)}
+}
+
+// The dated marks under each frame.
+const (
+	wideMarks   = 4
+	narrowMarks = 3
+)
+
+// chart is a line inside its uncertainty band, with a crosshair under the
+// pointer or finger and, when more than one series is given, a switch between
+// them. The SVG carries the shape; each view's data-points carries the same
+// points in viewBox coordinates, which is all the crosshair in site.js needs.
+func chart(fr frame, ss []series, ticks []tick, label string) ui.Node {
+	usable := usableSeries(ss)
+	f := newXScale(fr, usable[0].pts)
 	var views strings.Builder
 	var kids []ui.Item
 	for i, sr := range usable {
@@ -70,8 +90,12 @@ func chart(ss []series, ticks []tick, label string) ui.Node {
 		}
 	}
 	svg := fmt.Sprintf(`<svg viewBox="0 0 %.0f %.0f" role="img" aria-label="%s">%s%s<g class="c-cursor" aria-hidden="true" hidden><line class="c-rule" y1="%g" y2="%.1f"/><circle class="c-dot" r="3.5"/></g></svg>`,
-		chartW, chartH, html.EscapeString(label), views.String(), f.axis(ticks), padT, chartH-padB)
-	return ui.Chart(append(kids, ui.Raw(svg))...)
+		fr.w, fr.h, html.EscapeString(label), views.String(), f.axis(ticks), padT, fr.h-padB)
+	kids = append(kids, ui.Raw(svg))
+	if fr.narrow {
+		kids = append(kids, ui.Narrow())
+	}
+	return ui.Chart(kids...)
 }
 
 // usableSeries are the series with a line to draw.
@@ -94,26 +118,29 @@ func chartTab(name string, on bool) ui.Node {
 }
 
 // xScale puts the releases of the first series across the frame.
-type xScale struct{ x0, span float64 }
+type xScale struct {
+	fr       frame
+	x0, span float64
+}
 
-func newXScale(first []pt) xScale {
+func newXScale(fr frame, first []pt) xScale {
 	x0, x1 := first[0].x, first[len(first)-1].x
 	span := 1.0
 	if x1 > x0 {
 		span = x1 - x0
 	}
-	return xScale{x0, span}
+	return xScale{fr, x0, span}
 }
 
-func (f xScale) px(x float64) float64 { return padL + (x-f.x0)/f.span*(chartW-padL-padR) }
+func (f xScale) px(x float64) float64 { return padL + (x-f.x0)/f.span*(f.fr.w-padL-padR) }
 
 // yScale puts a series' values up the frame, with headroom.
 type yScale struct {
-	lo, hi float64
-	invert bool
+	lo, hi, h float64
+	invert    bool
 }
 
-func newYScale(sr series) yScale {
+func newYScale(sr series, h float64) yScale {
 	lo, hi := math.MaxFloat64, -math.MaxFloat64
 	bandLo, bandHi := lo, hi
 	for _, p := range sr.pts {
@@ -130,7 +157,7 @@ func newYScale(sr series) yScale {
 	reach := (hi - lo) * bandReach
 	lo, hi = math.Min(lo, math.Max(bandLo, lo-reach)), math.Max(hi, math.Min(bandHi, hi+reach))
 	pad := (hi - lo) * headroom
-	return yScale{lo - pad, hi + pad, sr.invert}
+	return yScale{lo - pad, hi + pad, h, sr.invert}
 }
 
 // clamp keeps a value inside the frame.
@@ -141,13 +168,13 @@ func (s yScale) py(y float64) float64 {
 	if s.invert {
 		f = (y - s.lo) / (s.hi - s.lo)
 	}
-	return padT + f*(chartH-padT-padB)
+	return padT + f*(s.h-padT-padB)
 }
 
 // view is one series: its grid, its band and line, and its points for the
 // crosshair. Every view after the first starts hidden.
 func (f xScale) view(sr series, hidden bool) string {
-	ys := newYScale(sr)
+	ys := newYScale(sr, f.fr.h)
 	var band, line strings.Builder
 	// One line through every release listed, across the weeks off the table.
 	if sr.band && len(sr.pts) > 1 {
@@ -159,12 +186,12 @@ func (f xScale) view(sr series, hidden bool) string {
 		attr = " hidden"
 	}
 	return fmt.Sprintf(`<g class="c-view" data-points="%s"%s>%s%s%s</g>`,
-		html.EscapeString(f.pointsData(sr.pts, ys)), attr, grid(ys), band.String(), line.String())
+		html.EscapeString(f.pointsData(sr.pts, ys)), attr, grid(ys, f.fr.w), band.String(), line.String())
 }
 
 // grid is the value lines with their labels, at round steps; a place axis
 // starts at 1.
-func grid(ys yScale) string {
+func grid(ys yScale, w float64) string {
 	var b strings.Builder
 	step := niceStep(ys.hi-ys.lo, gridLines)
 	for v := math.Ceil(ys.lo/step) * step; v <= ys.hi; v += step {
@@ -173,7 +200,7 @@ func grid(ys yScale) string {
 		}
 		y := ys.py(v)
 		fmt.Fprintf(&b, `<line x1="%g" y1="%.1f" x2="%.1f" y2="%.1f" class="c-grid"/><text x="%.1f" y="%.1f" class="c-axis" text-anchor="end">%s</text>`,
-			padL, y, chartW-padR, y, padL-labelGap, y+labelDrop, html.EscapeString(disp(v)))
+			padL, y, w-padR, y, padL-labelGap, y+labelDrop, html.EscapeString(disp(v)))
 	}
 	return b.String()
 }
@@ -220,7 +247,7 @@ func (f xScale) axis(ticks []tick) string {
 		case i+1 == len(ticks):
 			anchor = "end"
 		}
-		fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" class="c-axis" text-anchor="%s">%s</text>`, f.px(t.x), chartH-labelGap, anchor, html.EscapeString(t.label))
+		fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" class="c-axis" text-anchor="%s">%s</text>`, f.px(t.x), f.fr.h-labelGap, anchor, html.EscapeString(t.label))
 	}
 	return b.String()
 }

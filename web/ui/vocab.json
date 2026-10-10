@@ -36,7 +36,12 @@
     },
     {
       "name": "tablinks",
-      "props": [],
+      "props": [
+        {
+          "name": "label",
+          "required": true
+        }
+      ],
       "children": [
         "tablink"
       ]
@@ -132,7 +137,12 @@
     },
     {
       "name": "chart",
-      "props": [],
+      "props": [
+        {
+          "name": "narrow",
+          "kind": "bare"
+        }
+      ],
       "children": "any"
     },
     {
@@ -203,6 +213,12 @@
       "children": "text"
     },
     {
+      "name": "sub",
+      "props": [],
+      "inline": true,
+      "children": "text"
+    },
+    {
       "name": "em",
       "props": [],
       "inline": true,
@@ -263,6 +279,11 @@
           "required": true
         }
       ],
+      "children": "any"
+    },
+    {
+      "name": "article",
+      "props": [],
       "children": "any"
     }
   ]

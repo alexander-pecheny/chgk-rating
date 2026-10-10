@@ -3,22 +3,12 @@ package main
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	"ratingweb/ui"
 )
 
 // The achievement rating on a team's page: the results it is the sum of, and
 // every result with what it was worth.
-
-// rulePct is a share from the rules, formatted for a sentence: 0.1 is "10%".
-func rulePct(rules map[string]string, key string) string {
-	v, err := strconv.ParseFloat(rules[key], float64Bits)
-	if err != nil {
-		return "?"
-	}
-	return pct(v) + "%"
-}
 
 // ruleOr is a rule as published, or def when the rules do not say.
 func ruleOr(rules map[string]string, key, def string) string {
@@ -28,11 +18,10 @@ func ruleOr(rules map[string]string, key, def string) string {
 	return def
 }
 
-// breakdown is how a team's rating is summed: over how many slots, with the
-// place raised to what power.
+// breakdown is how a team's rating is summed: over how many slots.
 type breakdown struct {
 	achieved
-	slots, pow string
+	slots string
 }
 
 // achieveBreakdown is the rating taken apart: the results it is the sum of,
@@ -43,7 +32,7 @@ func (s *site) achieveBreakdown(id int64, a achieved, rules map[string]string) (
 	if err != nil {
 		return nil, err
 	}
-	b := breakdown{a, ruleOr(rules, "top_x", fmt.Sprintf("%.0f", a.divisor)), ruleOr(rules, "place_pow", "0.6")}
+	b := breakdown{a, ruleOr(rules, "top_x", fmt.Sprintf("%.0f", a.divisor))}
 	rows := make([]ui.Item, 0, len(parts))
 	sum := 0.0
 	for _, p := range parts {
@@ -52,15 +41,7 @@ func (s *site) achieveBreakdown(id int64, a achieved, rules map[string]string) (
 	}
 	rows = append(append(rows, b.emptySlots(len(parts))...), b.footRow(sum))
 	t := ui.Table(append([]ui.Item{ui.Scroll(), ui.Breakdown(), ui.Trow(breakdownCols()...)}, rows...)...)
-	return section(S.Team.Breakdown.Title(), b.hint(rules), t), nil
-}
-
-func (b breakdown) hint(rules map[string]string) ui.Node {
-	tail := S.Team.Breakdown.HowTail(rulePct(rules, "loss_ip"), rulePct(rules, "loss_sync"))
-	return ui.Hint(ui.Inline(
-		ui.Text(S.Team.Breakdown.HowLead(b.slots)), ui.Sup(ui.Text(b.pow)),
-		ui.Text(tail+" "), link("/method/", S.Team.Breakdown.HowLink()), ui.Text("."),
-	))
+	return section(S.Team.Breakdown.Title(), t), nil
 }
 
 func breakdownCols() []ui.Item {
@@ -99,38 +80,31 @@ func leftTitle(p part) string {
 	return S.Team.Breakdown.Fade(pct(p.fade))
 }
 
-// how is how the value on the day was made, in one line under the name.
+// how is how the rating points on the day were made, in one line under the
+// name, in the letters of the formula on /method/: the factors that are not
+// one, then V.
 func (b breakdown) how(p part) []ui.Item {
-	how := []ui.Item{ui.Text(S.Team.Breakdown.Game(disp(p.strength)))}
+	terms := [][]ui.Item{{ui.Text(S.Team.Breakdown.Strength(disp(p.strength)))}}
 	if p.placeAll != 1 {
-		how = append(how, ui.Text(" "+S.Team.Breakdown.ByPlace()), ui.Sup(ui.Text(b.pow)))
+		terms = append(terms, []ui.Item{ui.Text(S.Team.Breakdown.Place(placeOf(p.placeAll)))})
 	}
-	if w := p.wfmt * p.wfield * p.wreach; abs(w-1) >= 0.005 {
-		how = append(how, ui.Text(" "+S.Team.Breakdown.Weight(w2(w), strings.Join(weights(p), ", "))))
+	for _, w := range []struct {
+		name string
+		v    float64
+	}{{S.Team.Breakdown.WFormat(), p.wfmt}, {S.Team.Breakdown.WTop(), p.wfield}, {S.Team.Breakdown.WTowns(), p.wreach}} {
+		if w.v < 0.995 {
+			terms = append(terms, []ui.Item{ui.Text(S.Team.Breakdown.W()), ui.Sub(ui.Text(w.name)), ui.Text(S.Team.Breakdown.Equals(w2(w.v)))})
+		}
 	}
-	if len(how) > 1 {
-		how = append(how, ui.Text(" = "+disp(p.peak)))
+	terms = append(terms, []ui.Item{ui.Text(S.Team.Breakdown.Points(disp(p.peak)))})
+	var how []ui.Item
+	for i, t := range terms {
+		if i > 0 {
+			how = append(how, ui.Text(" · "))
+		}
+		how = append(how, t...)
 	}
 	return how
-}
-
-// weights are the factors that took a result's weight below one.
-func weights(p part) []string {
-	var why []string
-	if p.wfmt < 0.999 {
-		f := S.Common.Format.Sync()
-		if p.format == "S" {
-			f = S.Common.Format.StrictSync()
-		}
-		why = append(why, f+" ×"+w2(p.wfmt))
-	}
-	if p.wfield < 0.995 {
-		why = append(why, S.Team.Breakdown.Field(w2(p.wfield)))
-	}
-	if p.wreach < 0.995 {
-		why = append(why, S.Team.Breakdown.Reach(w2(p.wreach)))
-	}
-	return why
 }
 
 // emptySlots are the slots no result fills yet, each worth nothing.
@@ -170,7 +144,7 @@ func (s *site) teamResults(id int64) (ui.Node, error) {
 	for i, e := range evs {
 		rows[i] = resultRow(e, cutoff)
 	}
-	kids := append([]ui.Item{ui.Hint(ui.Text(S.Team.Results.Hint()))}, olderToggle(evs, cutoff)...)
+	kids := olderToggle(evs, cutoff)
 	return section(title, append(kids, table(resultCols(), rows...))...), nil
 }
 
