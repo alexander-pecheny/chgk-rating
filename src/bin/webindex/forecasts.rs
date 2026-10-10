@@ -1,6 +1,5 @@
-//! How well each system forecast every tournament of the clean window: ours,
-//! the old system's `predictedPosition`, and our reimplementations of
-//! rating.chgk.fun, chgk.gg and chgk.quest, each scored with the NDCG of
+//! How well each system forecast every tournament of the clean window: ours
+//! and our reimplementations of rating.chgk.fun, chgk.gg and chgk.quest, each scored with the NDCG of
 //! `src/ndcg.rs`. No rule of the model was chosen on a tournament after
 //! `display.clean_from`, so these are honest out-of-sample numbers.
 
@@ -15,14 +14,12 @@ use std::path::Path;
 enum Source {
     /// Our `out/ratings.db`.
     Ratings,
-    /// The old system's `predictedPosition`, in the mirror.
-    Buff,
     /// A reimplementation's database under the ext dir.
     Ext(&'static str),
 }
 
 const SYSTEMS: &[(&str, Source)] =
-    &[("ours", Source::Ratings), ("old", Source::Buff), ("fun", Source::Ext("fun.db")), ("gg", Source::Ext("gg.db")), ("quest", Source::Ext("quest.db"))];
+    &[("ours", Source::Ratings), ("fun", Source::Ext("fun.db")), ("gg", Source::Ext("gg.db")), ("quest", Source::Ext("quest.db"))];
 
 /// The `(tournament_id, f, actual_place)` rows of a source from `{from}` on,
 /// `f` higher for a better forecast.
@@ -31,12 +28,6 @@ fn sql(src: &Source, from: &str) -> String {
         Source::Ratings => format!(
             "select tournament_id, forecast as f, actual_place from team_events
              where date >= '{from}' and actual_place > 0 and forecast is not null"
-        ),
-        Source::Buff => format!(
-            "select r.id as tournament_id, -json_extract(r.rating, '$.predictedPosition') as f, r.position as actual_place
-             from tournament_results r
-             where r.id in (select id from tournaments where substr(date_start, 1, 10) >= '{from}' and in_rating = 1)
-               and r.position > 0 and json_valid(r.rating) and json_extract(r.rating, '$.predictedPosition') is not null"
         ),
         Source::Ext(_) => format!(
             "select tournament_id, -forecast_place as f, actual_place from team_events
@@ -54,7 +45,6 @@ pub fn build(c: &Ctx, ext: &Path, from: &str) {
         let own;
         let db = match src {
             Source::Ratings => c.r,
-            Source::Buff => c.b,
             Source::Ext(f) => match Connection::open_with_flags(ext.join(f), OpenFlags::SQLITE_OPEN_READ_ONLY) {
                 Ok(conn) => {
                     own = conn;

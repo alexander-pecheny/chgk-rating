@@ -446,9 +446,8 @@ var RU = Strings{
 			Fun:       func() string { return "rating.chgk.fun" },
 			Gg:        func() string { return "chgk.gg" },
 			Hint: func(from string) string {
-				return fmt.Sprintf("NDCG: насколько порядок прогноза совпал с итоговыми местами, с бо́льшим весом у первых мест; 1 — полное совпадение. Считается для турниров с %s: ни одно правило этого рейтинга не подбиралось на них. Старая система — её собственный прогноз; rating.chgk.fun, chgk.gg и chgk.quest — наши реализации их правил.", from)
+				return fmt.Sprintf("NDCG: насколько порядок прогноза совпал с итоговыми местами, с бо́льшим весом у первых мест; 1 — полное совпадение. Считается для турниров с %s: ни одно правило этого рейтинга не подбиралось на них. rating.chgk.fun, chgk.gg и chgk.quest — наши реализации их правил.", from)
 			},
-			Old:   func() string { return "Старая система (rating.chgk.info)" },
 			Ours:  func() string { return "Этот рейтинг" },
 			Quest: func() string { return "chgk.quest" },
 			Title: func() string { return "Качество прогноза" },

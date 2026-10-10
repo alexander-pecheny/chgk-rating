@@ -144,14 +144,17 @@ func forecastSection(rows []forecastRow, from string) ui.Node {
 	if len(rows) == 0 {
 		return nil
 	}
-	names := map[string]string{"ours": S.Tournament.Forecast.Ours(), "old": S.Tournament.Forecast.Old(), "fun": S.Tournament.Forecast.Fun(), "gg": S.Tournament.Forecast.Gg(), "quest": S.Tournament.Forecast.Quest()}
-	body := make([]ui.Item, len(rows))
-	for i, r := range rows {
+	names := map[string]string{"ours": S.Tournament.Forecast.Ours(), "fun": S.Tournament.Forecast.Fun(), "gg": S.Tournament.Forecast.Gg(), "quest": S.Tournament.Forecast.Quest()}
+	var body []ui.Item
+	for _, r := range rows {
 		name := names[r.system]
 		if name == "" {
-			name = r.system
+			continue
 		}
-		body[i] = ui.Trow(textCell(name), numCell(fmt.Sprintf("%.3f", r.ndcg)), numCell(fmt.Sprintf("%.3f", r.ndcg3)), numCell(itoa(r.n)))
+		body = append(body, ui.Trow(textCell(name), numCell(fmt.Sprintf("%.3f", r.ndcg)), numCell(fmt.Sprintf("%.3f", r.ndcg3)), numCell(itoa(r.n))))
+	}
+	if len(body) == 0 {
+		return nil
 	}
 	header := []ui.Item{nameCol(S.Tournament.Forecast.ColSystem()), numCol("NDCG"), numCol("NDCG@3"), numCol(S.Tournament.Forecast.ColTeams())}
 	return section(S.Tournament.Forecast.Title(), table(header, body...), ui.Hint(ui.Text(S.Tournament.Forecast.Hint(from))))
