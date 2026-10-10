@@ -205,8 +205,8 @@ var RU = Strings{
 			LeftTitle: func() string {
 				return "Доля балла, которая осталась сегодня: f(t) · ω"
 			},
-			Merged: func(n int, place string) string {
-				return fmt.Sprintf("сводный зачёт %d %s, на своей — %s", n, core.Plural("ru", n, "площадки", "площадки", "площадок"), place)
+			Merged: func(all string, teams string, own string, here string) string {
+				return fmt.Sprintf("место %s/%s (сводное), %s/%s (своя площадка)", all, teams, own, here)
 			},
 			Now:      func() string { return "Сейчас" },
 			NowTitle: func() string { return "Балл сегодня: V · f(t) · ω" },

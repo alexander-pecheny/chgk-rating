@@ -26,7 +26,7 @@ equals = ' = {{.v}}'
 points = 'V = {{.v}}'
 fade = 'f(t) = {{.fade}}%'
 fade_overlap = 'f(t) = {{.fade}}%, ω = {{.overlap}}%'
-merged = 'сводный зачёт {{.n}} {{plural .n "площадки" "площадки" "площадок"}}, на своей — {{.place}}'
+merged = 'место {{.all}}/{{.teams}} (сводное), {{.own}}/{{.here}} (своя площадка)'
 empty_slot = "пустой слот"
 sum = 'Сумма {{.sum}} ÷ {{.divisor}} = рейтинг'
 

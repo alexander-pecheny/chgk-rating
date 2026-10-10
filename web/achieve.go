@@ -59,7 +59,7 @@ func (b breakdown) partRow(p part) ui.Node {
 	// pieces side by side in it would lose the space between them.
 	under := p.date
 	if p.nv > 1 {
-		under += " · " + S.Team.Breakdown.Merged(int(p.nv), placeOf(p.placeOwn))
+		under += " · " + S.Team.Breakdown.Merged(placeOf(p.placeAll), itoa(p.n), placeOf(p.placeOwn), itoa(p.nOwn))
 	}
 	name := ui.Cell(ui.PinCol(), line(link(tourHref(p.tid), orUntitled(p.name))), subline(ui.Text(under)), ui.How(ui.Inline(b.how(p)...)))
 	return ui.Trow(

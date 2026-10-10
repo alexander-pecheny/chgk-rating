@@ -326,20 +326,20 @@ func (st *store) achieveRules() (map[string]string, error) {
 
 // part is one result a team's achievement rating is the sum of.
 type part struct {
-	tid, n, nv                                                                  int64
+	tid, n, nv, nOwn                                                            int64
 	name, date, format                                                          string
 	placeAll, placeOwn, strength, wfmt, wfield, wreach, peak, fade, ov, contrib float64
 }
 
 func (r *part) fields() []any {
 	return []any{&r.tid, &r.name, &r.date, &r.placeAll, &r.placeOwn, &r.n, &r.nv, &r.strength, &r.wfmt,
-		&r.wfield, &r.wreach, &r.peak, &r.fade, &r.ov, &r.contrib, &r.format}
+		&r.wfield, &r.wreach, &r.peak, &r.fade, &r.ov, &r.contrib, &r.format, &r.nOwn}
 }
 
 func (st *store) parts(id int64) ([]part, error) {
 	return all[part](st.db, `select p.tournament_id, coalesce(t.name, ''), a.date, a.place, a.venue_place, a.n_teams,
 		a.n_venues, a.strength, a.w_format, a.w_field, a.w_reach, p.peak, p.fade, p.overlap,
-		p.contribution, a.format
+		p.contribution, a.format, coalesce(t.n_teams, 0)
 		from achieve_parts p join achieve_values a on a.tournament_id = p.tournament_id and a.team_id = p.team_id
 		left join x.tournament t on t.id = p.tournament_id
 		where p.team_id = ? order by p.slot`, id)

@@ -230,7 +230,7 @@ type TeamBreakdownStrings struct {
 	FadeOverlap func(fade string, overlap string) string
 	Left        func() string
 	LeftTitle   func() string
-	Merged      func(n int, place string) string
+	Merged      func(all string, teams string, own string, here string) string
 	Now         func() string
 	NowTitle    func() string
 	Place       func(v string) string

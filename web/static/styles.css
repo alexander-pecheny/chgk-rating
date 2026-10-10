@@ -437,13 +437,12 @@ td:has(.roster-open input:checked) .roster-open span {
   font-variant-numeric: tabular-nums;
 }
 
-/* The rating / place switch is a pill strip of its own, in the card's corner. */
+/* The rating / place switch is a pill strip of its own, over the chart's
+   top right corner and clear of the line. */
 .c-tabs {
-  position: absolute;
-  z-index: 1;
-  top: var(--space-2);
-  right: var(--space-2);
   display: flex;
+  width: max-content;
+  margin: var(--space-2) var(--space-2) 0 auto;
   gap: 2px;
   padding: 2px;
   border-radius: var(--radius-sm);
