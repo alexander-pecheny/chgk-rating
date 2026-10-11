@@ -1,13 +1,14 @@
 //! The reimplementations of other production ratings: chgk.gg (`gg`),
-//! rating.chgk.fun (`fun`) and chgk.quest (`quest`). Each engine owns its own
+//! rating.chgk.fun (`fun`), chgk.quest (`quest`) and the London Elo (`elo`). Each engine owns its own
 //! rules and its own scope of tournaments; everything else is here. An engine
 //! opens its state from the command line, rates one tournament at a time and
 //! publishes a weekly release, and `drive` owns the calendar and the writer, so
-//! the three share one loop and one output path (DESIGN 6 schema).
+//! the engines share one loop and one output path (DESIGN 6 schema).
 use crate::output::Writer;
 use std::error::Error;
 use std::time::Instant;
 
+pub mod elo;
 pub mod fun;
 pub mod gg;
 mod gg_load;
@@ -58,16 +59,18 @@ pub trait Rival {
 /// The systems a binary can run.
 #[derive(Clone, Copy)]
 pub enum System {
+    Elo,
     Fun,
     Gg,
     Quest,
 }
 
-/// The shared `main` of `ext_fun`, `ext_gg` and `ext_quest`.
+/// The shared `main` of `ext_elo`, `ext_fun`, `ext_gg` and `ext_quest`.
 pub fn run(system: System) -> Fallible<()> {
     let args = Args::from_env();
     let started = Instant::now();
     let mut engine: Box<dyn Rival> = match system {
+        System::Elo => Box::new(elo::Elo::open(&args)?),
         System::Fun => Box::new(fun::Fun::open(&args)?),
         System::Gg => Box::new(gg::Gg::open(&args)?),
         System::Quest => Box::new(quest::Quest::open(&args)?),
