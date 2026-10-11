@@ -10,7 +10,7 @@ use std::path::Path;
 
 /// Bumped whenever the index grows a table or column the server reads, so a
 /// deploy rebuilds it instead of serving a page with nothing behind it.
-pub const VERSION: &str = "17";
+pub const VERSION: &str = "18";
 
 /// `place_hist.kind`: whose places a blob holds.
 pub const KIND_PLAYER: i64 = 0;
@@ -49,6 +49,7 @@ CREATE TABLE base_roster (team_id INTEGER, player_id INTEGER, name TEXT, date_ad
 CREATE TABLE place_hist (kind INTEGER, id INTEGER, places BLOB, PRIMARY KEY (kind, id)) WITHOUT ROWID;
 CREATE VIRTUAL TABLE player_fts USING fts5(name, tokenize='unicode61 remove_diacritics 0');
 CREATE VIRTUAL TABLE team_fts USING fts5(name, town, aliases, tokenize='unicode61 remove_diacritics 0');
+CREATE VIRTUAL TABLE tournament_fts USING fts5(name, tokenize='unicode61 remove_diacritics 0');
 ";
 
 pub const INDEXES: &str = "

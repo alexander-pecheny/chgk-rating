@@ -121,10 +121,13 @@ fn tournaments(c: &Ctx) -> Tours {
     let names = tournament_names(c.b);
     let mut t = Tours { date: HashMap::new(), online: HashMap::new() };
     let mut ins = c.w.prepare("insert into tournament values (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)").unwrap();
+    let mut fts = c.w.prepare("insert into tournament_fts(rowid, name) values (?1,?2)").unwrap();
     each(c.r, TOURNAMENT_SQL, |x| {
         let id: i64 = x.get("id").unwrap();
         let (date, kind) = (text(x, "date"), text(x, "type"));
-        ins.execute(params![id, names.get(&id).cloned().unwrap_or_default(), date, kind,
+        let name = names.get(&id).cloned().unwrap_or_default();
+        fts.execute(params![id, without_yo(&name)]).unwrap();
+        ins.execute(params![id, name, date, kind,
             f64_or(x, "weight", 0.0), i64_or_zero(x, "n_teams"), i64_or_zero(x, "n_q"), i64_or_zero(x, "n_obs"),
             opt_f64(x, "logloss_insample"), opt_f64(x, "logloss_crossfit"), opt_f64(x, "spearman_forecast"),
             opt_f64(x, "spearman_old_system"), opt_f64(x, "truedl")])

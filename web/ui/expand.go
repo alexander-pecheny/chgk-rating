@@ -54,6 +54,7 @@ var expanders = map[string]base.ExpandFunc{
 	"sub":    func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(inlineSub(c, p).(*base.Element)) },
 	"fig":    func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(inlineFig(c, p).(*base.Element)) },
 	"em":     func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(inlineEm(c, p).(*base.Element)) },
+	"term":   func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(inlineTerm(c, p).(*base.Element)) },
 	"dotin":  func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(inlineDotin(c, p).(*base.Element)) },
 	"how": func(c *base.ExpandCtx, p *base.Element) []base.Node {
 		return one(base.Leaf(c, "div", []string{"how"}, nil, p))
@@ -86,6 +87,7 @@ var inliners = map[string]base.InlineFunc{
 	"flag":  inlineFlag,
 	"fig":   inlineFig,
 	"em":    inlineEm,
+	"term":  inlineTerm,
 	"dotin": inlineDotin,
 }
 
@@ -314,6 +316,12 @@ func inlineSub(c *base.ExpandCtx, p *base.Element) base.Item {
 	return &base.Element{Tag: "sub", Inline: c.Items(p.Inline)}
 }
 
+// inlineTerm is one factor of a formula written out, such as w₍топ₎ = 0.72,
+// which a line wraps around but never through.
+func inlineTerm(c *base.ExpandCtx, p *base.Element) base.Item {
+	return &base.Element{Tag: "span", Attrs: []base.Attr{base.ClassAttr("term")}, Inline: c.Items(p.Inline)}
+}
+
 func inlineEm(c *base.ExpandCtx, p *base.Element) base.Item {
 	return &base.Element{Tag: "em", Inline: c.Items(p.Inline)}
 }
@@ -343,19 +351,23 @@ func expandVenuefilter(c *base.ExpandCtx, p *base.Element) []base.Node {
 }
 
 // expandReleasepick is the field that opens an entity page as of a release:
-// the browser suggests the release dates as one types, and a date that is no
-// release's goes to the release before it. Without the script, the form sends
-// the date itself, which the server reads the same way.
+// a text field that looks like a dropdown. site.js lists the release dates
+// under it in the kit's suggest popover, every one on a tap and those that
+// start with what is typed after that; a date that is no release's goes to
+// the release before it. Without the script the browser's own datalist
+// suggests, and the form sends the date itself, which the server reads the
+// same way.
 func expandReleasepick(c *base.ExpandCtx, p *base.Element) []base.Node {
 	label, _ := base.Get(p, "label")
 	action, _ := base.Get(p, "action")
 	input := []base.Attr{base.ClassAttr("input"), base.At("type", "text"), base.At("name", "release"),
-		base.At("list", "release-dates"), base.At("autocomplete", "off"), base.At("inputmode", "numeric")}
+		base.At("list", "release-dates"), base.At("autocomplete", "off"), base.At("spellcheck", "false"),
+		base.At("inputmode", "numeric")}
 	input = append(input, base.CopyProps(p, "value", "placeholder")...)
 	return one(base.El("form", base.RootAttrs([]string{"release-pick"}, p, base.At("action", action), base.At("method", "get")),
 		base.El("label", []base.Attr{base.ClassAttr("field")},
 			base.Inl("span", nil, &base.TextNode{Value: label}),
-			base.El("input", input),
+			base.El("span", []base.Attr{base.ClassAttr("suggest-anchor", "release-anchor")}, base.El("input", input)),
 		),
 		base.El("datalist", []base.Attr{base.At("id", "release-dates")}, c.Nodes(p.Block)...),
 	))

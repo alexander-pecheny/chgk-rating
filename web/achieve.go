@@ -81,28 +81,26 @@ func leftTitle(p part) string {
 }
 
 // how is how the rating points on the day were made, in one line under the
-// name, in the letters of the formula on /method/: the factors that are not
-// one, then V.
+// name, in the letters of the formula on /method/: every factor, one or not.
+// The points themselves are the next column's.
 func (b breakdown) how(p part) []ui.Item {
-	terms := [][]ui.Item{{ui.Text(S.Team.Breakdown.Strength(disp(p.strength)))}}
-	if p.placeAll != 1 {
-		terms = append(terms, []ui.Item{ui.Text(S.Team.Breakdown.Place(placeOf(p.placeAll)))})
+	terms := [][]ui.Item{
+		{ui.Text("S"), ui.Sup(ui.Text("+")), ui.Text(S.Team.Breakdown.Equals(disp(max(0, p.strength))))},
+		{ui.Text(S.Team.Breakdown.Place(placeOf(p.placeAll)))},
 	}
 	for _, w := range []struct {
 		name string
 		v    float64
 	}{{S.Team.Breakdown.WFormat(), p.wfmt}, {S.Team.Breakdown.WTop(), p.wfield}, {S.Team.Breakdown.WTowns(), p.wreach}} {
-		if w.v < 0.995 {
-			terms = append(terms, []ui.Item{ui.Text(S.Team.Breakdown.W()), ui.Sub(ui.Text(w.name)), ui.Text(S.Team.Breakdown.Equals(w2(w.v)))})
-		}
+		terms = append(terms, []ui.Item{ui.Text(S.Team.Breakdown.W()), ui.Sub(ui.Text(w.name)), ui.Text(S.Team.Breakdown.Equals(w2(w.v)))})
 	}
-	terms = append(terms, []ui.Item{ui.Text(S.Team.Breakdown.Points(disp(p.peak)))})
 	var how []ui.Item
 	for i, t := range terms {
-		if i > 0 {
-			how = append(how, ui.Text(" · "))
+		if i < len(terms)-1 {
+			t = append(t, ui.Text(","))
 		}
-		how = append(how, t...)
+		// The space between terms is where a narrow line may break.
+		how = append(how, ui.Term(ui.Inline(t...)), ui.Text(" "))
 	}
 	return how
 }
@@ -216,10 +214,7 @@ func resultValue(e result) ui.Node {
 	if e.strength == nil || e.w == nil || e.placeVal == nil {
 		return ui.Cell(value...)
 	}
-	t := S.Team.Results.ValueHow(disp(*e.strength), w2(*e.w))
-	if *e.placeVal != 1 {
-		t = S.Team.Results.ValueHowPlace(disp(*e.strength), placeOf(*e.placeVal), w2(*e.w))
-	}
+	t := S.Team.Results.ValueHow(disp(max(0, *e.strength)), placeOf(*e.placeVal), w2(*e.w))
 	return ui.Cell(append(value, ui.Title(t))...)
 }
 

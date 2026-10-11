@@ -116,9 +116,9 @@ func spaced(n int) string {
 	return b.String()
 }
 
-// w2 is a weight to two places, with a decimal comma.
+// w2 is a weight to two places.
 func w2(x float64) string {
-	return strings.Replace(fmt.Sprintf("%.2f", x), ".", ",", 1)
+	return fmt.Sprintf("%.2f", x)
 }
 
 // pct is a share as a whole percentage.
@@ -149,14 +149,14 @@ func prefix(s string, n int) string {
 // modelDigits is how many decimals the model's own numbers get, as on /method/.
 const modelDigits = 3
 
-// model is one of the model's numbers, θ, σ or v, with a decimal comma and a
-// typographic minus.
+// model is one of the model's numbers, θ, σ or v, with a typographic minus.
+// Every number on the site takes a decimal point, as the tables of places
+// and weights always have.
 func model(v float64) string {
-	s := strings.Replace(strconv.FormatFloat(v, 'f', modelDigits, float64Bits), ".", ",", 1)
-	return strings.Replace(s, "-", "−", 1)
+	return strings.Replace(strconv.FormatFloat(v, 'f', modelDigits, float64Bits), "-", "−", 1)
 }
 
-// commaNum is a number as Russian writes it, with a decimal comma.
-func commaNum(v float64) string {
-	return strings.Replace(strconv.FormatFloat(v, 'f', -1, float64Bits), ".", ",", 1)
+// plainNum is a number with as many decimals as it needs.
+func plainNum(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, float64Bits)
 }

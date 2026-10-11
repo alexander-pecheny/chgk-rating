@@ -57,7 +57,7 @@ a {
 }
 
 .site-search .input {
-  width: 220px;
+  width: 260px;
   max-width: 40vw;
   padding-left: 30px;
 }
@@ -300,7 +300,15 @@ td:has(.roster-open input:checked) .roster-open span {
   max-width: 100%;
 }
 
-/* The release picker: a label and a date field on one line. */
+/* One factor of a breakdown's formula, kept on one line, with a wide gap
+   before the next. */
+.term {
+  white-space: nowrap;
+  margin-right: 0.6em;
+}
+
+/* The release picker: a label and a date field on one line, the field drawn
+   as a dropdown, with a chevron that turns over while the list is open. */
 .release-pick .field {
   flex-direction: row;
   align-items: center;
@@ -308,7 +316,37 @@ td:has(.roster-open input:checked) .roster-open span {
 }
 
 .release-pick .input {
-  width: 9em;
+  width: 9.5em;
+  padding-right: calc(var(--space-2-5) + 1em);
+  font-variant-numeric: tabular-nums;
+  cursor: var(--cursor-action);
+}
+
+.release-anchor::after {
+  content: "";
+  position: absolute;
+  right: var(--space-2-5);
+  top: 50%;
+  width: 0.45em;
+  height: 0.45em;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+
+.release-pick.open .release-anchor::after {
+  transform: translateY(-20%) rotate(225deg);
+}
+
+.release-pop {
+  max-height: min(18rem, 50vh);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The release the page shows, in the list of every one. */
+.release-pop .menu-item.current {
+  font-weight: var(--fw-semibold);
 }
 
 /* ── the stat block ─────────────────────────────────────── */

@@ -30,10 +30,11 @@ func (s *site) searchPage(q string) (string, []ui.Item, error) {
 	}
 	players, err := s.q.findPlayers(query)
 	teams, err2 := s.q.findTeams(query)
-	if err = errors.Join(err, err2); err != nil {
+	tours, err3 := s.q.findTournaments(query)
+	if err = errors.Join(err, err2, err3); err != nil {
 		return "", nil, err
 	}
-	if len(players) == 0 && len(teams) == 0 {
+	if len(players) == 0 && len(teams) == 0 && len(tours) == 0 {
 		return S.Search.PageTitle(q), append(out, ui.Empty(ui.Text(S.Search.Nothing()))), nil
 	}
 	if len(players) > 0 {
@@ -42,7 +43,21 @@ func (s *site) searchPage(q string) (string, []ui.Item, error) {
 	if len(teams) > 0 {
 		out = append(out, hits(S.Search.Teams, S.Common.Col.Team(), S.Search.Col.Tournaments(), teams, teamHit))
 	}
+	if len(tours) > 0 {
+		out = append(out, tourHits(tours))
+	}
 	return S.Search.PageTitle(q), out, nil
+}
+
+// tourHits are the tournaments found, as the tournaments page lists them.
+func tourHits(found []tourFound) ui.Node {
+	rows := make([]ui.Item, len(found))
+	for i, t := range found {
+		rows[i] = ui.Trow(append(tourCells(str(t.date), t.id, str(t.name), str(t.typ), true),
+			numCell(intOpt(t.teams)))...)
+	}
+	cols := append(tourCols(), numCol(S.Tournaments.Col.Teams()))
+	return section(S.Search.Tournaments(itoa(int64(len(found)))), table(cols, rows...))
 }
 
 // hits are the search results of one kind, as a titled table.

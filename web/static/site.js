@@ -366,24 +366,112 @@
   });
 })();
 
-/* The release picker: a date picked from the suggestions, or typed out in
-   full, opens that release's page at once. Anything else waits for Enter,
-   and the server takes the last release on or before what was typed. */
+/* The release picker: a field that opens like a dropdown. A tap lists every
+   release, newest first, in the kit's suggest popover (the classes of
+   dopeuikit's suggest.ts, which this page does not bundle); typing narrows the
+   list to the dates that start with what is typed. Picking a date, or typing
+   one in full, opens that release. The browser's datalist, which a phone shows
+   as a strip over the keyboard if at all, is only for a page without this
+   script. */
 (function () {
   var form = document.querySelector(".release-pick");
   if (!form) return;
   var input = form.querySelector("input");
+  var list = form.querySelector("datalist");
+  input.removeAttribute("list");
+  var all = [].map.call(list.options, function (o) { return { date: o.value, id: o.dataset.id }; });
   var start = input.value;
+  var pop = null, rows = [], shown = [], active = -1;
+  var PAD = 8;
+
+  function go(r) { location.href = form.action + "?release=" + r.id; }
+
+  function place() {
+    if (!pop) return;
+    var box = input.getBoundingClientRect();
+    pop.style.minWidth = Math.round(box.width) + "px";
+    var left = Math.max(PAD, Math.min(box.left, window.innerWidth - pop.offsetWidth - PAD));
+    var top = box.bottom + 4;
+    if (top + pop.offsetHeight > window.innerHeight - PAD) top = Math.max(PAD, box.top - 4 - pop.offsetHeight);
+    pop.style.left = left + "px";
+    pop.style.top = top + "px";
+  }
+
+  function close() {
+    if (!pop) return;
+    pop.remove();
+    pop = null; rows = []; shown = []; active = -1;
+    form.classList.remove("open");
+    window.removeEventListener("scroll", place, true);
+    window.removeEventListener("resize", place);
+  }
+
+  function highlight(next) {
+    if (rows[active]) rows[active].removeAttribute("aria-selected");
+    active = rows.length ? (next + rows.length) % rows.length : -1;
+    if (!rows[active]) return;
+    rows[active].setAttribute("aria-selected", "true");
+    rows[active].scrollIntoView({ block: "nearest" });
+  }
+
+  // On opening, the field still holds the date of the page shown: every
+  // release is listed then, with that one marked, rather than only itself.
+  function draw(everything) {
+    close();
+    var q = everything ? "" : input.value.trim();
+    shown = all.filter(function (r) { return r.date.indexOf(q) === 0; });
+    if (!shown.length) return;
+    pop = document.createElement("div");
+    pop.className = "menu-dropdown suggest-pop release-pop";
+    pop.setAttribute("role", "listbox");
+    shown.forEach(function (r) {
+      var row = document.createElement("button");
+      row.type = "button";
+      row.className = "menu-item";
+      row.setAttribute("role", "option");
+      row.textContent = r.date;
+      if (r.date === start) row.classList.add("current");
+      // pointerdown, not click: the click would come after the field's blur
+      // had taken the list down.
+      row.addEventListener("pointerdown", function (ev) { ev.preventDefault(); input.value = r.date; close(); go(r); });
+      rows.push(row);
+      pop.appendChild(row);
+    });
+    // On the body, not in the field's anchor: the page's own layers would
+    // otherwise paint the result cards over the list.
+    document.body.appendChild(pop);
+    form.classList.add("open");
+    place();
+    var cur = shown.findIndex(function (r) { return r.date === start; });
+    if (everything && cur >= 0) rows[cur].scrollIntoView({ block: "center" });
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+  }
+
+  input.addEventListener("focus", function () { input.select(); draw(true); });
+  input.addEventListener("click", function () { if (!pop) draw(true); });
   input.addEventListener("input", function () {
-    var opt = form.querySelector('option[value="' + input.value + '"]');
-    if (!opt || input.value === start) return;
-    location.href = form.action + "?release=" + opt.dataset.id;
+    var hit = all.filter(function (r) { return r.date === input.value; })[0];
+    if (hit && input.value !== start) { close(); go(hit); return; }
+    draw(false);
+  });
+  input.addEventListener("blur", function () { setTimeout(close, 150); });
+  input.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") { close(); return; }
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      if (!pop) draw(true);
+      if (!pop) return;
+      ev.preventDefault();
+      var down = ev.key === "ArrowDown";
+      highlight(active < 0 ? (down ? 0 : rows.length - 1) : active + (down ? 1 : -1));
+      return;
+    }
+    if (ev.key === "Enter" && pop && shown[active]) { ev.preventDefault(); go(shown[active]); }
   });
   form.addEventListener("submit", function (ev) {
-    var opt = form.querySelector('option[value="' + input.value + '"]');
-    if (!opt) return;
+    var hit = all.filter(function (r) { return r.date === input.value; })[0];
+    if (!hit) return;
     ev.preventDefault();
-    location.href = form.action + "?release=" + opt.dataset.id;
+    go(hit);
   });
-  input.addEventListener("focus", function () { input.select(); });
 })();

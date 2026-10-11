@@ -165,6 +165,23 @@ func (st *store) findTeams(query string) ([]found, error) {
 		where team_fts match ? order by k.rank is null, k.rank, t.games desc limit ?`, query, searchLimit)
 }
 
+// tourFound is a tournament the search found.
+type tourFound struct {
+	id              int64
+	name, date, typ *string
+	teams           *int64
+}
+
+func (r *tourFound) fields() []any { return []any{&r.id, &r.name, &r.date, &r.typ, &r.teams} }
+
+// findTournaments holds the newest first: a name a series repeats every year
+// most likely means this year's.
+func (st *store) findTournaments(query string) ([]tourFound, error) {
+	return all[tourFound](st.db, `select f.rowid, t.name, t.date, t.type, t.n_teams
+		from x.tournament_fts f join x.tournament t on t.id = f.rowid
+		where tournament_fts match ? order by t.date desc, t.id desc limit ?`, query, searchLimit)
+}
+
 // The entity pages: a player, a team, their histories and results.
 
 // standing is an entity's last published rating and its place in the

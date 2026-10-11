@@ -219,6 +219,12 @@
       "children": "text"
     },
     {
+      "name": "term",
+      "props": [],
+      "inline": true,
+      "children": "text"
+    },
+    {
       "name": "em",
       "props": [],
       "inline": true,

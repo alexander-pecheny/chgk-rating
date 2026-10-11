@@ -142,7 +142,7 @@ var RU = Strings{
 		Search: CommonSearchStrings{
 			Close:       func() string { return "Закрыть поиск" },
 			Label:       func() string { return "Поиск" },
-			Placeholder: func() string { return "Игрок или команда" },
+			Placeholder: func() string { return "Игрок, команда или турнир" },
 		},
 		TeamFallback: func(n string) string { return fmt.Sprintf("Команда %s", n) },
 		Title:        func(title string) string { return fmt.Sprintf("%s — Рейтинг ЧГК", title) },
@@ -217,10 +217,13 @@ var RU = Strings{
 		Nothing:   func() string { return "Ничего не найдено." },
 		PageTitle: func(q string) string { return fmt.Sprintf("Поиск: %s", q) },
 		Players:   func(n string) string { return fmt.Sprintf("Игроки (%s)", n) },
-		Prompt:    func() string { return "Введите имя игрока или название команды." },
-		Query:     func(q string) string { return fmt.Sprintf("Запрос: %s", q) },
-		Teams:     func(n string) string { return fmt.Sprintf("Команды (%s)", n) },
-		Title:     func() string { return "Поиск" },
+		Prompt: func() string {
+			return "Введите имя игрока, название команды или турнира."
+		},
+		Query:       func(q string) string { return fmt.Sprintf("Запрос: %s", q) },
+		Teams:       func(n string) string { return fmt.Sprintf("Команды (%s)", n) },
+		Title:       func() string { return "Поиск" },
+		Tournaments: func(n string) string { return fmt.Sprintf("Турниры (%s)", n) },
 	},
 	Team: TeamStrings{
 		Breakdown: TeamBreakdownStrings{
@@ -238,8 +241,6 @@ var RU = Strings{
 			Now:      func() string { return "Сейчас" },
 			NowTitle: func() string { return "Балл сегодня: V · f(t) · ω" },
 			Place:    func(v string) string { return fmt.Sprintf("M = %s", v) },
-			Points:   func(v string) string { return fmt.Sprintf("V = %s", v) },
-			Strength: func(v string) string { return fmt.Sprintf("S − 800 = %s", v) },
 			Sum: func(sum string, divisor string) string {
 				return fmt.Sprintf("Сумма %s ÷ %s = рейтинг", sum, divisor)
 			},
@@ -262,9 +263,8 @@ var RU = Strings{
 			OlderCount:     func(n string, date string) string { return fmt.Sprintf("ещё %s, до %s", n, date) },
 			OlderToggle:    func() string { return "Показать и старые результаты" },
 			Title:          func(n string) string { return fmt.Sprintf("Все результаты (%s)", n) },
-			ValueHow:       func(strength string, w string) string { return fmt.Sprintf("S − 800 = %s, w = %s", strength, w) },
-			ValueHowPlace: func(strength string, place string, w string) string {
-				return fmt.Sprintf("S − 800 = %s, M = %s, w = %s", strength, place, w)
+			ValueHow: func(strength string, place string, w string) string {
+				return fmt.Sprintf("S⁺ = %s, M = %s, w = %s", strength, place, w)
 			},
 		},
 		Roster: func(n string) string { return fmt.Sprintf("Базовый состав (%s)", n) },

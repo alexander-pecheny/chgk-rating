@@ -332,6 +332,10 @@ func Sub(items ...Item) *Element {
 	return base.New("sub", items...)
 }
 
+func Term(items ...Item) *Element {
+	return base.New("term", items...)
+}
+
 func Em(items ...Item) *Element {
 	return base.New("em", items...)
 }

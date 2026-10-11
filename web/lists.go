@@ -167,9 +167,9 @@ func (s *site) playerTable(page int) (string, []ui.Item, error) {
 func playerCols(rankSigmas float64) []ui.Item {
 	place := numCol(S.Common.Col.Place())
 	if rankSigmas > 0 {
-		place = numCol(S.Common.Col.Place(), S.Players.Col.PlaceTitle(commaNum(rankSigmas)))
+		place = numCol(S.Common.Col.Place(), S.Players.Col.PlaceTitle(plainNum(rankSigmas)))
 	}
-	k := commaNum(rankSigmas)
+	k := plainNum(rankSigmas)
 	return []ui.Item{place, nameCol(S.Common.Col.Player()), numCol(S.Common.Col.Rating(), S.Players.Col.RatingTitle(k)),
 		numCol("R", S.Players.Col.RTitle()), numCol("±", S.Common.Col.SigmaTitle()),
 		numCol("θ", S.Players.Col.ThetaTitle()), numCol("σ", S.Players.Col.SigmaTitle()), numCol("v", S.Players.Col.VolTitle()),

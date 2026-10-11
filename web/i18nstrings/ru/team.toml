@@ -1,6 +1,6 @@
 # A team's page at /teams/id/: its rating taken apart, its history, its base
 # roster and every result it has played. The letters are the post's at
-# /method/: S the strength shown, M the place, w the weights, V the result's
+# /method/: S⁺ the strength shown above 800, M the place, w the weights, V the result's
 # rating points, f(t) the fade and ω the share of the roster kept.
 rank = '{{.n}}-е место · {{.town}}'
 not_listed = 'Не в текущем релизе · {{.town}}'
@@ -17,14 +17,12 @@ left = "Осталось"
 left_title = "Доля балла, которая осталась сегодня: f(t) · ω"
 now = "Сейчас"
 now_title = "Балл сегодня: V · f(t) · ω"
-strength = 'S − 800 = {{.v}}'
 place = 'M = {{.v}}'
 w = "w"
 w_format = "формат"
 w_top = "топ"
 w_towns = "города"
 equals = ' = {{.v}}'
-points = 'V = {{.v}}'
 fade = 'f(t) = {{.fade}}%'
 fade_overlap = 'f(t) = {{.fade}}%, ω = {{.overlap}}%'
 merged = 'место {{.all}}/{{.teams}} (сводное), {{.own}}/{{.here}} (своя площадка)'
@@ -38,5 +36,4 @@ older_count = 'ещё {{.n}}, до {{.date}}'
 counts = "В рейтинге"
 counts_col_title = "Входит ли результат в рейтинг сейчас"
 counts_title = "входит в рейтинг"
-value_how = 'S − 800 = {{.strength}}, w = {{.w}}'
-value_how_place = 'S − 800 = {{.strength}}, M = {{.place}}, w = {{.w}}'
+value_how = 'S⁺ = {{.strength}}, M = {{.place}}, w = {{.w}}'

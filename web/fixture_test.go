@@ -62,6 +62,7 @@ CREATE TABLE base_roster (team_id INTEGER, player_id INTEGER, name TEXT, date_ad
 CREATE TABLE place_hist (kind INTEGER, id INTEGER, places BLOB, PRIMARY KEY (kind, id)) WITHOUT ROWID;
 CREATE VIRTUAL TABLE player_fts USING fts5(name);
 CREATE VIRTUAL TABLE team_fts USING fts5(name, town, aliases);
+CREATE VIRTUAL TABLE tournament_fts USING fts5(name);
 INSERT INTO meta VALUES ('index_version', '` + indexVersion + `'), ('release_id', '2'), ('release_date', '2026-09-03'),
   ('n_player_rank', '2'), ('n_team_rank', '2'), ('a_team', '0'), ('b_team', '1000'), ('a_player', '0'),
   ('b_player', '1000'), ('player_phi', '1'), ('provisional_sigma', '0.3'), ('rank_sigmas', '0'), ('clean_from', ''), ('s2', '1'), ('achieve', '0'),
@@ -81,6 +82,7 @@ INSERT INTO base_roster VALUES (10, 100, 'Анна Иванова', '2026-01-01'
 INSERT INTO place_hist VALUES (1, 10, X'0100000001000000'), (0, 100, X'0100000001000000');
 INSERT INTO player_fts(rowid, name) VALUES (100, 'Анна Иванова'), (101, 'Борис Петров'), (102, 'Вера Сидорова');
 INSERT INTO team_fts(rowid, name, town, aliases) VALUES (10, 'Альфа', 'Москва', ''), (11, 'Бета', '', 'Бета-2');
+INSERT INTO tournament_fts(rowid, name) VALUES (500, 'Кубок');
 `
 
 // fixture writes the two databases into a temporary directory.
@@ -117,10 +119,10 @@ func TestFixturePages(t *testing.T) {
 		{"/players/", 200, []string{"Анна Иванова", "Борис Петров"}},
 		{"/teams/10/", 200, []string{"Москва", "1-е место", "Анна Иванова", "Кубок"}},
 		// Before and after at an in-person table, theta + phi: 500 and 600.
-		{"/players/100/", 200, []string{"Анна Иванова", ">500<", ">600<", "+100", ">0,500<", ">0,100<", ">0,073<", `href="/players/100/?release=1"`}},
+		{"/players/100/", 200, []string{"Анна Иванова", ">500<", ">600<", "+100", ">0.500<", ">0.100<", ">0.073<", `href="/players/100/?release=1"`}},
 		// As of the first release: its numbers, and no tournament yet, since
 		// the only one was played after it.
-		{"/players/100/?release=1", 200, []string{"Как было на релизе от 2026-08-27", ">400<", ">0,400<", ">0,080<", "+20",
+		{"/players/100/?release=1", 200, []string{"Как было на релизе от 2026-08-27", ">400<", ">0.400<", ">0.080<", "+20",
 			"Сыгранные турниры (0)", `href="/players/100/"`}},
 		{"/players/100/?release=2", 200, []string{"Сыгранные турниры (1)"}},
 		{"/players/100/?release=9", 404, nil},
@@ -132,6 +134,7 @@ func TestFixturePages(t *testing.T) {
 		// as Бета-2 and its result did not count.
 		{"/tournaments/500/", 200, []string{">9000<", ">9050<", "+50", "+30", "+20", "Бета-2", ">9500<"}},
 		{"/search/?q=%D0%B1", 200, []string{`href="/teams/11/"`, `href="/players/101/"`}},
+		{"/search/?q=%D0%BA%D1%83%D0%B1", 200, []string{`href="/tournaments/500/"`, "Турниры (1)"}},
 		{"/releases/", 200, []string{"2026-09-03", "Версия модели 1.0"}},
 		{"/anomaly/", 200, nil},
 		{"/tournaments/1/", 404, nil},
