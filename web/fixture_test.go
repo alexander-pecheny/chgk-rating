@@ -27,6 +27,8 @@ CREATE TABLE team_events (tournament_id INTEGER, team_id INTEGER, date TEXT, for
 CREATE TABLE question_params (tournament_id INTEGER, q INTEGER, b REAL);
 INSERT INTO player_ratings VALUES (1, 100, 0.40, 0.1, 3, 20, 0.08, 400), (2, 100, 0.50, 0.1, 1, 100, 0.0731, 500),
                                   (1, 101, 0.20, 0.5, 2, 0, 0.1, 200), (2, 101, 0.25, 0.5, 1, 50, 0.1, 250);
+CREATE TABLE team_trb (release_id INTEGER, team_id INTEGER, trb REAL);
+INSERT INTO team_trb VALUES (2, 10, 8000), (2, 11, 8800), (1, 10, 7500);
 INSERT INTO team_ratings VALUES (1, 10, 9.0, 0.1, 9000, 10, 1), (2, 10, 9.05, 0.1, 9050, 50, 1), (1, 11, 8.0, 0.1, 8000, 0, 1),
                                 (2, 11, 7.9, 0.1, 7900, -100, 1);
 INSERT INTO player_events VALUES (500, 100, 0.40, 0.50, 0.10, 0.1), (500, 101, 0.20, 0.25, NULL, 0.5),
@@ -52,7 +54,7 @@ CREATE TABLE result_ (tournament_id INTEGER, team_id INTEGER, score INTEGER, nam
 CREATE TABLE player_rank (rank INTEGER PRIMARY KEY, player_id INTEGER, display REAL, sigma REAL,
                           games INTEGER, change REAL, provisional INTEGER);
 CREATE TABLE team_rank (rank INTEGER PRIMARY KEY, team_id INTEGER, display REAL, sigma REAL,
-                        evidence REAL, change REAL, provisional INTEGER);
+                        evidence REAL, change REAL, provisional INTEGER, trb REAL, trb_rank INTEGER);
 CREATE TABLE anomaly (rank INTEGER PRIMARY KEY, player_id INTEGER, k REAL, k_f REAL, k_m REAL,
                       f_gap REAL, f_on INTEGER, f_ip INTEGER, m_gap REAL, m_on INTEGER, m_ip INTEGER);
 CREATE TABLE venue (tournament_id INTEGER PRIMARY KEY, field_id INTEGER);
@@ -77,7 +79,7 @@ INSERT INTO tournament VALUES (500, 'Кубок', '2026-09-01', 'in-person', 1.0
 INSERT INTO player_game VALUES (100, 500, 10, 1, 30), (101, 500, 10, 1, 30), (102, 500, 11, 2, 25);
 INSERT INTO result_ VALUES (500, 10, 30, 'Альфа'), (500, 11, 25, 'Бета-2');
 INSERT INTO player_rank VALUES (1, 100, 500, 100, 1, 100, 0), (2, 101, 250, 500, 1, 50, 1);
-INSERT INTO team_rank VALUES (1, 10, 9050, 106.4, 1, 50, 0), (2, 11, 7900, 106.4, 1, -100, 0);
+INSERT INTO team_rank VALUES (1, 10, 9050, 106.4, 1, 50, 0, 8000, 2), (2, 11, 7900, 106.4, 1, -100, 0, 8800, 1);
 INSERT INTO base_roster VALUES (10, 100, 'Анна Иванова', '2026-01-01');
 INSERT INTO place_hist VALUES (1, 10, X'0100000001000000'), (0, 100, X'0100000001000000');
 INSERT INTO player_fts(rowid, name) VALUES (100, 'Анна Иванова'), (101, 'Борис Петров'), (102, 'Вера Сидорова');
@@ -134,6 +136,9 @@ func TestFixturePages(t *testing.T) {
 		// as Бета-2 and its result did not count.
 		{"/tournaments/500/", 200, []string{">9000<", ">9050<", "+50", "+30", "+20", "Бета-2", ">9500<"}},
 		{"/search/?q=%D0%B1", 200, []string{`href="/teams/11/"`, `href="/players/101/"`}},
+		{"/trb/", 200, []string{"ТРБ ↓", ">8800<", `href="/teams/11/"`}},
+		{"/teams/11/", 200, []string{"ТРБ", ">8800<"}},
+		{"/teams/10/?release=1", 200, []string{">7500<"}},
 		{"/search/?q=%D0%BA%D1%83%D0%B1", 200, []string{`href="/tournaments/500/"`, "Турниры (1)"}},
 		{"/releases/", 200, []string{"2026-09-03", "Версия модели 1.0"}},
 		{"/anomaly/", 200, nil},

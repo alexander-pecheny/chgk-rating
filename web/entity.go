@@ -212,7 +212,11 @@ func (s *site) teamPage(id int64, at *release) (string, []ui.Item, error) {
 			return "", nil, err
 		}
 		t = teamAt(t, row, hasRow, rank)
-		out := []ui.Item{s.asOfHead(href, at), teamByline(t, at), ui.Stats(teamStats(t)...), s.releasePick(href, at)}
+		trb, err := s.q.trbAt(id, at.id)
+		if err != nil {
+			return "", nil, err
+		}
+		out := []ui.Item{s.asOfHead(href, at), teamByline(t, at), ui.Stats(teamStats(t, trb)...), s.releasePick(href, at)}
 		b, err := s.pastBreakdown(id, at)
 		c, err2 := s.chartSection(kindTeam, id, false, at)
 		results, err3 := s.teamResults(id, at)
@@ -226,7 +230,11 @@ func (s *site) teamPage(id int64, at *release) (string, []ui.Item, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	head := []ui.Item{teamByline(t, nil), ui.Stats(teamStats(t)...), s.pastLink(href)}
+	trb, err := s.q.trbAt(id, s.rels[len(s.rels)-1].id)
+	if err != nil {
+		return "", nil, err
+	}
+	head := []ui.Item{teamByline(t, nil), ui.Stats(teamStats(t, trb)...), s.pastLink(href)}
 	body, err := s.teamBody(id, a, hasAchieve, rules)
 	return teamName(t.name, id), append(head, body...), err
 }
@@ -258,16 +266,22 @@ func teamByline(t standing, at *release) ui.Node {
 	return byline(t, ranked, unlisted)
 }
 
-func teamStats(t standing) []ui.Item {
+// teamStats are the team's numbers at the head of its page; ТРБ, the
+// strength of its base roster, when it has one.
+func teamStats(t standing, trb *float64) []ui.Item {
 	place := dash
 	if t.rank != nil {
 		place = itoa(*t.rank)
 	}
-	return []ui.Item{
+	out := []ui.Item{
 		stat(S.Common.Col.Rating(), dispOpt(t.display)),
 		stat(S.Common.Col.Place(), place),
 		stat(S.Team.Stat.Week(), signedOpt(t.change)),
 	}
+	if trb != nil {
+		out = append(out, stat(S.Team.Stat.Trb(), disp(*trb)))
+	}
+	return out
 }
 
 // teamBody is the team page under its stats: the achievement breakdown, the

@@ -15,7 +15,7 @@ import (
 
 // indexVersion is the web.db this server reads: schema.rs's VERSION on the
 // Rust side, bumped with it.
-const indexVersion = "18"
+const indexVersion = "19"
 
 // The kinds of place_hist, as schema.rs numbers them.
 const (
@@ -40,6 +40,9 @@ type store struct {
 	// s2 is set for the published team engine, which carries no team
 	// uncertainty: pages show rated games where they would show a ±.
 	s2 bool
+	// trb is set when the fit published each team's ТРБ, the strength of its
+	// base roster, in team_trb.
+	trb bool
 }
 
 // scale maps the model's numbers onto the published one. The index stores the
@@ -94,6 +97,8 @@ func (st *store) readMeta() error {
 		playerPhi: num("player_phi"), provSigma: num("provisional_sigma"), rankSigmas: num("rank_sigmas")}
 	st.achieve, st.teamSteps, st.s2 = num("achieve") != 0, num("team_steps") != 0, num("s2") != 0
 	st.cleanFrom, _ = st.meta("clean_from")
+	n, e := st.number("select count(*) from sqlite_master where name = 'team_trb'")
+	st.trb, err = n > 0, errors.Join(err, e)
 	if st.achieve {
 		err = errors.Join(err, st.db.QueryRow("select id from releases order by date desc limit 1").Scan(&st.achieveRel))
 	}

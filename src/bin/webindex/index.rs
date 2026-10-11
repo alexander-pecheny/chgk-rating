@@ -12,7 +12,7 @@ use crate::history::{Current, Listed};
 use crate::results::{Results, TeamLast};
 use crate::schema::{INDEXES, KIND_PLAYER, KIND_TEAM, SCHEMA, VERSION};
 use rusqlite::{params, Connection};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::time::Instant;
 
@@ -309,11 +309,31 @@ fn ranks(c: &Ctx, release: i64) -> (usize, usize) {
     for (i, x) in prows.iter().enumerate() {
         ins.execute(params![i as i64 + 1, x.id, x.display, x.sigma, x.extra as i64, x.change, x.provisional as i64]).unwrap();
     }
-    let mut ins = c.w.prepare("insert into team_rank values (?1,?2,?3,?4,?5,?6,?7)").unwrap();
+    let trb = trbs(c, release, &trows);
+    let mut ins = c.w.prepare("insert into team_rank values (?1,?2,?3,?4,?5,?6,?7,?8,?9)").unwrap();
     for (i, x) in trows.iter().enumerate() {
-        ins.execute(params![i as i64 + 1, x.id, x.display, x.sigma, x.extra, x.change, x.provisional as i64]).unwrap();
+        let (q, k) = trb.get(&x.id).map_or((None, None), |&(q, k)| (Some(q), Some(k)));
+        ins.execute(params![i as i64 + 1, x.id, x.display, x.sigma, x.extra, x.change, x.provisional as i64, q, k]).unwrap();
     }
     (prows.len(), trows.len())
+}
+
+/// Each ranked team's ТРБ at the release, the strength of its base roster, and
+/// its place among the ranked teams by it; none for a fit without `team_trb`.
+fn trbs(c: &Ctx, release: i64, teams: &[Ranked]) -> HashMap<i64, (f64, i64)> {
+    if !table_exists(c.r, "team_trb") {
+        return HashMap::new();
+    }
+    let ranked: HashSet<i64> = teams.iter().map(|t| t.id).collect();
+    let mut rows: Vec<(i64, f64)> = Vec::new();
+    each(c.r, &format!("select team_id, trb from team_trb where release_id = {release}"), |x| {
+        let t: i64 = x.get("team_id").unwrap();
+        if ranked.contains(&t) {
+            rows.push((t, x.get("trb").unwrap()));
+        }
+    });
+    rows.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+    rows.into_iter().enumerate().map(|(i, (t, q))| (t, (q, i as i64 + 1))).collect()
 }
 
 /// The release's rows of one ratings table in the published order: settled

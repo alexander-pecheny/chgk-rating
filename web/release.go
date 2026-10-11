@@ -12,9 +12,13 @@ import (
 // the last one.
 
 func (st *store) teamRanksAt(rel int64, lo, hi int) ([]teamRank, error) {
+	trb, join := "null", ""
+	if st.trb {
+		trb, join = "b.trb", "left join team_trb b on b.release_id = r.release_id and b.team_id = r.team_id"
+	}
 	return all[teamRank](st.db, `select row_number() over (order by r.display desc, r.team_id) + ?, r.team_id, t.name, t.town,
-		r.display, null, r.evidence, r.change, 0 from team_ratings r left join x.team t on t.id = r.team_id
-		where r.release_id = ? order by r.display desc, r.team_id limit ? offset ?`, lo, rel, hi-lo, lo)
+		r.display, null, r.evidence, r.change, 0, `+trb+`, null from team_ratings r left join x.team t on t.id = r.team_id
+		`+join+` where r.release_id = ? order by r.display desc, r.team_id limit ? offset ?`, lo, rel, hi-lo, lo)
 }
 
 func (st *store) playerRanksAt(rel int64, lo, hi int) ([]playerRank, error) {
@@ -71,10 +75,10 @@ func (s *site) pastTeams(r release, page int) (string, []ui.Item, error) {
 	rows, err := s.q.teamRanksAt(r.id, p.lo, p.hi())
 	lines := make([]rankLine, len(rows))
 	for i, x := range rows {
-		lines[i] = s.teamLine(x, &r)
+		lines[i] = s.teamLine(x, &r, false)
 	}
 	head := pastHead(S.Teams.Lede(r.date, n), base+"players/", S.Releases.Players())
-	t := rankTable(s.teamCols(), lines, true, "")
+	t := rankTable(s.teamCols(false, false), lines, true, "")
 	return p.title(S.Releases.Title(r.date)), []ui.Item{head, ui.Section(p.framed(t)...)}, err
 }
 

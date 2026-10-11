@@ -34,17 +34,43 @@ type teamRank struct {
 	name, town                  *string
 	display, sigma, evi, change *float64
 	prov                        bool
+	trb                         *float64
+	trbRank                     *int64
 }
 
 func (r *teamRank) fields() []any {
-	return []any{&r.rank, &r.id, &r.name, &r.town, &r.display, &r.sigma, &r.evi, &r.change, &r.prov}
+	return []any{&r.rank, &r.id, &r.name, &r.town, &r.display, &r.sigma, &r.evi, &r.change, &r.prov, &r.trb, &r.trbRank}
 }
 
-// teamRanks are the teams ranked after lo and up to hi.
-func (st *store) teamRanks(lo, hi int) ([]teamRank, error) {
+// teamRanks are the teams ranked after lo and up to hi, by rating or, with
+// byTRB, by ТРБ.
+func (st *store) teamRanks(lo, hi int, byTRB bool) ([]teamRank, error) {
+	order := "k.rank"
+	if byTRB {
+		order = "k.trb_rank"
+	}
 	return all[teamRank](st.db, `select k.rank, k.team_id, t.name, t.town, k.display, k.sigma, k.evidence, k.change,
-		k.provisional from x.team_rank k left join x.team t on t.id = k.team_id
-		where k.rank > ? and k.rank <= ? order by k.rank`, lo, hi)
+		k.provisional, k.trb, k.trb_rank from x.team_rank k left join x.team t on t.id = k.team_id
+		where `+order+` > ? and `+order+` <= ? order by `+order, lo, hi)
+}
+
+// trbTeams counts the teams ranked by ТРБ.
+func (st *store) trbTeams() (int, error) {
+	return st.number("select count(*) from x.team_rank where trb_rank is not null")
+}
+
+// trbAt is the team's ТРБ at the release; nil when it had no base roster to
+// read or the fit published none.
+func (st *store) trbAt(id, release int64) (*float64, error) {
+	if !st.trb {
+		return nil, nil
+	}
+	var v *float64
+	err := st.db.QueryRow("select trb from team_trb where team_id = ? and release_id = ?", id, release).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return v, err
 }
 
 // playerRank is a row of the player table: display and sigma are R and its

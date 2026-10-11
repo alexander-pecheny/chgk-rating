@@ -245,6 +245,26 @@ impl Seasons {
     }
 }
 
+/// `trb.tsv`: one line per team and release, `day team strength`.
+pub fn save_trb(rows: &[(i32, i64, f64)], path: &str) -> std::io::Result<()> {
+    let mut o = String::new();
+    for (d, t, q) in rows {
+        let _ = writeln!(o, "{}\t{t}\t{q:.1}", show_day(*d));
+    }
+    std::fs::write(path, o)
+}
+
+/// What `save_trb` wrote; nothing when the file is missing.
+pub fn load_trb(path: &str) -> Vec<(i32, i64, f64)> {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    text.lines()
+        .filter_map(|l| {
+            let mut f = l.split('\t');
+            Some((parse_day(f.next()?)?, f.next()?.parse().ok()?, f.next()?.parse().ok()?))
+        })
+        .collect()
+}
+
 /// A map's entries in key order: what is written from a hash map comes out
 /// the same on every run.
 fn sorted<K: Ord, V>(m: &HashMap<K, V>) -> Vec<(&K, &V)> {
