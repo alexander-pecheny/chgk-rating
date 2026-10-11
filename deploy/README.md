@@ -10,10 +10,19 @@ the unit file. At start-up the server runs `typst` to draw the formulas on
 
 Cron runs `deploy/update.sh` at 06:30 UTC every day. `deploy/crontab` holds the
 line. The script brings `buff.db` over from `vps2day-ee` (it is rebuilt there
-at 01:05 UTC and the graph at 04:50 UTC), runs `fit`, `eval`, `achieve` and `webindex`, restarts the
-service and waits for the site to answer. `fit` now ends its window today, so
-each run picks up the tournaments added since yesterday. The whole thing takes
-about three minutes.
+at 01:05 UTC and the graph at 04:50 UTC), runs `fit`, `eval`, `achieve`, the
+three rivals and `webindex`, restarts the service and waits for the site to
+answer. The window ends on the UTC day of `buff.db`'s last complete update, as
+its `db_updates` table stamps it, so each run picks up the tournaments added
+since yesterday, and the same `buff.db` gives the same numbers on any day.
+
+Every stage is deterministic, and the script skips one whose inputs have not
+changed since it last succeeded. A stage's key hashes its binary, `buff.db`,
+the configs, everything under `data/` and the keys of the stages it reads;
+`out/stamps/<stage>` holds the key of its last success, and a stage clears it
+before it starts. So `just dev <name> refit` after a change to the site index
+reruns only `webindex`, and one after a change to the achievement rating only
+`achieve` and what follows it. `FORCE=1` runs every stage.
 
 The copy is an rsync onto a duplicate of yesterday's file, so only the pages
 that changed cross the network: about 10 MB of the 1 GB, in five seconds.
@@ -33,7 +42,8 @@ SKIP_SYNC=1 SKIP_RESTART=1 REPO=$PWD deploy/update.sh   # a dry run elsewhere
 ```
 
 `SKIP_SYNC=1` keeps the current `buff.db`, `SKIP_RESTART=1` leaves the service
-alone, and `REPO` points the run at another checkout. Runs cannot overlap:
+alone, `FORCE=1` reruns current stages, and `REPO` points the run at another
+checkout. Runs cannot overlap:
 `out/update.lock` is held for the length of one.
 
 ## Previews
@@ -41,7 +51,7 @@ alone, and `REPO` points the run at another checkout. Runs cannot overlap:
 `just dev <name>` in a worktree serves it at `https://<name>.a2-dev.pecheny.me`.
 It links production's `buff.db` and `data/external` into the worktree, builds,
 fits into the worktree's own `out/` if it has no index yet (`just dev <name>
-refit` fits again), and starts the instance with `~/.local/bin/a2-dev`. Each
+refit` reruns the stages whose inputs changed), and starts the instance with `~/.local/bin/a2-dev`. Each
 instance is an `a2-dev@<name>` unit running the worktree's `web/serve` on its
 own port, behind a route in `/etc/caddy/a2-dev.d/`; the wildcard DNS record and
 certificate cover every name. `a2-dev ls` lists the instances and `a2-dev rm

@@ -5,7 +5,7 @@ use chgk_rating::output::{PlayerEvent, PlayerRow, TournamentMetrics, Writer};
 use chgk_rating::pass::{self, Engine, Evening, Morning, Observer, Release};
 use chgk_rating::team_event::TeamEvent;
 use chgk_rating::util::{format_date, parse_date, spearman};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
 
 const SCRAMBLE_SEED: u64 = 0x5C2A_3B1E;
@@ -116,12 +116,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         chemistry: features.is_some(),
     };
     let mut fit = Fit::new(&arena, &cfg, features, start)?;
-    let n = pass::run(&arena, &cfg, opts, &mut fit)?;
+    // `--achieve DIR` freezes the achievement rating's values on this same
+    // pass, which `achieve --build` would otherwise replay on its own.
+    let achieve = arg("--achieve");
+    let db = rusqlite::Connection::open_with_flags(&cfg.data.db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut freezer = achieve.as_ref().map(|_| chgk_rating::achieve::Freezer::new(&arena, &cfg, &db)).transpose()?;
+    let n = match freezer.as_mut() {
+        Some(fr) => pass::run(&arena, &cfg, opts, &mut pass::Tee(&mut fit, fr))?,
+        None => pass::run(&arena, &cfg, opts, &mut fit)?,
+    };
+    let strengths = fit.last_display();
     if let Some(f) = fit.features {
         println!("features: {} rows", f.rows());
         f.finish()?;
     }
     fit.w.finish()?;
+    if let (Some(dir), Some(fr)) = (&achieve, &freezer) {
+        std::fs::create_dir_all(dir)?;
+        fr.save(dir)?;
+        chgk_rating::achieve::save_lists(&cfg, strengths, dir)?;
+    }
     println!("done: {n} releases, {:.1}s total", start.elapsed().as_secs_f64());
     Ok(())
 }
@@ -277,7 +291,7 @@ impl Observer for Fit<'_> {
             f.absorb_players(t, e.grads, e.players);
         }
         if !t.train_only && t.day >= self.publish_from {
-            let mut rows: HashMap<i64, Vec<PlayerEvent>> = HashMap::new();
+            let mut rows: BTreeMap<i64, Vec<PlayerEvent>> = BTreeMap::new();
             for (i, b) in std::mem::take(&mut self.before) {
                 let venue = self.venue_of.get(&i).copied().unwrap_or(t.id);
                 rows.entry(venue).or_default().push(PlayerEvent {
@@ -363,6 +377,12 @@ impl Observer for Fit<'_> {
 
 impl Fit<'_> {
     /// Every player of the field once, with the state the forecast read.
+    /// Each player's last published number, as the rows written hold it: what
+    /// `player_ratings` gives at the player's last release.
+    fn last_display(&self) -> HashMap<i64, f64> {
+        self.prev_d.iter().enumerate().filter(|(_, d)| d.is_finite()).map(|(i, &d)| (self.arena.player_ids[i], d)).collect()
+    }
+
     fn lineup_states(&self, m: &Morning) -> Vec<(u32, PlayerEvent)> {
         let (t, players, cfg) = (m.t, m.players, self.cfg);
         let mut lineup: Vec<u32> = t.teams.iter().flat_map(|r| r.members.iter().copied()).collect();

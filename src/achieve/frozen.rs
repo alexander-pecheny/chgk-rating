@@ -132,10 +132,10 @@ impl Names {
 
     pub fn save(&self, path: &str) -> std::io::Result<()> {
         let mut s = String::new();
-        for (id, name) in &self.teams {
+        for (id, name) in sorted(&self.teams) {
             let _ = writeln!(s, "T\t{id}\t{}", name.replace(['\t', '\n'], " "));
         }
-        for (id, name) in &self.tours {
+        for (id, name) in sorted(&self.tours) {
             let _ = writeln!(s, "U\t{id}\t{}", name.replace(['\t', '\n'], " "));
         }
         std::fs::write(path, s)
@@ -216,13 +216,15 @@ impl Seasons {
         for (id, a, b) in &self.list {
             let _ = writeln!(o, "S\t{id}\t{}\t{}", show_day(*a), show_day(*b));
         }
-        for (t, x) in &self.has {
+        let mut has: Vec<_> = self.has.iter().collect();
+        has.sort();
+        for (t, x) in has {
             let _ = writeln!(o, "R\t{t}\t{x}");
         }
-        for (pl, r) in &self.strength {
+        for (pl, r) in sorted(&self.strength) {
             let _ = writeln!(o, "Q\t{pl}\t{r:.0}");
         }
-        for ((t, x), v) in &self.players {
+        for ((t, x), v) in sorted(&self.players) {
             for pl in v {
                 let _ = writeln!(o, "P\t{t}\t{x}\t{pl}");
             }
@@ -241,4 +243,12 @@ impl Seasons {
         };
         self.has.contains(&(team, s)) || (day - start <= k.grace && self.has.contains(&(team, s - 1)))
     }
+}
+
+/// A map's entries in key order: what is written from a hash map comes out
+/// the same on every run.
+fn sorted<K: Ord, V>(m: &HashMap<K, V>) -> Vec<(&K, &V)> {
+    let mut v: Vec<_> = m.iter().collect();
+    v.sort_by(|a, b| a.0.cmp(b.0));
+    v
 }

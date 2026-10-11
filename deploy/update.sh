@@ -47,60 +47,117 @@ else
     fi
 fi
 
-log "fit"
-if ! ./target/release/fit > out/fit.log 2>&1; then
-    log "fit failed, see out/fit.log; the site keeps the old numbers"
-    tail -n 20 out/fit.log
-    exit 1
-fi
-log "fit done: $(tail -n 1 out/fit.log)"
+# Every stage is a function of its inputs, so a stage whose inputs have not
+# changed since it last succeeded is skipped, the way make or Typst skip work
+# that is current. A stage's key hashes its own binary and everything it reads,
+# including the keys of the stages it reads from; out/stamps/<stage> holds the
+# key of its last success. FORCE=1 runs everything.
+hash() { sha256sum "$@" | sha256sum | cut -c1-16; }
+fresh() { [ "${FORCE:-}" != "1" ] && [ "$(cat "out/stamps/$1" 2>/dev/null)" = "$2" ]; }
+# A stage clears its stamp before it starts, so one that dies halfway is stale.
+unstamp() { mkdir -p out/stamps; : > "out/stamps/$1"; }
+stamp() { echo "$2" > "out/stamps/$1"; }
 
-log "eval"
-if ! ./target/release/eval > out/eval.md 2>&1; then
-    log "eval failed, see out/eval.md; the site keeps the old numbers"
-    tail -n 20 out/eval.md
-    exit 1
-fi
-log "eval done"
+bin=target/release
+k_buff=$(hash buff.db)
+k_data=$(hash config*.toml $(find -L data -type f | sort))
+k_fit=$(echo "$k_buff $k_data $(hash $bin/fit)" | hash -)
+k_eval=$(echo "$k_fit $(hash $bin/eval)" | hash -)
+k_pub=$(echo "$k_fit $(hash $bin/achieve)" | hash -)
+# Each run's window ends on the day of buff.db's last complete update, not on
+# the clock's: the same data gives the same numbers on any day.
+today=$(sqlite3 buff.db "select date(substr(d,1,19), printf('%+d minutes', (case substr(d,20,1) when '-' then 1 else -1 end) * (substr(d,21,2) * 60 + substr(d,23,2)))) from (select max(datetime) d from db_updates)")
 
-# The team rating the site publishes is the achievement rating: its own player
-# pass freezes every result's value, then it replaces the team rows of the fit.
-log "achieve"
-if ! ./target/release/achieve --build --top 1 > out/achieve.log 2>&1; then
-    log "achieve failed, see out/achieve.log; the site keeps the old numbers"
-    tail -n 20 out/achieve.log
-    exit 1
+# The fit also freezes the achievement rating's values on its own pass, which
+# achieve would otherwise replay. Eval reads the fit's own team rows, which
+# the publish below replaces, so a stale eval refits as well.
+if fresh fit "$k_fit" && fresh eval "$k_eval"; then
+    log "fit and eval are current"
+else
+    log "fit"
+    unstamp fit
+    unstamp eval
+    unstamp publish
+    if ! $bin/fit --achieve out/achieve > out/fit.log 2>&1; then
+        log "fit failed, see out/fit.log; the site keeps the old numbers"
+        tail -n 20 out/fit.log
+        exit 1
+    fi
+    stamp fit "$k_fit"
+    log "fit done: $(tail -n 1 out/fit.log)"
+
+    log "eval"
+    if ! $bin/eval > out/eval.md 2>&1; then
+        log "eval failed, see out/eval.md; the site keeps the old numbers"
+        tail -n 20 out/eval.md
+        exit 1
+    fi
+    stamp eval "$k_eval"
+    log "eval done"
 fi
-if ! ./target/release/achieve --publish out/ratings.db >> out/achieve.log 2>&1; then
-    log "achieve publish failed, see out/achieve.log"
-    tail -n 20 out/achieve.log
-    exit 1
+
+# The team rating the site publishes is the achievement rating: from the values
+# the fit froze, it replaces the team rows of the fit.
+if fresh publish "$k_pub"; then
+    log "achieve is current"
+else
+    log "achieve"
+    unstamp publish
+    if ! $bin/achieve --publish out/ratings.db > out/achieve.log 2>&1; then
+        log "achieve publish failed, see out/achieve.log"
+        tail -n 20 out/achieve.log
+        exit 1
+    fi
+    stamp publish "$k_pub"
+    log "achieve done: $(tail -n 1 out/achieve.log)"
 fi
-log "achieve done: $(tail -n 1 out/achieve.log)"
 
 # Our reimplementations of the other systems, for the forecast comparison on
-# tournament pages. A failure here costs that comparison, not the update.
+# tournament pages. A failure here costs that comparison, not the update. They
+# read our player ratings, so the fit's key is part of theirs. The three are
+# independent and each mostly one thread, so they run at once.
 log "rivals"
-today=$(date -u '+%Y-%m-%d')
 mkdir -p out/ext
-for r in "ext_fun --as-of $today" "ext_gg --to $today --rows-every 0" "ext_quest --to $today"; do
-    # shellcheck disable=SC2086
-    if ! ./target/release/$r >> out/rivals.log 2>&1; then
-        log "rival ${r%% *} failed, see out/rivals.log; its comparison keeps yesterday's numbers"
+rival() {
+    name=$1
+    shift
+    k=$(echo "$k_fit $(hash "$bin/$name") $*" | hash -)
+    if fresh "$name" "$k"; then
+        return
     fi
-done
+    unstamp "$name"
+    if "$bin/$name" "$@" > "out/rivals_$name.log" 2>&1; then
+        stamp "$name" "$k"
+    else
+        log "rival $name failed, see out/rivals_$name.log; its comparison keeps yesterday's numbers"
+    fi
+}
+rival ext_fun --as-of "$today" &
+rival ext_gg --to "$today" --rows-every 0 &
+rival ext_quest --to "$today" &
+wait
 log "rivals done"
 
 # The serving index: names, rosters, ranking tables and anomaly scores. It is
 # built beside the old one and renamed in, so the running site never reads half
 # of it.
-log "webindex"
-if ! ./target/release/webindex > out/webindex.log 2>&1; then
-    log "webindex failed, see out/webindex.log; the site keeps the old numbers"
-    tail -n 20 out/webindex.log
-    exit 1
+k_web=$(echo "$k_pub $k_eval $(cat out/stamps/ext_fun out/stamps/ext_gg out/stamps/ext_quest 2>/dev/null) $(hash $bin/webindex)" | hash -)
+if fresh webindex "$k_web"; then
+    log "webindex is current"
+    SKIP_RESTART=${SKIP_RESTART:-1}
+else
+    log "webindex"
+    unstamp webindex
+    # --rebuild: the key above, not webindex's own look at file times, says
+    # whether the index is current.
+    if ! $bin/webindex --rebuild > out/webindex.log 2>&1; then
+        log "webindex failed, see out/webindex.log; the site keeps the old numbers"
+        tail -n 20 out/webindex.log
+        exit 1
+    fi
+    stamp webindex "$k_web"
+    log "webindex done: $(tail -n 1 out/webindex.log)"
 fi
-log "webindex done: $(tail -n 1 out/webindex.log)"
 
 if [ "${SKIP_RESTART:-}" = "1" ]; then
     log "restart skipped"

@@ -93,6 +93,37 @@ pub fn format_date(day: i32) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+/// The UTC day of the last complete update of the mirror at `db`: the start
+/// time the updater stamps into `db_updates` when it finishes, such as
+/// `2026-10-10T04:05:02+0300`. A run reads this rather than the clock, so the
+/// same `buff.db` gives the same output whatever day it is run on.
+pub fn data_day(db: &str) -> Option<String> {
+    let conn = rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+    let stamps: Vec<String> = conn
+        .prepare("SELECT datetime FROM db_updates")
+        .ok()?
+        .query_map([], |r| r.get(0))
+        .ok()?
+        .filter_map(|x| x.ok())
+        .collect();
+    stamps.iter().filter_map(|s| utc_minutes(s)).max().map(|m| format_date(m.div_euclid(MINUTES_PER_DAY) as i32))
+}
+
+const MINUTES_PER_DAY: i64 = 24 * 60;
+
+/// Minutes since 1970 in UTC of `YYYY-MM-DDTHH:MM:SS±HHMM`.
+fn utc_minutes(s: &str) -> Option<i64> {
+    let day = parse_date(s.get(..10)?)? as i64;
+    let hm = |a: usize| s.get(a..a + 2)?.parse::<i64>().ok();
+    let local = day * MINUTES_PER_DAY + hm(11)? * 60 + hm(14)?;
+    let sign = match s.get(19..20) {
+        Some("+") => 1,
+        Some("-") => -1,
+        _ => return Some(local),
+    };
+    Some(local - sign * (hm(20)? * 60 + hm(22)?))
+}
+
 /// Today in UTC as `YYYY-MM-DD`, from the system clock.
 pub fn today_utc() -> String {
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
@@ -231,6 +262,16 @@ mod tests {
             assert_eq!(days_from_civil(y, m, d), day, "{y}-{m}-{d}");
             assert_eq!(parse_date(&format_date(day)), Some(day));
         }
+    }
+
+    #[test]
+    fn update_stamps_in_utc() {
+        let day = |s: &str| utc_minutes(s).map(|m| format_date(m.div_euclid(MINUTES_PER_DAY) as i32));
+        assert_eq!(day("2026-10-10T04:05:02+0300").as_deref(), Some("2026-10-10"));
+        assert_eq!(day("2026-10-10T02:05:02+0300").as_deref(), Some("2026-10-09"));
+        assert_eq!(day("2026-10-10T22:30:00-0300").as_deref(), Some("2026-10-11"));
+        assert_eq!(day("2026-10-10T22:30:00").as_deref(), Some("2026-10-10"));
+        assert_eq!(day("garbage"), None);
     }
 
     #[test]

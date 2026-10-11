@@ -488,7 +488,8 @@ pub struct Data {
     pub out_path: String,
     pub from: String,
     /// The last day of the window. Absent, or the literal `"today"`, means the
-    /// current UTC date; `Config::load` resolves it.
+    /// UTC day of `buff.db`'s last complete update, not the clock's, so that
+    /// a run is a function of its data; `Config::load` resolves it.
     #[serde(default = "today")]
     pub to: String,
     pub w_in_person: f64,
@@ -1047,7 +1048,10 @@ impl Config {
         let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
         let mut cfg: Config = toml::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
         if cfg.data.to == "today" {
-            cfg.data.to = crate::util::today_utc();
+            cfg.data.to = crate::util::data_day(&cfg.data.db_path).unwrap_or_else(|| {
+                eprintln!("note: {} has no db_updates stamp; the window ends today", cfg.data.db_path);
+                crate::util::today_utc()
+            });
         }
         Ok(cfg)
     }

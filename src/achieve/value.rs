@@ -4,7 +4,7 @@
 use super::frozen::Res;
 use super::knobs::Knobs;
 use super::lab::{Field, Lab};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// The MAII rule's own lineup: at least four base-roster players.
 const OWN_BASE: u32 = 4;
@@ -112,9 +112,9 @@ fn reach(f: &Field, k: &Knobs) -> (f64, usize, usize) {
 }
 
 /// Per team, every counted result.
-pub(super) fn values(lab: &Lab, k: &Knobs) -> HashMap<i64, Vec<Val>> {
+pub(super) fn values(lab: &Lab, k: &Knobs) -> BTreeMap<i64, Vec<Val>> {
     let mut fw: HashMap<i64, (f64, f64)> = HashMap::new();
-    let mut vals: HashMap<i64, Vec<Val>> = HashMap::new();
+    let mut vals: BTreeMap<i64, Vec<Val>> = BTreeMap::new();
     for r in &lab.rows {
         if k.base_rule && !own_lineup(r) {
             continue;

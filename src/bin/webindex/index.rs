@@ -12,7 +12,7 @@ use crate::history::{Current, Listed};
 use crate::results::{Results, TeamLast};
 use crate::schema::{INDEXES, KIND_PLAYER, KIND_TEAM, SCHEMA, VERSION};
 use rusqlite::{params, Connection};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::time::Instant;
 
@@ -167,8 +167,8 @@ fn venues(c: &Ctx) {
 /// the teams are ranked on the questions they all played; a single venue's
 /// page keeps its own count.
 fn field_scores(c: &Ctx) {
-    let mut fields: HashMap<i64, Vec<i64>> = HashMap::new();
-    each(c.w, "select tournament_id, field_id from venue", |x| {
+    let mut fields: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
+    each(c.w, "select tournament_id, field_id from venue order by tournament_id", |x| {
         fields.entry(x.get("field_id").unwrap()).or_default().push(x.get("tournament_id").unwrap());
     });
     let mut ins = c.w.prepare("insert or replace into field_score values (?1, ?2, ?3)").unwrap();

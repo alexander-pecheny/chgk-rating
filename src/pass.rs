@@ -18,8 +18,6 @@ use crate::util::{next_thursday, parse_date};
 use std::collections::HashMap;
 
 const WEEK: i32 = 7;
-/// The cross-fit splits a field's teams into two halves.
-const HALVES: u8 = 2;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -282,6 +280,32 @@ pub fn run(arena: &Arena, cfg: &Config, opts: Options, obs: &mut dyn Observer) -
 struct Quiet;
 impl Observer for Quiet {}
 
+/// Two observers of one pass, each told everything in turn.
+pub struct Tee<'a>(pub &'a mut dyn Observer, pub &'a mut dyn Observer);
+
+impl Observer for Tee<'_> {
+    fn pass_start(&mut self, pass: usize, passes: usize, warm: usize) {
+        self.0.pass_start(pass, passes, warm);
+        self.1.pass_start(pass, passes, warm);
+    }
+    fn before_step(&mut self, t: &Tournament, teams: &Engine) {
+        self.0.before_step(t, teams);
+        self.1.before_step(t, teams);
+    }
+    fn morning(&mut self, m: &Morning) -> Result<()> {
+        self.0.morning(m)?;
+        self.1.morning(m)
+    }
+    fn evening(&mut self, e: &Evening) -> Result<()> {
+        self.0.evening(e)?;
+        self.1.evening(e)
+    }
+    fn release(&mut self, r: &Release) -> Result<()> {
+        self.0.release(r)?;
+        self.1.release(r)
+    }
+}
+
 /// The state of one pass.
 struct Sweep<'a> {
     arena: &'a Arena,
@@ -404,8 +428,10 @@ impl<'a> Sweep<'a> {
         let cfg = self.cfg;
         self.players.seed(t, cfg);
         let field = qm::build_field(t, self.players, &self.mem.chem, cfg);
-        let cross = self.opts.scores.then(|| cross_fit(&field, t, cfg));
-        let params = qm::fit_all(&field, None, cfg);
+        // The cross-fit is only scored, never learnt from, so it runs beside
+        // the fit that is.
+        let scores = self.opts.scores;
+        let (cross, params) = rayon::join(|| scores.then(|| cross_fit(&field, t, cfg)), || qm::fit_all(&field, None, cfg));
         let scores = cross.map(|cross| FitScores { in_sample: qm::score(&field, &params, None, cfg), cross });
         let grads = qm::player_grads(&field, &params, cfg);
         let team_grads = qm::team_grads_by_id(&field, &params, cfg);
@@ -510,16 +536,18 @@ struct Questions {
     team_grads: Vec<(u32, f64, f64)>,
 }
 
-/// The question log-likelihood of each half of the field, fitted on the other.
+/// The question log-likelihood of each of the two halves of the field,
+/// fitted on the other.
 fn cross_fit(field: &Field, t: &Tournament, cfg: &Config) -> (f64, u64) {
     if t.train_only {
         return (0.0, 0);
     }
-    (0..HALVES).fold((0.0, 0), |(s, k), half| {
-        let p = qm::fit_all(field, Some(half), cfg);
-        let (s1, k1) = qm::score(field, &p, Some(1 - half), cfg);
-        (s + s1, k + k1)
-    })
+    let half = |h: u8| {
+        let p = qm::fit_all(field, Some(h), cfg);
+        qm::score(field, &p, Some(1 - h), cfg)
+    };
+    let ((s0, k0), (s1, k1)) = rayon::join(|| half(0), || half(1));
+    (0.0 + s0 + s1, k0 + k1)
 }
 
 /// The player gradients as the shipped rules take them. `question.rel_place`:

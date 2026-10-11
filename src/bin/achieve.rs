@@ -123,14 +123,16 @@ fn prepare(cfg: &Config, dir: &str) -> Result<(), Box<dyn std::error::Error>> {
         achieve::freeze(cfg, dir)?;
     }
     if flag("--build") || flag("--rosters") || !Path::new(&format!("{dir}/rosters.tsv")).exists() {
-        achieve::save_lists(cfg, dir)?;
+        achieve::save_lists(cfg, achieve::player_strengths(&cfg.data.out_path), dir)?;
     }
     Ok(())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cfg = Config::load(&arg("--config").unwrap_or_else(|| "config.toml".into()))?;
-    cfg.data.to = arg("--to").unwrap_or_else(chgk_rating::util::today_utc);
+    if let Some(to) = arg("--to") {
+        cfg.data.to = to;
+    }
     cfg.data.merge_cities = true;
     cfg.data.merge_days = num("--merge-days", MERGE_DAYS);
     let dir = arg("--dir").unwrap_or_else(|| DIR.into());

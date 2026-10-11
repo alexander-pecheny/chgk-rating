@@ -4,7 +4,7 @@
 use super::knobs::Knobs;
 use super::lab::{ndcg, Lab};
 use super::value::{fade, overlap, values, Val};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// The display map is fitted over the table's top, and only with enough
 /// teams; its power is held to a range so the scale stays monotone and tame.
@@ -31,7 +31,8 @@ pub struct Standing {
 pub struct Book<'a> {
     pub(super) lab: &'a Lab,
     pub(super) k: Knobs,
-    pub(super) vals: HashMap<i64, Vec<Val>>,
+    /// Ordered by team, so every table written from it comes out the same.
+    pub(super) vals: BTreeMap<i64, Vec<Val>>,
 }
 
 impl Lab {

@@ -5,6 +5,7 @@ use super::likelihood::{clamped_exp, phi, step_derivs, u_scale};
 use super::{Field, QParams, TeamObs};
 use crate::config::{Config, QGradient};
 use crate::data::{CORRECT, SKIP};
+use rayon::prelude::*;
 
 const HALF: f64 = 0.5;
 /// Neighbours whose summed kernel weight is below this say nothing.
@@ -28,9 +29,12 @@ pub fn player_grads(field: &Field, params: &[QParams], cfg: &Config) -> Grads {
         return share_grads(field, params, cfg);
     }
     let shift = relative_shifts(field, params, cfg);
+    // Each lineup's gradients are its own; they are worked out in parallel and
+    // gathered in the field's order, so the sums below run as before.
+    let accs: Vec<Vec<(f64, f64)>> =
+        field.teams.par_iter().zip(&shift).map(|(t, &dlt)| if t.z.is_empty() { Vec::new() } else { team_grads(t, params, dlt, cfg) }).collect();
     let mut out = Grads::new();
-    for (t, &dlt) in field.teams.iter().zip(&shift).filter(|(t, _)| !t.z.is_empty()) {
-        let acc = team_grads(t, params, dlt, cfg);
+    for ((t, _), acc) in field.teams.iter().zip(&shift).zip(accs).filter(|((t, _), _)| !t.z.is_empty()) {
         let floor = cfg.question.rel_winner && !cfg.question.rel_place && t.first;
         for (&i, &(g, info)) in t.members.iter().zip(&acc) {
             out.push((i, if floor { g.max(0.0) } else { g }, info));
@@ -47,8 +51,7 @@ pub fn team_grads_by_id(field: &Field, params: &[QParams], cfg: &Config) -> Vec<
         return Vec::new();
     }
     let shift = relative_shifts(field, params, cfg);
-    let mut out = Vec::new();
-    for (t, &dlt) in field.teams.iter().zip(&shift).filter(|(t, _)| !t.z.is_empty()) {
+    let one = |(t, &dlt): (&TeamObs, &f64)| {
         let (mut g, mut info) = (0.0, 0.0);
         for (q, &y) in t.mask.iter().enumerate().filter(|(_, &y)| y != SKIP) {
             let p = &params[q];
@@ -63,9 +66,9 @@ pub fn team_grads_by_id(field: &Field, params: &[QParams], cfg: &Config) -> Vec<
             g += d1 * uz;
             info -= d2 * uz * uz + d1 * a * uz;
         }
-        out.push((t.team, g, info));
-    }
-    out
+        (t.team, g, info)
+    };
+    field.teams.par_iter().zip(&shift).filter(|(t, _)| !t.z.is_empty()).map(one).collect()
 }
 
 /// One lineup's per-member `(gradient, information)` over the questions it
@@ -132,19 +135,23 @@ fn relative_shifts(field: &Field, params: &[QParams], cfg: &Config) -> Vec<f64> 
         Some(target) => shift_to(t, params, target, cfg),
         None => 0.0,
     };
-    field.teams.iter().enumerate().map(shift_of).collect()
+    field.teams.par_iter().enumerate().map(shift_of).collect()
 }
 
 /// Each lineup's expected answers at the fitted difficulties, and its surplus
 /// over them; NaN and zero for a result with no lineup.
 fn surpluses(field: &Field, params: &[QParams], cfg: &Config) -> (Vec<f64>, Vec<f64>) {
     let n = field.teams.len();
-    let (mut e, mut r) = (vec![f64::NAN; n], vec![0.0; n]);
-    for (i, t) in field.teams.iter().enumerate().filter(|(_, t)| !t.z.is_empty()) {
-        e[i] = t.mask.iter().enumerate().filter(|(_, &y)| y != SKIP).map(|(q, _)| p_take(&t.z, &params[q], 0.0, cfg)).sum();
-        r[i] = t.mask.iter().filter(|&&y| y == CORRECT).count() as f64 - e[i];
-    }
-    (e, r)
+    let one = |t: &TeamObs| {
+        if t.z.is_empty() {
+            return (f64::NAN, 0.0);
+        }
+        let e: f64 = t.mask.iter().enumerate().filter(|(_, &y)| y != SKIP).map(|(q, _)| p_take(&t.z, &params[q], 0.0, cfg)).sum();
+        (e, t.mask.iter().filter(|&&y| y == CORRECT).count() as f64 - e)
+    };
+    let er: Vec<(f64, f64)> = field.teams.par_iter().map(one).collect();
+    debug_assert_eq!(er.len(), n);
+    er.into_iter().unzip()
 }
 
 /// The score lineup `i` would have to make to match its neighbours' mean

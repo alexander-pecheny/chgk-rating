@@ -28,7 +28,7 @@ mod search;
 mod value;
 
 pub use book::{Book, Standing};
-pub use freeze::{freeze, save_lists};
+pub use freeze::{freeze, player_strengths, save_lists, Freezer};
 pub use knobs::Knobs;
 pub use lab::Lab;
 pub use publish::publish;

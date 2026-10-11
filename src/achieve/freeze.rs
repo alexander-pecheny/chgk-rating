@@ -10,6 +10,7 @@ use crate::question_model as qm;
 use crate::team_ndcg as metric;
 use crate::team_s2::{lineup_strength, player_rating};
 use crate::util::parse_date;
+use rayon::prelude::*;
 use rusqlite::Connection;
 use std::collections::{HashMap, HashSet};
 
@@ -34,9 +35,7 @@ const LINEUP: usize = 6;
 const REF_ROSTERS: usize = 20;
 /// Progress on stderr every so many tournaments.
 const PROGRESS_EVERY: usize = 2000;
-/// The fit whose last player ratings weigh the rosters, and the town or
-/// country of a result where unknown.
-const RATINGS_DB: &str = "out/ratings.db";
+/// The town or country of a result where unknown.
 const UNKNOWN: i64 = -1;
 /// The pass reports a place against a lineup not counted twice: weight 1.
 const OWN_WEIGHT: f64 = 1.0;
@@ -123,23 +122,52 @@ fn ref20(rosters: &[Vec<u32>], players: &qm::Players, day: i32, ip: bool, cfg: &
     qs.iter().take(REF_ROSTERS).sum()
 }
 
-/// Every result of the arena with its frozen values.
-fn build(arena: &Arena, cfg: &Config, seasons: &Seasons, geo: &HashMap<String, (i64, i64)>) -> pass::Result<Vec<Res>> {
-    let mut b = Build {
-        arena,
-        cfg,
-        seasons,
-        by_season: rosters_by_season(arena, seasons),
-        // Each town of the arena as (town id, country id), -1 where unknown.
-        town_geo: arena.towns.iter().map(|n| geo.get(n).copied().unwrap_or((UNKNOWN, UNKNOWN))).collect(),
-        refs: None,
-        qual: metric::qualify(metric::QUALIFY),
-        tw: metric::weights(metric::WEIGHTS),
-        out: Vec::new(),
-        start: std::time::Instant::now(),
-    };
-    pass::run(arena, cfg, pass::Options::default(), &mut b)?;
-    Ok(b.out)
+/// The observer that freezes every result's values as the player pass goes:
+/// `achieve --build` runs a pass of its own under it, and `fit --achieve`
+/// rides it along the fit's pass, which is the same pass, so the values come
+/// out the same without reading and replaying thirteen years twice.
+pub struct Freezer<'a>(Build<'a>);
+
+impl<'a> Freezer<'a> {
+    pub fn new(arena: &'a Arena, cfg: &'a Config, db: &Connection) -> rusqlite::Result<Freezer<'a>> {
+        // Town name to (town id, country id): results carry the name only.
+        let geo: HashMap<String, (i64, i64)> = db
+            .prepare("SELECT name, min(id), coalesce(max(country_id), -1) FROM towns GROUP BY name")?
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))))?
+            .collect::<Result<_, _>>()?;
+        let seasons = seasons(db);
+        Ok(Freezer(Build {
+            arena,
+            cfg,
+            by_season: rosters_by_season(arena, &seasons),
+            seasons,
+            // Each town of the arena as (town id, country id), -1 where unknown.
+            town_geo: arena.towns.iter().map(|n| geo.get(n).copied().unwrap_or((UNKNOWN, UNKNOWN))).collect(),
+            refs: None,
+            qual: metric::qualify(metric::QUALIFY),
+            tw: metric::weights(metric::WEIGHTS),
+            out: Vec::new(),
+            start: std::time::Instant::now(),
+        }))
+    }
+
+    /// Write `dir/results.tsv`.
+    pub fn save(&self, dir: &str) -> std::io::Result<()> {
+        let path = format!("{dir}/results.tsv");
+        super::frozen::save_results(&self.0.out, &path)?;
+        eprintln!("wrote {path}: {} results", self.0.out.len());
+        Ok(())
+    }
+}
+
+impl Observer for Freezer<'_> {
+    fn morning(&mut self, m: &Morning) -> pass::Result<()> {
+        self.0.morning(m)
+    }
+
+    fn evening(&mut self, e: &Evening) -> pass::Result<()> {
+        self.0.evening(e)
+    }
 }
 
 /// Every season's base rosters as player indices of this arena.
@@ -158,7 +186,7 @@ fn rosters_by_season(arena: &Arena, seasons: &Seasons) -> HashMap<i64, Vec<Vec<u
 struct Build<'a> {
     arena: &'a Arena,
     cfg: &'a Config,
-    seasons: &'a Seasons,
+    seasons: Seasons,
     by_season: HashMap<i64, Vec<Vec<u32>>>,
     town_geo: Vec<(i64, i64)>,
     /// The reference strengths of the week, in person and not: recomputed once
@@ -226,10 +254,11 @@ impl Observer for Build<'_> {
             ref20: if m.t.format == Format::InPerson { ref_ip } else { ref_sync },
             c: std::f64::consts::LN_10 / self.cfg.team.s2.d,
         };
-        for r in &m.t.teams {
-            let res = self.result(&day, r, m);
-            self.out.push(res);
-        }
+        // Each result's values read only the morning's state, so the field is
+        // valued in parallel and collected in its own order.
+        let this = &*self;
+        let rs: Vec<Res> = m.t.teams.par_iter().map(|r| this.result(&day, r, m)).collect();
+        self.out.extend(rs);
         Ok(())
     }
 
@@ -354,8 +383,6 @@ fn seasons(conn: &Connection) -> Seasons {
     let mut s = Seasons { list, has: HashSet::new(), players: base_rosters(conn), strength: HashMap::new() };
     s.dedup();
     s.has = s.players.keys().copied().collect();
-    s.strength = player_strengths();
-    eprintln!("player strengths: {}", s.strength.len());
     s
 }
 
@@ -377,9 +404,9 @@ fn base_rosters(conn: &Connection) -> HashMap<(i64, i64), Vec<i64>> {
     players
 }
 
-/// Each player's last published rating, from the fit the site serves.
-fn player_strengths() -> HashMap<i64, f64> {
-    Connection::open(RATINGS_DB)
+/// Each player's last published rating, from the fit at `ratings`.
+pub fn player_strengths(ratings: &str) -> HashMap<i64, f64> {
+    Connection::open(ratings)
         .and_then(|c| {
             c.prepare("SELECT player_id, display, max(release_id) FROM player_ratings GROUP BY player_id")?
                 .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)))?
@@ -393,23 +420,21 @@ pub fn freeze(cfg: &Config, dir: &str) -> Result<(), Box<dyn std::error::Error>>
     let arena = crate::data::load(cfg, &cfg.data.from, &cfg.data.to)?;
     eprintln!("loaded {} tournaments, {} teams", arena.tournaments.len(), arena.n_teams());
     let conn = Connection::open(&cfg.data.db_path)?;
-    // Town name to (town id, country id): results carry the name only.
-    let geo: HashMap<String, (i64, i64)> = conn
-        .prepare("SELECT name, min(id), coalesce(max(country_id), -1) FROM towns GROUP BY name")?
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))))?
-        .collect::<Result<_, _>>()?;
-    let rs = build(&arena, cfg, &seasons(&conn), &geo)?;
-    let path = format!("{dir}/results.tsv");
-    super::frozen::save_results(&rs, &path)?;
-    eprintln!("wrote {path}: {} results", rs.len());
+    let mut f = Freezer::new(&arena, cfg, &conn)?;
+    pass::run(&arena, cfg, pass::Options::default(), &mut f)?;
+    f.save(dir)?;
     Ok(())
 }
 
-/// Write `dir/names.tsv` and `dir/rosters.tsv` from `buff.db`.
-pub fn save_lists(cfg: &Config, dir: &str) -> Result<(), Box<dyn std::error::Error>> {
+/// Write `dir/names.tsv` and `dir/rosters.tsv` from `buff.db`, the rosters
+/// weighed by each player's last published rating, `strengths`.
+pub fn save_lists(cfg: &Config, strengths: HashMap<i64, f64>, dir: &str) -> Result<(), Box<dyn std::error::Error>> {
     let conn = Connection::open(&cfg.data.db_path)?;
     let n = Names { teams: names(&conn, "SELECT id, name FROM teams"), tours: names(&conn, "SELECT id, name FROM tournaments") };
     n.save(&format!("{dir}/names.tsv"))?;
-    seasons(&conn).save(&format!("{dir}/rosters.tsv"))?;
+    let mut s = seasons(&conn);
+    s.strength = strengths;
+    eprintln!("player strengths: {}", s.strength.len());
+    s.save(&format!("{dir}/rosters.tsv"))?;
     Ok(())
 }
