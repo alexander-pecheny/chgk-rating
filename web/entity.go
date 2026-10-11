@@ -120,6 +120,8 @@ func (s *site) playerPage(id int64, at *release) (string, []ui.Item, error) {
 	out := []ui.Item{s.asOfHead(href, at), byline(p, S.Player.Rank, unlisted), ui.Stats(stats...)}
 	if at == nil {
 		out = append(out, s.pastLink(href))
+	} else {
+		out = append(out, s.releasePick(href, at))
 	}
 	c, err := s.chartSection(kindPlayer, id, true, at)
 	return playerName(p.name, id), append(out, c, gamesSection(games)), err
@@ -210,7 +212,7 @@ func (s *site) teamPage(id int64, at *release) (string, []ui.Item, error) {
 			return "", nil, err
 		}
 		t = teamAt(t, row, hasRow, rank)
-		out := []ui.Item{s.asOfHead(href, at), teamByline(t, at), ui.Stats(teamStats(t)...)}
+		out := []ui.Item{s.asOfHead(href, at), teamByline(t, at), ui.Stats(teamStats(t)...), s.releasePick(href, at)}
 		b, err := s.pastBreakdown(id, at)
 		c, err2 := s.chartSection(kindTeam, id, false, at)
 		results, err3 := s.teamResults(id, at)

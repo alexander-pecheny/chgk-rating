@@ -364,6 +364,10 @@ func Venuefilter(items ...Item) *Element {
 	return base.New("venuefilter", items...)
 }
 
+func Releasepick(items ...Item) *Element {
+	return base.New("releasepick", items...)
+}
+
 func Explainer(items ...Item) *Element {
 	return base.New("explainer", items...)
 }

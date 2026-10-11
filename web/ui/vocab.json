@@ -272,6 +272,28 @@
       ]
     },
     {
+      "name": "releasepick",
+      "props": [
+        {
+          "name": "label",
+          "required": true
+        },
+        {
+          "name": "action",
+          "required": true
+        },
+        {
+          "name": "value"
+        },
+        {
+          "name": "placeholder"
+        }
+      ],
+      "children": [
+        "option"
+      ]
+    },
+    {
       "name": "explainer",
       "props": [
         {

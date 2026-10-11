@@ -67,6 +67,7 @@ var expanders = map[string]base.ExpandFunc{
 	"member":      func(c *base.ExpandCtx, p *base.Element) []base.Node { return one(base.Leaf(c, "li", nil, nil, p)) },
 	"rosteropen":  expandRosteropen,
 	"venuefilter": expandVenuefilter,
+	"releasepick": expandReleasepick,
 	"explainer":   expandExplainer,
 	"article": func(c *base.ExpandCtx, p *base.Element) []base.Node {
 		return one(base.El("article", base.RootAttrs([]string{"post"}, p), c.Nodes(p.Block)...))
@@ -338,6 +339,25 @@ func expandVenuefilter(c *base.ExpandCtx, p *base.Element) []base.Node {
 	return one(base.El("label", base.RootAttrs([]string{"field", "venue-filter"}, p),
 		base.Inl("span", nil, &base.TextNode{Value: label}),
 		base.El("select", []base.Attr{base.ClassAttr("input")}, c.Nodes(p.Block)...),
+	))
+}
+
+// expandReleasepick is the field that opens an entity page as of a release:
+// the browser suggests the release dates as one types, and a date that is no
+// release's goes to the release before it. Without the script, the form sends
+// the date itself, which the server reads the same way.
+func expandReleasepick(c *base.ExpandCtx, p *base.Element) []base.Node {
+	label, _ := base.Get(p, "label")
+	action, _ := base.Get(p, "action")
+	input := []base.Attr{base.ClassAttr("input"), base.At("type", "text"), base.At("name", "release"),
+		base.At("list", "release-dates"), base.At("autocomplete", "off"), base.At("inputmode", "numeric")}
+	input = append(input, base.CopyProps(p, "value", "placeholder")...)
+	return one(base.El("form", base.RootAttrs([]string{"release-pick"}, p, base.At("action", action), base.At("method", "get")),
+		base.El("label", []base.Attr{base.ClassAttr("field")},
+			base.Inl("span", nil, &base.TextNode{Value: label}),
+			base.El("input", input),
+		),
+		base.El("datalist", []base.Attr{base.At("id", "release-dates")}, c.Nodes(p.Block)...),
 	))
 }
 

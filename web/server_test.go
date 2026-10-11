@@ -55,7 +55,7 @@ func TestPages(t *testing.T) {
 	var team, player, tour int64
 	_ = db.QueryRow("select team_id from x.team_rank where rank = 1").Scan(&team)
 	_ = db.QueryRow("select player_id from x.player_rank where rank = 1").Scan(&player)
-	_ = db.QueryRow("select tournament_id from x.venue group by field_id having count(*) > 1 limit 1").Scan(&tour)
+	_ = db.QueryRow("select v.tournament_id from x.venue v join x.tournament t on t.id = v.tournament_id group by v.field_id having count(*) > 1 limit 1").Scan(&tour)
 	for _, c := range []struct {
 		path   string
 		status int

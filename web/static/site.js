@@ -365,3 +365,25 @@
     e.preventDefault();
   });
 })();
+
+/* The release picker: a date picked from the suggestions, or typed out in
+   full, opens that release's page at once. Anything else waits for Enter,
+   and the server takes the last release on or before what was typed. */
+(function () {
+  var form = document.querySelector(".release-pick");
+  if (!form) return;
+  var input = form.querySelector("input");
+  var start = input.value;
+  input.addEventListener("input", function () {
+    var opt = form.querySelector('option[value="' + input.value + '"]');
+    if (!opt || input.value === start) return;
+    location.href = form.action + "?release=" + opt.dataset.id;
+  });
+  form.addEventListener("submit", function (ev) {
+    var opt = form.querySelector('option[value="' + input.value + '"]');
+    if (!opt) return;
+    ev.preventDefault();
+    location.href = form.action + "?release=" + opt.dataset.id;
+  });
+  input.addEventListener("focus", function () { input.select(); });
+})();

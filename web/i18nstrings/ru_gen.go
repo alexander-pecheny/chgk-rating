@@ -45,10 +45,12 @@ var RU = Strings{
 			Earlier: func(date string) string {
 				return fmt.Sprintf("Как было на прошлых релизах: %s и раньше →", date)
 			},
-			Lede: func(date string) string { return fmt.Sprintf("Как было на релизе от %s.", date) },
-			Next: func(date string) string { return fmt.Sprintf("%s →", date) },
-			Now:  func() string { return "сейчас" },
-			Prev: func(date string) string { return fmt.Sprintf("← %s", date) },
+			Lede:     func(date string) string { return fmt.Sprintf("Как было на релизе от %s.", date) },
+			Next:     func(date string) string { return fmt.Sprintf("%s →", date) },
+			Now:      func() string { return "сейчас" },
+			Pick:     func() string { return "Релиз от" },
+			PickHint: func() string { return "ГГГГ-ММ-ДД" },
+			Prev:     func(date string) string { return fmt.Sprintf("← %s", date) },
 		},
 		Brand: func() string { return "Рейтинг ЧГК" },
 		Chart: CommonChartStrings{

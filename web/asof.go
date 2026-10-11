@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
 
 	"ratingweb/ui"
@@ -13,11 +14,16 @@ import (
 
 // releaseParam is the release a page asks for: nil for the current one,
 // which is also what the last release's id means; ok is false for an id the
-// index does not know.
+// index does not know. A date, whole or cut to a month or a year, stands for
+// the last release on or before it, which is what the release picker sends
+// without its script.
 func (s *site) releaseParam(r *http.Request) (at *release, ok bool) {
 	v := r.URL.Query().Get("release")
 	if v == "" {
 		return nil, true
+	}
+	if datePrefix.MatchString(v) {
+		return s.releaseBy(v)
 	}
 	id, err := strconv.ParseInt(v, decimal, idBits)
 	i, known := s.relIdx[id]
@@ -28,6 +34,24 @@ func (s *site) releaseParam(r *http.Request) (at *release, ok bool) {
 		return nil, true
 	}
 	return &s.rels[i], true
+}
+
+var datePrefix = regexp.MustCompile(`^\d{4}(-\d{2}(-\d{2})?)?$`)
+
+// releaseBy is the last release dated on or before the date; a date before
+// the first release is none.
+func (s *site) releaseBy(date string) (*release, bool) {
+	for i := len(s.rels) - 1; i >= 0; i-- {
+		// A month or a year reaches to its last day: "2024-12" sorts below
+		// every day in it, and the byte after the digits above all of them.
+		if s.rels[i].date <= date+"\xff" {
+			if i == len(s.rels)-1 {
+				return nil, true
+			}
+			return &s.rels[i], true
+		}
+	}
+	return nil, false
 }
 
 // asOfHref is an entity page as of a release; nil is the current page.
@@ -107,13 +131,31 @@ func (s *site) asOfHead(href string, at *release) ui.Node {
 	return head(append(items, link(href, S.Common.AsOf.Now()))...)
 }
 
-// pastLink is the way from today's page to the one a release earlier.
+// pastLink is the way from today's page to the one a release earlier, and
+// beside it the picker of any other.
 func (s *site) pastLink(href string) ui.Item {
 	if len(s.rels) < 2 {
 		return nil
 	}
 	prev := &s.rels[len(s.rels)-2]
-	return line(link(asOfHref(href, prev), S.Common.AsOf.Earlier(prev.date)))
+	return ui.Row(ui.Wrap(), ui.AlignCenter, ui.SpaceLG,
+		line(link(asOfHref(href, prev), S.Common.AsOf.Earlier(prev.date))), s.releasePick(href, nil))
+}
+
+// releasePick opens the page as of any past release, newest first, typed or
+// picked from the browser's suggestions.
+func (s *site) releasePick(href string, at *release) ui.Item {
+	if len(s.rels) < 2 {
+		return nil
+	}
+	items := []ui.Item{ui.Label(S.Common.AsOf.Pick()), ui.Action(href), ui.Placeholder(S.Common.AsOf.PickHint())}
+	if at != nil {
+		items = append(items, ui.Value(at.date))
+	}
+	for i := len(s.rels) - 2; i >= 0; i-- {
+		items = append(items, ui.Option(ui.Value(s.rels[i].date), ui.Data("id", itoa(s.rels[i].id))))
+	}
+	return ui.Releasepick(items...)
 }
 
 // fitRow is a player's own numbers at one release, as the fit wrote them.

@@ -300,6 +300,17 @@ td:has(.roster-open input:checked) .roster-open span {
   max-width: 100%;
 }
 
+/* The release picker: a label and a date field on one line. */
+.release-pick .field {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.release-pick .input {
+  width: 9em;
+}
+
 /* ── the stat block ─────────────────────────────────────── */
 
 .stats {
