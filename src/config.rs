@@ -509,20 +509,15 @@ pub struct Data {
     #[serde(default)]
     pub unrated_in_person: bool,
     /// One field for an in-person tournament played in several cities: the
-    /// fields of one day that share the editors and the question count are
-    /// merged under the lowest id and re-ranked by questions taken.
+    /// fields of one day that share the editors and the question count, and
+    /// that rating.chgk.info links as sharing questions, are merged under the
+    /// lowest id and re-ranked by questions taken.
     #[serde(default)]
     pub merge_cities: bool,
     /// Days apart two such fields may be and still merge: a package played on
     /// Saturday in Europe is Friday in California. 0 is the same day only.
     #[serde(default)]
     pub merge_days: i32,
-    /// A field joins a group only when its per-question take rates correlate
-    /// with the group's first field's at least this well, and no team played
-    /// both: one package played in several cities, not two packages by the
-    /// same editors. 0 merges on editors, question count and dates alone.
-    #[serde(default)]
-    pub merge_min_corr: f64,
     /// A question is dropped from a merged field only when a whole venue did
     /// not play it; one team's missing answer stays that team's.
     #[serde(default)]

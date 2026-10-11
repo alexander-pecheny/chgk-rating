@@ -542,6 +542,13 @@ switched off. All ship at the value that leaves 4.3 unchanged.
   | `unrated_in_person` | 0.8861 / 0.8907 | 0.8877 / 0.9040 |
   | `merge_cities` | 0.8964 / 0.8973 | 0.8894 / 0.8976 |
 
+  The `merge_cities` rows scored each merged field whole, against single
+  venues before. Model 1.0.1 ships `merge_cities` in the fit with the fields
+  joined by rating.chgk.info's package intersections (94 fields into 55), and
+  the fit writes every venue under its own id with its own places, so the metric
+  scores the same fields as without it: forecast NDCG 0.8957 / 0.9079 without,
+  0.8959 / 0.9070 with.
+
   Relative updates trade forecast for team order: the narrower the kernel, the
   more of the first they give up for the second. Field weighting on the team
   side alone is within 0.002 at every setting (`team_sweep`), because the rating

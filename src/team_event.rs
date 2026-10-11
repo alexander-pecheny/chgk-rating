@@ -1,6 +1,7 @@
 //! One row of `team_events`, the record both team engines write of every
 //! result they place in a field.
 
+#[derive(Clone)]
 pub struct TeamEvent {
     pub team: u32,
     pub c: f64,

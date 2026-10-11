@@ -3,7 +3,9 @@ use chgk_rating::data::{Arena, Format, Tournament};
 use chgk_rating::features::{Features, Pre};
 use chgk_rating::output::{PlayerEvent, PlayerRow, TournamentMetrics, Writer};
 use chgk_rating::pass::{self, Engine, Evening, Morning, Observer, Release};
+use chgk_rating::team_event::TeamEvent;
 use chgk_rating::util::{format_date, parse_date, spearman};
+use std::collections::HashMap;
 use std::time::Instant;
 
 const SCRAMBLE_SEED: u64 = 0x5C2A_3B1E;
@@ -186,6 +188,8 @@ struct Fit<'a> {
     /// The lineup of this tournament and the state the forecast read this
     /// morning, before the update moves it.
     before: Vec<(u32, PlayerEvent)>,
+    /// The venue each player of this tournament played at.
+    venue_of: HashMap<u32, i64>,
 }
 
 impl<'a> Fit<'a> {
@@ -208,6 +212,7 @@ impl<'a> Fit<'a> {
             skipped: 0,
             prev_t: vec![f64::NAN; arena.n_teams()],
             before: Vec::new(),
+            venue_of: HashMap::new(),
         })
     }
 }
@@ -235,29 +240,33 @@ impl Observer for Fit<'_> {
             return Ok(());
         }
         let qs: Vec<(f64, f64, f64)> = m.params.iter().map(|p| (p.b, p.a(), p.m())).collect();
-        self.w.question_params(t.id, &qs)?;
-        self.w.team_events(t.id, &format_date(t.day), &self.arena.team_ids, m.events)?;
-        let actual: Vec<f64> = m.events.iter().map(|e| e.actual_place).collect();
-        let forecast: Vec<f64> = m.events.iter().map(|e| e.forecast_place).collect();
-        let (po, pa): (Vec<f64>, Vec<f64>) =
-            m.events.iter().filter_map(|e| e.pred_place.map(|p| (p, e.actual_place))).unzip();
         let s = m.scores.as_ref().ok_or("fit runs the pass with scores")?;
         let mean = |(sum, n): (f64, u64)| (n > 0).then(|| sum / n as f64);
         let date = format_date(t.day);
-        self.w.tournament_metrics(&TournamentMetrics {
-            tid: t.id,
-            date: &date,
-            kind: t.format.name(),
-            weight: t.weight,
-            n_teams: t.teams.len(),
-            n_q: t.n_q,
-            n_obs: s.in_sample.1,
-            insample: mean(s.in_sample),
-            crossfit: mean(s.cross),
-            sp_forecast: spearman(&forecast, &actual),
-            sp_old: spearman(&po, &pa),
-            truedl: chgk_rating::question_model::truedl(m.field, m.params, cfg),
-        })?;
+        let truedl = chgk_rating::question_model::truedl(m.field, m.params, cfg);
+        self.venue_of = t.teams.iter().flat_map(|r| r.members.iter().map(move |&p| (p, r.venue))).collect();
+        for (venue, events) in by_venue(t, m.events) {
+            self.w.question_params(venue, &qs)?;
+            self.w.team_events(venue, &date, &self.arena.team_ids, &events)?;
+            let actual: Vec<f64> = events.iter().map(|e| e.actual_place).collect();
+            let forecast: Vec<f64> = events.iter().map(|e| e.forecast_place).collect();
+            let (po, pa): (Vec<f64>, Vec<f64>) =
+                events.iter().filter_map(|e| e.pred_place.map(|p| (p, e.actual_place))).unzip();
+            self.w.tournament_metrics(&TournamentMetrics {
+                tid: venue,
+                date: &date,
+                kind: t.format.name(),
+                weight: t.weight,
+                n_teams: t.teams.iter().filter(|r| r.venue == venue).count(),
+                n_q: t.n_q,
+                n_obs: s.in_sample.1,
+                insample: mean(s.in_sample),
+                crossfit: mean(s.cross),
+                sp_forecast: spearman(&forecast, &actual),
+                sp_old: spearman(&po, &pa),
+                truedl,
+            })?;
+        }
         Ok(())
     }
 
@@ -268,15 +277,18 @@ impl Observer for Fit<'_> {
             f.absorb_players(t, e.grads, e.players);
         }
         if !t.train_only && t.day >= self.publish_from {
-            let rows: Vec<PlayerEvent> = std::mem::take(&mut self.before)
-                .into_iter()
-                .map(|(i, b)| PlayerEvent {
+            let mut rows: HashMap<i64, Vec<PlayerEvent>> = HashMap::new();
+            for (i, b) in std::mem::take(&mut self.before) {
+                let venue = self.venue_of.get(&i).copied().unwrap_or(t.id);
+                rows.entry(venue).or_default().push(PlayerEvent {
                     theta_after: e.players.published(i as usize),
                     sigma_after: e.players.sigma_at(i as usize, t.day, cfg),
                     ..b
-                })
-                .collect();
-            self.w.player_events(t.id, &rows)?;
+                });
+            }
+            for (venue, rows) in rows {
+                self.w.player_events(venue, &rows)?;
+            }
         }
         if e.index % PROGRESS_EVERY == 0 {
             println!(
@@ -469,4 +481,34 @@ fn dump_state(r: &Release, arena: &Arena, cfg: &Config) -> pass::Result<()> {
         }
     }
     Ok(())
+}
+
+/// The rows of a field under each venue's own id. A package played in several
+/// cities is one field to the model, but every page and every comparison with
+/// another system reads a venue as its own tournament: there a team's place
+/// is its place at its venue, and the forecast orders the venue's teams alone.
+fn by_venue(t: &Tournament, events: &[TeamEvent]) -> Vec<(i64, Vec<TeamEvent>)> {
+    let at: HashMap<u32, (i64, f64)> = t.teams.iter().map(|r| (r.team, (r.venue, r.venue_position))).collect();
+    let mut venues: Vec<i64> = t.teams.iter().map(|r| r.venue).collect();
+    venues.sort_unstable();
+    venues.dedup();
+    if venues.len() < 2 {
+        return vec![(t.id, events.to_vec())];
+    }
+    venues
+        .into_iter()
+        .map(|v| {
+            let mut evs: Vec<TeamEvent> = events.iter().filter(|e| at.get(&e.team).is_some_and(|a| a.0 == v)).cloned().collect();
+            let f: Vec<f64> = evs.iter().map(|e| e.forecast).collect();
+            for e in evs.iter_mut() {
+                if e.actual_place > 0.0 {
+                    e.actual_place = at[&e.team].1;
+                }
+                let above = f.iter().filter(|&&x| x > e.forecast).count() as f64;
+                let level = f.iter().filter(|&&x| x == e.forecast).count() as f64;
+                e.forecast_place = above + (level + 1.0) / 2.0;
+            }
+            (v, evs)
+        })
+        .collect()
 }

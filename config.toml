@@ -1,7 +1,7 @@
 [model]
 # The version of the rules. Bump it with any change that moves a published
 # number, so two outputs can be compared knowing which rules made each.
-version = "1.0"
+version = "1.0.1"
 
 [data]
 db_path = "buff.db"
@@ -27,11 +27,11 @@ rows_every = 1
 # knowledge from 2016.
 passes = 1
 publish_from = "2016-01-01"
-# City merges (read by the achievement rating only): fields join when their
-# per-question take rates correlate at 0.5 or more and no team played both,
-# so the 2017 World Championship's four stages are no longer one field; and a
+# City merges: fields join when they share editors and question count, are at
+# most two days apart and rating.chgk.info links them as one package; a
 # question is dropped only where a whole venue skipped it.
-merge_min_corr = 0.5
+merge_cities = true
+merge_days = 2
 merge_venue_drop = true
 # One person entered under two ids that rating.chgk.info has since merged;
 # tools/fetch/player_merges.py rebuilds the list from the official API.

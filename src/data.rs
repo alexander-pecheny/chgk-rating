@@ -200,11 +200,12 @@ fn parse_mask(s: &str, out: &mut Vec<u8>) {
 }
 
 /// `data.merge_cities`: the in-person fields of one day (or `days` apart) that share their
-/// editors and question count played one package in several cities, so they
-/// are one field. Each group is folded into its lowest id, provided every
-/// result carries a score, and re-ranked by it, ties sharing the mean place.
-fn merge_cities(ts: &mut Vec<Tournament>, days: i32, min_corr: f64, venue_drop: bool) {
-    let into = merge_targets(ts, days, min_corr);
+/// editors and question count, and that rating.chgk.info links as played on
+/// one package (`links`), are one field. Each group is folded into its lowest
+/// id, provided every result carries a score, and re-ranked by it, ties
+/// sharing the mean place.
+fn merge_cities(ts: &mut Vec<Tournament>, days: i32, links: &Links, venue_drop: bool) {
+    let into = merge_targets(ts, days, links);
     let mut merged = vec![false; ts.len()];
     for (k, first) in into.iter().enumerate() {
         let Some(first) = *first else { continue };
@@ -222,9 +223,24 @@ fn merge_cities(ts: &mut Vec<Tournament>, days: i32, min_corr: f64, venue_drop: 
     eprintln!("merge_cities: {folded} fields folded into {groups} tournaments");
 }
 
-/// For every tournament, the earlier one of its group it folds into, if any.
-fn merge_targets(ts: &[Tournament], days: i32, min_corr: f64) -> Vec<Option<usize>> {
-    let mut key_of: HashMap<(Vec<u32>, usize), Vec<(i32, usize)>> = HashMap::new();
+/// Pairs of tournament ids rating.chgk.info lists as sharing questions, each
+/// pair both ways round.
+pub type Links = std::collections::HashSet<(i64, i64)>;
+
+/// `buff.db`'s mirror of the official intersections; empty on a mirror that
+/// has none yet.
+fn links(conn: &Connection) -> Links {
+    let Ok(mut st) = conn.prepare("select tournament_id, other_id from tournament_intersections") else {
+        return Links::new();
+    };
+    st.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).map(|rows| rows.flatten().collect()).unwrap_or_default()
+}
+
+/// For every tournament, the earlier one of its group it folds into, if any:
+/// the first group of its editors and question count, within `days`, that
+/// holds a tournament linked to it.
+fn merge_targets(ts: &[Tournament], days: i32, links: &Links) -> Vec<Option<usize>> {
+    let mut groups: HashMap<(Vec<u32>, usize), Vec<(i32, Vec<usize>)>> = HashMap::new();
     let mut into = vec![None; ts.len()];
     for (k, t) in ts.iter().enumerate() {
         let mergeable = t.format == Format::InPerson && !t.train_only && !t.editors.is_empty() && t.n_q > 0;
@@ -233,11 +249,14 @@ fn merge_targets(ts: &[Tournament], days: i32, min_corr: f64) -> Vec<Option<usiz
         }
         let mut ed = t.editors.clone();
         ed.sort_unstable();
-        let firsts = key_of.entry((ed, t.n_q)).or_default();
-        let same_package = |f: usize| min_corr <= 0.0 || one_package(&ts[f], t, min_corr);
-        match firsts.iter().find(|&&(d, f)| (t.day - d).abs() <= days && same_package(f)) {
-            Some(&(_, first)) => into[k] = Some(first),
-            None => firsts.push((t.day, k)),
+        let same = groups.entry((ed, t.n_q)).or_default();
+        let linked = |m: &usize| links.contains(&(ts[*m].id, t.id));
+        match same.iter_mut().find(|(d, members)| (t.day - d).abs() <= days && members.iter().any(linked)) {
+            Some((_, members)) => {
+                into[k] = Some(members[0]);
+                members.push(k);
+            }
+            None => same.push((t.day, vec![k])),
         }
     }
     into
@@ -279,39 +298,6 @@ fn venue_drops(t: &Tournament, nq: usize) -> Vec<bool> {
         by_venue.entry(r.venue).or_default().push(r);
     }
     (0..nq).map(|q| by_venue.values().any(|v| v.iter().all(|r| skipped(r, q)))).collect()
-}
-
-/// Whether `b` played the same package as `a`: no team at both, and take
-/// rates per question that correlate at least `min_corr`.
-fn one_package(a: &Tournament, b: &Tournament, min_corr: f64) -> bool {
-    let teams: std::collections::HashSet<u32> = a.teams.iter().map(|r| r.team).collect();
-    if b.teams.iter().any(|r| teams.contains(&r.team)) {
-        return false;
-    }
-    let (ra, rb) = (take_rates(a), take_rates(b));
-    let pairs: Vec<(f64, f64)> = ra.iter().zip(&rb).filter_map(|(x, y)| Some(((*x)?, (*y)?))).collect();
-    pearson(&pairs).is_some_and(|c| c >= min_corr)
-}
-
-/// Each question's share of the teams that answered it, among those that played it.
-fn take_rates(t: &Tournament) -> Vec<Option<f64>> {
-    let rate = |q: usize| {
-        let played: Vec<u8> = t.teams.iter().filter_map(|r| r.mask.get(q).copied()).filter(|&y| y != SKIP).collect();
-        (!played.is_empty()).then(|| played.iter().filter(|&&y| y == CORRECT).count() as f64 / played.len() as f64)
-    };
-    (0..t.n_q).map(rate).collect()
-}
-
-fn pearson(xy: &[(f64, f64)]) -> Option<f64> {
-    let n = xy.len() as f64;
-    if xy.len() < MIN_CORR_QUESTIONS {
-        return None;
-    }
-    let (mx, my) = (xy.iter().map(|p| p.0).sum::<f64>() / n, xy.iter().map(|p| p.1).sum::<f64>() / n);
-    let cov: f64 = xy.iter().map(|(x, y)| (x - mx) * (y - my)).sum();
-    let vx: f64 = xy.iter().map(|(x, _)| (x - mx) * (x - mx)).sum();
-    let vy: f64 = xy.iter().map(|(_, y)| (y - my) * (y - my)).sum();
-    (vx > 0.0 && vy > 0.0).then(|| cov / (vx * vy).sqrt())
 }
 
 /// The roster history `tools/fetch/prep_gg_inputs.py` writes from chgk.gg's dump, and
@@ -390,7 +376,6 @@ const ROSTER_ADDED: usize = 3;
 const ROSTER_REMOVED: usize = 4;
 const HALF: f64 = 0.5;
 /// A correlation of take rates needs this many questions to mean anything.
-const MIN_CORR_QUESTIONS: usize = 10;
 
 pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error> {
     let conn = Connection::open_with_flags(&cfg.data.db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
@@ -525,7 +510,7 @@ impl<'a> Loader<'a> {
         self.tournaments.retain(|t| !t.teams.is_empty());
         if self.cfg.data.merge_cities {
             let d = &self.cfg.data;
-            merge_cities(&mut self.tournaments, d.merge_days, d.merge_min_corr, d.merge_venue_drop);
+            merge_cities(&mut self.tournaments, d.merge_days, &links(conn), d.merge_venue_drop);
         }
         let rosters = base_rosters(conn);
         for t in self.tournaments.iter_mut() {
