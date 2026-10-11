@@ -98,7 +98,7 @@ var listings = map[string]func(*site, int) (string, []ui.Item, error){
 	"players":     (*site).playerTable,
 	"tournaments": (*site).tournamentTable,
 	"anomaly":     (*site).anomalyTable,
-	"trb":         (*site).trbTable,
+	"ql":         (*site).qlTable,
 }
 
 // entities are the pages of one team, player or tournament.
@@ -126,7 +126,7 @@ var singles = map[string]page{
 
 // sectionOf is the part of the site an address belongs to, for its pill and
 // its crumb.
-var sectionOf = map[string]string{"page": "teams", "trb": "teams", "players": "players", "teams": "teams", "tournaments": "tournaments",
+var sectionOf = map[string]string{"page": "teams", "ql": "teams", "players": "players", "teams": "teams", "tournaments": "tournaments",
 	"releases": "releases", "method": "method", "anomaly": "anomaly", "search": "search"}
 
 // route finds the page at an address, by its segments, so a page answers with

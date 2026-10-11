@@ -34,39 +34,39 @@ type teamRank struct {
 	name, town                  *string
 	display, sigma, evi, change *float64
 	prov                        bool
-	trb                         *float64
-	trbRank                     *int64
+	ql                         *float64
+	qlRank                     *int64
 }
 
 func (r *teamRank) fields() []any {
-	return []any{&r.rank, &r.id, &r.name, &r.town, &r.display, &r.sigma, &r.evi, &r.change, &r.prov, &r.trb, &r.trbRank}
+	return []any{&r.rank, &r.id, &r.name, &r.town, &r.display, &r.sigma, &r.evi, &r.change, &r.prov, &r.ql, &r.qlRank}
 }
 
 // teamRanks are the teams ranked after lo and up to hi, by rating or, with
-// byTRB, by ТРБ.
-func (st *store) teamRanks(lo, hi int, byTRB bool) ([]teamRank, error) {
+// byQL, by Q(L).
+func (st *store) teamRanks(lo, hi int, byQL bool) ([]teamRank, error) {
 	order := "k.rank"
-	if byTRB {
-		order = "k.trb_rank"
+	if byQL {
+		order = "k.ql_rank"
 	}
 	return all[teamRank](st.db, `select k.rank, k.team_id, t.name, t.town, k.display, k.sigma, k.evidence, k.change,
-		k.provisional, k.trb, k.trb_rank from x.team_rank k left join x.team t on t.id = k.team_id
+		k.provisional, k.ql, k.ql_rank from x.team_rank k left join x.team t on t.id = k.team_id
 		where `+order+` > ? and `+order+` <= ? order by `+order, lo, hi)
 }
 
-// trbTeams counts the teams ranked by ТРБ.
-func (st *store) trbTeams() (int, error) {
-	return st.number("select count(*) from x.team_rank where trb_rank is not null")
+// qlTeams counts the teams ranked by Q(L).
+func (st *store) qlTeams() (int, error) {
+	return st.number("select count(*) from x.team_rank where ql_rank is not null")
 }
 
-// trbAt is the team's ТРБ at the release; nil when it had no base roster to
+// qlAt is the team's Q(L) at the release; nil when it had no base roster to
 // read or the fit published none.
-func (st *store) trbAt(id, release int64) (*float64, error) {
-	if !st.trb {
+func (st *store) qlAt(id, release int64) (*float64, error) {
+	if !st.ql {
 		return nil, nil
 	}
 	var v *float64
-	err := st.db.QueryRow("select trb from team_trb where team_id = ? and release_id = ?", id, release).Scan(&v)
+	err := st.db.QueryRow("select ql from team_ql where team_id = ? and release_id = ?", id, release).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

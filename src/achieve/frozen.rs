@@ -245,8 +245,8 @@ impl Seasons {
     }
 }
 
-/// `trb.tsv`: one line per team and release, `day team strength`.
-pub fn save_trb(rows: &[(i32, i64, f64)], path: &str) -> std::io::Result<()> {
+/// `ql.tsv`: one line per team and release, `day team strength`.
+pub fn save_ql(rows: &[(i32, i64, f64)], path: &str) -> std::io::Result<()> {
     let mut o = String::new();
     for (d, t, q) in rows {
         let _ = writeln!(o, "{}\t{t}\t{q:.1}", show_day(*d));
@@ -254,8 +254,8 @@ pub fn save_trb(rows: &[(i32, i64, f64)], path: &str) -> std::io::Result<()> {
     std::fs::write(path, o)
 }
 
-/// What `save_trb` wrote; nothing when the file is missing.
-pub fn load_trb(path: &str) -> Vec<(i32, i64, f64)> {
+/// What `save_ql` wrote; nothing when the file is missing.
+pub fn load_ql(path: &str) -> Vec<(i32, i64, f64)> {
     let text = std::fs::read_to_string(path).unwrap_or_default();
     text.lines()
         .filter_map(|l| {

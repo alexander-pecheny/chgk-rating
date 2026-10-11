@@ -38,7 +38,7 @@ CREATE TABLE result_ (tournament_id INTEGER, team_id INTEGER, score INTEGER, nam
 CREATE TABLE player_rank (rank INTEGER PRIMARY KEY, player_id INTEGER, display REAL, sigma REAL,
                           games INTEGER, change REAL, provisional INTEGER);
 CREATE TABLE team_rank (rank INTEGER PRIMARY KEY, team_id INTEGER, display REAL, sigma REAL,
-                        evidence REAL, change REAL, provisional INTEGER, trb REAL, trb_rank INTEGER);
+                        evidence REAL, change REAL, provisional INTEGER, ql REAL, ql_rank INTEGER);
 CREATE TABLE anomaly (rank INTEGER PRIMARY KEY, player_id INTEGER, k REAL, k_f REAL, k_m REAL,
                       f_gap REAL, f_on INTEGER, f_ip INTEGER, m_gap REAL, m_on INTEGER,
                       m_ip INTEGER);

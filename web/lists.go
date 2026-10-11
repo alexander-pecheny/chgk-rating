@@ -112,16 +112,16 @@ func (s *site) teamTable(page int) (string, []ui.Item, error) {
 	if firm < s.nTeams {
 		sec = append(sec, provToggle(hiddenOf(lines), firm/pageSize+1, p.page))
 	}
-	sec = append(sec, p.framed(rankTable(s.teamCols(s.q.trb, false), lines, p.lo >= firm, S.Teams.ProvSplit()))...)
+	sec = append(sec, p.framed(rankTable(s.teamCols(s.q.ql, false), lines, p.lo >= firm, S.Teams.ProvSplit()))...)
 	lede := head(append([]ui.Item{ui.Text(S.Teams.Lede(s.releaseDate, s.nTeams))}, s.orderSwitch(false)...)...)
 	return p.title(S.Common.Nav.Teams()), []ui.Item{lede, ui.Section(sec...)}, nil
 }
 
-// trbTable is the team table at /trb/, ordered by ТРБ, the strength of each
+// qlTable is the team table at /ql/, ordered by Q(L), the strength of each
 // team's base roster: one ranking, provisional ratings in their places.
-func (s *site) trbTable(page int) (string, []ui.Item, error) {
-	n, err := s.q.trbTeams()
-	p := paginate(n, page, "/trb/", "/trb/page/")
+func (s *site) qlTable(page int) (string, []ui.Item, error) {
+	n, err := s.q.qlTeams()
+	p := paginate(n, page, "/ql/", "/ql/page/")
 	rows, err2 := s.q.teamRanks(p.lo, p.hi(), true)
 	if err = errors.Join(err, err2); err != nil {
 		return "", nil, err
@@ -129,26 +129,26 @@ func (s *site) trbTable(page int) (string, []ui.Item, error) {
 	lines := make([]rankLine, len(rows))
 	for i, r := range rows {
 		lines[i] = s.teamLine(r, nil, true)
-		lines[i].rank, lines[i].ranked = intOr(r.trbRank), true
+		lines[i].rank, lines[i].ranked = intOr(r.qlRank), true
 	}
 	sec := p.framed(rankTable(s.teamCols(true, true), lines, true, ""))
-	lede := head(append([]ui.Item{ui.Text(S.Teams.LedeTrb(s.releaseDate, n))}, s.orderSwitch(true)...)...)
+	lede := head(append([]ui.Item{ui.Text(S.Teams.LedeQl(s.releaseDate, n))}, s.orderSwitch(true)...)...)
 	return p.title(S.Common.Nav.Teams()), []ui.Item{lede, ui.Section(sec...)}, nil
 }
 
 // orderSwitch says, after the lede, which order the team table is in and
 // links to the other, for a phone, whose cards have no headers to click.
-func (s *site) orderSwitch(byTRB bool) []ui.Item {
-	if !s.q.trb {
+func (s *site) orderSwitch(byQL bool) []ui.Item {
+	if !s.q.ql {
 		return nil
 	}
-	rating, trb := link("/", S.Teams.ByRating()), link("/trb/", S.Teams.ByTrb())
-	if byTRB {
-		trb = ui.Text(S.Teams.ByTrb())
+	rating, ql := link("/", S.Teams.ByRating()), link("/ql/", S.Teams.ByQl())
+	if byQL {
+		ql = ui.Text(S.Teams.ByQl())
 	} else {
 		rating = ui.Text(S.Teams.ByRating())
 	}
-	return []ui.Item{ui.Text(" " + S.Teams.Order() + " "), rating, ui.Text(" · "), trb, ui.Text(".")}
+	return []ui.Item{ui.Text(" " + S.Teams.Order() + " "), rating, ui.Text(" · "), ql, ui.Text(".")}
 }
 
 func intOr(v *int64) int64 {
@@ -159,19 +159,19 @@ func intOr(v *int64) int64 {
 }
 
 // teamCols are the team table's header; the published engine has no ± for a
-// team and shows the results its rating rests on instead. With trb the table
-// has a ТРБ column, and the rating's and the ТРБ's headers link to the table
-// ordered by each; byTRB says which order this one is in.
-func (s *site) teamCols(trb, byTRB bool) []ui.Item {
+// team and shows the results its rating rests on instead. With ql the table
+// has a Q(L) column, and the rating's and the Q(L)'s headers link to the table
+// ordered by each; byQL says which order this one is in.
+func (s *site) teamCols(ql, byQL bool) []ui.Item {
 	spread := numCol("±", S.Common.Col.SigmaTitle())
 	if s.q.s2 {
 		spread = numCol(S.Teams.Col.Results(), S.Teams.Col.ResultsTitle())
 	}
 	rating := numCol(S.Common.Col.Rating())
 	cols := []ui.Item{numCol(S.Common.Col.Place()), nameCol(S.Common.Col.Team()), rating}
-	if trb {
-		cols[2] = sortCol(S.Common.Col.Rating(), "", "/", !byTRB)
-		cols = append(cols, sortCol(S.Teams.Col.Trb(), S.Teams.Col.TrbTitle(), "/trb/", byTRB))
+	if ql {
+		cols[2] = sortCol(S.Common.Col.Rating(), "", "/", !byQL)
+		cols = append(cols, sortCol(S.Teams.Col.Ql(), S.Teams.Col.QlTitle(), "/ql/", byQL))
 	}
 	return append(cols, spread, numCol(S.Common.Col.Change(), S.Common.Col.ChangeTeamTitle()))
 }
@@ -194,19 +194,19 @@ func sortCol(text, title, href string, current bool) ui.Node {
 
 // teamLine and playerLine link a name to the page as of the release the
 // table is from; nil is today's.
-func (s *site) teamLine(r teamRank, at *release, byTRB bool) rankLine {
+func (s *site) teamLine(r teamRank, at *release, byQL bool) rankLine {
 	spread := numCell(disp(num(r.sigma)), ui.Faint())
 	if s.q.s2 {
 		spread = numCell(fmt.Sprintf("%.0f", num(r.evi)), ui.Faint())
 	}
 	name := nameCell(asOfHref(teamHref(r.id), at), teamName(r.name, r.id), provMark(r.prov), town(str(r.town)))
 	cells := []ui.Item{name, numCell(disp(num(r.display)), ui.Bold())}
-	if at == nil && s.q.trb {
-		cells = append(cells, numCell(dispOpt(r.trb)))
+	if at == nil && s.q.ql {
+		cells = append(cells, numCell(dispOpt(r.ql)))
 	}
-	if byTRB {
+	if byQL {
 		// The number a phone's card shows is the bold one: the order's.
-		cells[1], cells[2] = numCell(disp(num(r.display))), numCell(dispOpt(r.trb), ui.Bold())
+		cells[1], cells[2] = numCell(disp(num(r.display))), numCell(dispOpt(r.ql), ui.Bold())
 	}
 	return rankLine{rank: r.rank, prov: r.prov, cells: append(cells, spread, changeCell(r.change))}
 }

@@ -108,11 +108,11 @@ fn ref20(rosters: &[Vec<u32>], players: &qm::Players, day: i32, ip: bool, cfg: &
     qs.iter().take(REF_ROSTERS).sum()
 }
 
-/// A base roster's strength on the published scale, read the way a lineup is:
+/// A base roster's Q(L), the lineup strength of /method/ (chgk.gg's ТРБ):
 /// its six strongest known players, each at their rating less `sigma_c` of
-/// their uncertainty, in-person strength when `ip`. None with fewer than four
-/// known. This is chgk.gg's ТРБ, the base roster's technical rating.
-fn roster_strength(r: &[u32], players: &qm::Players, day: i32, ip: bool, cfg: &Config) -> Option<f64> {
+/// their uncertainty, in-person strength when `ip`, on the players' scale.
+/// None with fewer than four known.
+fn roster_q(r: &[u32], players: &qm::Players, day: i32, ip: bool, cfg: &Config) -> Option<f64> {
     let p = &cfg.team.s2;
     let rating = |i: usize| {
         let th = players.theta(i) + if ip { players.phi(i) } else { 0.0 };
@@ -124,7 +124,13 @@ fn roster_strength(r: &[u32], players: &qm::Players, day: i32, ip: bool, cfg: &C
     }
     rs.sort_by(|a, b| b.total_cmp(a));
     rs.truncate(LINEUP);
-    Some((cfg.display.a_team + cfg.display.b_team * lineup_strength(&rs, p)).max(0.0))
+    Some(lineup_strength(&rs, p))
+}
+
+/// The same strength on the published team scale, where the field weights
+/// read it.
+fn roster_strength(r: &[u32], players: &qm::Players, day: i32, ip: bool, cfg: &Config) -> Option<f64> {
+    roster_q(r, players, day, ip, cfg).map(|q| (cfg.display.a_team + cfg.display.b_team * q).max(0.0))
 }
 
 /// The observer that freezes every result's values as the player pass goes:
@@ -146,7 +152,7 @@ impl<'a> Freezer<'a> {
             cfg,
             by_season: rosters_by_season(arena, &seasons),
             rosters: rosters_by_team(arena, &seasons),
-            trb: Vec::new(),
+            ql: Vec::new(),
             seasons,
             // Each town of the arena as (town id, country id), -1 where unknown.
             town_geo: arena.towns.iter().map(|n| geo.get(n).copied().unwrap_or((UNKNOWN, UNKNOWN))).collect(),
@@ -158,14 +164,14 @@ impl<'a> Freezer<'a> {
         }))
     }
 
-    /// Write `dir/results.tsv` and `dir/trb.tsv`.
+    /// Write `dir/results.tsv` and `dir/ql.tsv`.
     pub fn save(&self, dir: &str) -> std::io::Result<()> {
         let path = format!("{dir}/results.tsv");
         super::frozen::save_results(&self.0.out, &path)?;
         eprintln!("wrote {path}: {} results", self.0.out.len());
-        let path = format!("{dir}/trb.tsv");
-        super::frozen::save_trb(&self.0.trb, &path)?;
-        eprintln!("wrote {path}: {} rosters", self.0.trb.len());
+        let path = format!("{dir}/ql.tsv");
+        super::frozen::save_ql(&self.0.ql, &path)?;
+        eprintln!("wrote {path}: {} rosters", self.0.ql.len());
         Ok(())
     }
 }
@@ -179,7 +185,7 @@ impl Observer for Freezer<'_> {
         self.0.evening(e)
     }
 
-    /// Every team's ТРБ at the release: its base roster of the season, or of
+    /// Every team's Q(L) at the release: its base roster of the season, or of
     /// the last one while it has none for this one, at the players' ratings
     /// of the day.
     fn release(&mut self, r: &Release) -> pass::Result<()> {
@@ -190,8 +196,8 @@ impl Observer for Freezer<'_> {
         teams.dedup();
         for t in teams {
             let Some(roster) = b.rosters.get(&(t, s)).or_else(|| b.rosters.get(&(t, s - 1))) else { continue };
-            if let Some(q) = roster_strength(roster, r.players, r.day, false, b.cfg) {
-                b.trb.push((r.day, t, q));
+            if let Some(q) = roster_q(roster, r.players, r.day, false, b.cfg) {
+                b.ql.push((r.day, t, q));
             }
         }
         Ok(())
@@ -223,8 +229,8 @@ struct Build<'a> {
     seasons: Seasons,
     by_season: HashMap<i64, Vec<Vec<u32>>>,
     rosters: HashMap<(i64, i64), Vec<u32>>,
-    /// Each team's ТРБ at each release: (day, team, strength).
-    trb: Vec<(i32, i64, f64)>,
+    /// Each team's Q(L) at each release: (day, team, strength).
+    ql: Vec<(i32, i64, f64)>,
     town_geo: Vec<(i64, i64)>,
     /// The reference strengths of the week, in person and not: recomputed once
     /// a week, like a release.

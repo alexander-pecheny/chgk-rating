@@ -12,12 +12,12 @@ import (
 // the last one.
 
 func (st *store) teamRanksAt(rel int64, lo, hi int) ([]teamRank, error) {
-	trb, join := "null", ""
-	if st.trb {
-		trb, join = "b.trb", "left join team_trb b on b.release_id = r.release_id and b.team_id = r.team_id"
+	ql, join := "null", ""
+	if st.ql {
+		ql, join = "b.ql", "left join team_ql b on b.release_id = r.release_id and b.team_id = r.team_id"
 	}
 	return all[teamRank](st.db, `select row_number() over (order by r.display desc, r.team_id) + ?, r.team_id, t.name, t.town,
-		r.display, null, r.evidence, r.change, 0, `+trb+`, null from team_ratings r left join x.team t on t.id = r.team_id
+		r.display, null, r.evidence, r.change, 0, `+ql+`, null from team_ratings r left join x.team t on t.id = r.team_id
 		`+join+` where r.release_id = ? order by r.display desc, r.team_id limit ? offset ?`, lo, rel, hi-lo, lo)
 }
 

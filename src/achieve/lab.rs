@@ -86,8 +86,8 @@ pub struct Lab {
     pub(super) fields: HashMap<i64, Field>,
     pub(super) names: Names,
     pub(super) seasons: Seasons,
-    /// Each team's ТРБ at each release: (day, team, strength).
-    pub(super) trb: Vec<(i32, i64, f64)>,
+    /// Each team's Q(L) at each release: (day, team, strength).
+    pub(super) ql: Vec<(i32, i64, f64)>,
     /// The last day with a result.
     pub last: i32,
     /// The fair rule's weighted team NDCG, tune and test.
@@ -99,7 +99,7 @@ impl Lab {
     pub fn load(dir: &str) -> std::io::Result<Lab> {
         let rs = load_results(&format!("{dir}/results.tsv"))?;
         let mut lab = Lab::from_results(rs, Names::load(&format!("{dir}/names.tsv")), Seasons::load(&format!("{dir}/rosters.tsv")));
-        lab.trb = super::frozen::load_trb(&format!("{dir}/trb.tsv"));
+        lab.ql = super::frozen::load_ql(&format!("{dir}/ql.tsv"));
         Ok(lab)
     }
 
@@ -112,7 +112,7 @@ impl Lab {
         let last = rs.iter().map(|r| r.day).max().unwrap_or(0);
         let rows: Vec<Res> = rs.into_iter().filter(|r| r.rated && r.place > 0.0).collect();
         let fair = ndcg(&rows, |r| r.fair_mu);
-        Lab { rows, fields, names, seasons, trb: Vec::new(), last, fair }
+        Lab { rows, fields, names, seasons, ql: Vec::new(), last, fair }
     }
 
     /// A team's name, `?` when unknown.
