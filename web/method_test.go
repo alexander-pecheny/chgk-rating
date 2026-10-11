@@ -16,7 +16,7 @@ func TestMethodRenders(t *testing.T) {
 	}
 	// The TeX stays only in the hidden text a copy takes.
 	shown := texSrc.ReplaceAllString(html, "")
-	for _, left := range []string{"$", "{llm}", "{/llm}", "merror"} {
+	for _, left := range []string{"$", "merror"} {
 		if strings.Contains(shown, left) {
 			t.Errorf("the rendered post still has %q", left)
 		}

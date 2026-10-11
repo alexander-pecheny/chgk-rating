@@ -27,15 +27,12 @@ import (
 var methodMD []byte
 
 // The post's own heading goes, since the page's title is the bar's last
-// crumb, and so do the {llm}…{/llm} marks around prose the owner has not
-// yet rewritten.
-var (
-	postHeading = regexp.MustCompile(`\A# [^\n]*\n`)
-	llmMarks    = regexp.MustCompile(`\{/?llm\}`)
-)
+// crumb. The {llm}…{/llm} marks around prose the owner has not yet rewritten
+// stay on the page, as plain text, where readers see them.
+var postHeading = regexp.MustCompile(`\A# [^\n]*\n`)
 
 func renderMethod() (string, error) {
-	src := llmMarks.ReplaceAll(postHeading.ReplaceAll(methodMD, nil), nil)
+	src := postHeading.ReplaceAll(methodMD, nil)
 	md := goldmark.New(goldmark.WithExtensions(extension.Table, extension.Footnote, texMath{}))
 	doc := md.Parser().Parse(text.NewReader(src))
 	var all []*tex
