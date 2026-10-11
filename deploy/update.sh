@@ -64,9 +64,9 @@ k_data=$(hash config*.toml $(find -L data -type f | sort))
 k_fit=$(echo "$k_buff $k_data $(hash $bin/fit)" | hash -)
 k_eval=$(echo "$k_fit $(hash $bin/eval)" | hash -)
 k_pub=$(echo "$k_fit $(hash $bin/achieve)" | hash -)
-# Each run's window ends on the day of buff.db's last complete update, not on
-# the clock's: the same data gives the same numbers on any day.
-today=$(sqlite3 buff.db "select date(substr(d,1,19), printf('%+d minutes', (case substr(d,20,1) when '-' then 1 else -1 end) * (substr(d,21,2) * 60 + substr(d,23,2)))) from (select max(datetime) d from db_updates)")
+# Each run's window ends before the day after buff.db's last complete update,
+# not before the clock's today: the same data gives the same numbers on any day.
+today=$(sqlite3 buff.db "select date(substr(d,1,19), printf('%+d minutes', (case substr(d,20,1) when '-' then 1 else -1 end) * (substr(d,21,2) * 60 + substr(d,23,2))), '+1 day') from (select max(datetime) d from db_updates)")
 
 # The fit also freezes the achievement rating's values on its own pass, which
 # achieve would otherwise replay. Eval reads the fit's own team rows, which

@@ -12,9 +12,10 @@ Cron runs `deploy/update.sh` at 06:30 UTC every day. `deploy/crontab` holds the
 line. The script brings `buff.db` over from `vps2day-ee` (it is rebuilt there
 at 01:05 UTC and the graph at 04:50 UTC), runs `fit`, `eval`, `achieve`, the
 three rivals and `webindex`, restarts the service and waits for the site to
-answer. The window ends on the UTC day of `buff.db`'s last complete update, as
-its `db_updates` table stamps it, so each run picks up the tournaments added
-since yesterday, and the same `buff.db` gives the same numbers on any day.
+answer. The window takes everything dated up to the UTC day of `buff.db`'s last
+complete update, as its `db_updates` table stamps it, so each run picks up the
+tournaments added since yesterday, and the same `buff.db` gives the same
+numbers on any day.
 
 Every stage is deterministic, and the script skips one whose inputs have not
 changed since it last succeeded. A stage's key hashes its binary, `buff.db`,

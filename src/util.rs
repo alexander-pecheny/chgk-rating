@@ -93,10 +93,12 @@ pub fn format_date(day: i32) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-/// The UTC day of the last complete update of the mirror at `db`: the start
-/// time the updater stamps into `db_updates` when it finishes, such as
-/// `2026-10-10T04:05:02+0300`. A run reads this rather than the clock, so the
-/// same `buff.db` gives the same output whatever day it is run on.
+/// The day after the last complete update of the mirror at `db`, in UTC: the
+/// update stamps its start into `db_updates` when it finishes, such as
+/// `2026-10-10T04:05:02+0300`, and a window that ends before the next day
+/// holds everything dated up to the update's own, as one ending today did. A
+/// run reads this rather than the clock, so the same `buff.db` gives the same
+/// output whatever day it is run on.
 pub fn data_day(db: &str) -> Option<String> {
     let conn = rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
     let stamps: Vec<String> = conn
@@ -106,7 +108,7 @@ pub fn data_day(db: &str) -> Option<String> {
         .ok()?
         .filter_map(|x| x.ok())
         .collect();
-    stamps.iter().filter_map(|s| utc_minutes(s)).max().map(|m| format_date(m.div_euclid(MINUTES_PER_DAY) as i32))
+    stamps.iter().filter_map(|s| utc_minutes(s)).max().map(|m| format_date(m.div_euclid(MINUTES_PER_DAY) as i32 + 1))
 }
 
 const MINUTES_PER_DAY: i64 = 24 * 60;

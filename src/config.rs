@@ -487,9 +487,9 @@ pub struct Data {
     pub db_path: String,
     pub out_path: String,
     pub from: String,
-    /// The last day of the window. Absent, or the literal `"today"`, means the
-    /// UTC day of `buff.db`'s last complete update, not the clock's, so that
-    /// a run is a function of its data; `Config::load` resolves it.
+    /// The day the window ends before. Absent, or the literal `"today"`, means
+    /// the day after `buff.db`'s last complete update, not the clock's day, so
+    /// that a run is a function of its data; `Config::load` resolves it.
     #[serde(default = "today")]
     pub to: String,
     pub w_in_person: f64,
