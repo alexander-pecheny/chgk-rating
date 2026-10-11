@@ -27,8 +27,8 @@ type breakdown struct {
 // achieveBreakdown is the rating taken apart: the results it is the sum of,
 // each with what it was worth on the day, how much of that is left, and what
 // it adds.
-func (s *site) achieveBreakdown(id int64, a achieved, rules map[string]string) (ui.Node, error) {
-	parts, err := s.q.parts(id)
+func (s *site) achieveBreakdown(id int64, a achieved, rules map[string]string, at *release) (ui.Node, error) {
+	parts, err := s.q.parts(id, at)
 	if err != nil {
 		return nil, err
 	}

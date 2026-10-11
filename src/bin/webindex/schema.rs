@@ -10,7 +10,7 @@ use std::path::Path;
 
 /// Bumped whenever the index grows a table or column the server reads, so a
 /// deploy rebuilds it instead of serving a page with nothing behind it.
-pub const VERSION: &str = "16";
+pub const VERSION: &str = "17";
 
 /// `place_hist.kind`: whose places a blob holds.
 pub const KIND_PLAYER: i64 = 0;
@@ -78,8 +78,8 @@ const SITE_READS: &[(&str, &[&str])] = &[
 /// The achievement rating's tables, read together when `achieve` writes them.
 const ACHIEVE_READS: &[(&str, &[&str])] = &[
     ("achieve_meta", &["key", "value"]),
-    ("achieve_team", &["team_id", "rating", "divisor", "n_results"]),
-    ("achieve_parts", &["team_id", "slot", "tournament_id", "peak", "fade", "overlap", "contribution"]),
+    ("achieve_team", &["team_id", "release_id", "rating", "divisor", "n_results"]),
+    ("achieve_parts", &["team_id", "release_id", "slot", "tournament_id", "peak", "fade", "overlap", "contribution"]),
     ("achieve_values", &["tournament_id", "team_id", "date", "format", "place", "venue_place", "n_teams",
                          "n_venues", "strength", "w", "w_format", "w_field", "w_reach", "peak", "gain"]),
 ];

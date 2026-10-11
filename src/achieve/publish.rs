@@ -19,17 +19,17 @@ const SCHEMA: &str = "DROP TABLE IF EXISTS achieve_values;
            perf REAL, strength REAL, w REAL, w_format REAL, w_field REAL, w_reach REAL, n_towns INTEGER, peak REAL,
            gain REAL);
          DROP TABLE IF EXISTS achieve_parts;
-         CREATE TABLE achieve_parts (team_id INTEGER, slot INTEGER, tournament_id INTEGER, field_id INTEGER,
-           peak REAL, fade REAL, overlap REAL, share REAL, contribution REAL);
+         CREATE TABLE achieve_parts (team_id INTEGER, release_id INTEGER, slot INTEGER, tournament_id INTEGER,
+           field_id INTEGER, peak REAL, fade REAL, overlap REAL, share REAL, contribution REAL,
+           PRIMARY KEY (team_id, release_id, slot)) WITHOUT ROWID;
          DROP TABLE IF EXISTS achieve_team;
-         CREATE TABLE achieve_team (team_id INTEGER PRIMARY KEY, rating REAL, divisor REAL, n_results INTEGER,
-           empty_share REAL, date TEXT);
+         CREATE TABLE achieve_team (team_id INTEGER, release_id INTEGER, rating REAL, divisor REAL,
+           n_results INTEGER, empty_share REAL, date TEXT, PRIMARY KEY (team_id, release_id)) WITHOUT ROWID;
          DROP TABLE IF EXISTS achieve_meta;
          CREATE TABLE achieve_meta (key TEXT PRIMARY KEY, value TEXT);";
 
 const INDEXES: &str = "CREATE INDEX IF NOT EXISTS idx_achieve_values_team ON achieve_values(team_id);
-         CREATE INDEX IF NOT EXISTS idx_achieve_values_tt ON achieve_values(tournament_id, team_id);
-         CREATE INDEX IF NOT EXISTS idx_achieve_parts_team ON achieve_parts(team_id);";
+         CREATE INDEX IF NOT EXISTS idx_achieve_values_tt ON achieve_values(tournament_id, team_id);";
 
 /// Everything computed before the database is touched for writing.
 struct Computed {
@@ -48,7 +48,7 @@ struct Computed {
 /// `team_ratings` at every release, each team's rating before and after every
 /// event in `team_events`, and two tables the site explains a rating from —
 /// `achieve_values`, what every counted result was worth on the day, and
-/// `achieve_parts`, which of them make each rating at the last release.
+/// `achieve_parts`, which of them make each rating at every release.
 pub fn publish(lab: &Lab, k: &Knobs, db: &str, cfg: &Config, threads: usize) -> rusqlite::Result<()> {
     let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
     let t0 = Instant::now();
@@ -62,9 +62,8 @@ pub fn publish(lab: &Lab, k: &Knobs, db: &str, cfg: &Config, threads: usize) -> 
     write_steps(&tx, &c.steps, scale)?;
     tx.execute_batch(SCHEMA)?;
     write_values(&tx, &b, &c.gains)?;
-    if let Some(&(_, d)) = c.releases.last() {
-        write_parts(&tx, &b, &c.teams, d)?;
-    }
+    let parts: Vec<Vec<Part>> = pool.install(|| c.releases.par_iter().map(|&(_, d)| release_parts(&b, &c.teams, d)).collect());
+    write_parts(&tx, &c.releases, &parts)?;
     write_meta(&tx, k)?;
     tx.execute_batch(INDEXES)?;
     tx.commit()?;
@@ -186,24 +185,45 @@ fn write_values(tx: &Transaction, b: &Book, gains: &HashMap<(i64, i64), f64>) ->
     Ok(())
 }
 
-/// `achieve_parts` and `achieve_team`: which results make each listed
-/// rating on `d`, and what share of the divisor they fill.
-fn write_parts(tx: &Transaction, b: &Book, teams: &[i64], d: i32) -> rusqlite::Result<()> {
-    let mut ins = tx.prepare("INSERT INTO achieve_parts VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)")?;
-    let mut team = tx.prepare("INSERT INTO achieve_team VALUES (?1,?2,?3,?4,?5,?6)")?;
+/// One listed team's rating on a day taken apart: (team, rating, divisor,
+/// share of the divisor no result fills, and per result (venue, field, value
+/// on the day, fade, overlap, share, contribution)).
+type Part = (i64, f64, f64, f64, Vec<(i64, i64, f64, f64, f64, f64, f64)>);
+
+/// Which results make each listed rating on `d`, and what share of the
+/// divisor they fill.
+fn release_parts(b: &Book, teams: &[i64], d: i32) -> Vec<Part> {
+    let mut out = Vec::new();
     for &t in teams.iter().filter(|&&t| b.listed(t, d)) {
         let (x, c, slots) = b.rating_slots(t, d);
         if x <= 0.0 {
             continue;
         }
-        let mut share_sum = 0.0;
-        for (i, (v, now)) in c.iter().enumerate() {
-            let f = super::value::fade(d - v.day, v, &b.k);
-            let share = now / v.base.max(EPS) / slots;
-            share_sum += share;
-            ins.execute(params![t, i as i64 + 1, v.venue, v.tid, v.base, f, now / (v.base * f).max(EPS), share, now / slots])?;
+        let rows: Vec<_> = c
+            .iter()
+            .map(|(v, now)| {
+                let f = super::value::fade(d - v.day, v, &b.k);
+                (v.venue, v.tid, v.base, f, now / (v.base * f).max(EPS), now / v.base.max(EPS) / slots, now / slots)
+            })
+            .collect();
+        let empty = (1.0 - rows.iter().map(|r| r.5).sum::<f64>()).max(0.0);
+        out.push((t, x, slots, empty, rows));
+    }
+    out
+}
+
+/// `achieve_parts` and `achieve_team` at every release, so a team's page as
+/// of a past release can take its rating apart too.
+fn write_parts(tx: &Transaction, releases: &[(i64, i32)], parts: &[Vec<Part>]) -> rusqlite::Result<()> {
+    let mut ins = tx.prepare("INSERT INTO achieve_parts VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)")?;
+    let mut team = tx.prepare("INSERT INTO achieve_team VALUES (?1,?2,?3,?4,?5,?6,?7)")?;
+    for (&(rid, d), teams) in releases.iter().zip(parts) {
+        for (t, x, slots, empty, rows) in teams {
+            for (i, &(venue, tid, base, f, ov, share, contrib)) in rows.iter().enumerate() {
+                ins.execute(params![t, rid, i as i64 + 1, venue, tid, base, f, ov, share, contrib])?;
+            }
+            team.execute(params![t, rid, x, slots, rows.len() as i64, empty, format_date(d)])?;
         }
-        team.execute(params![t, x, slots, c.len() as i64, (1.0 - share_sum).max(0.0), format_date(d)])?;
     }
     Ok(())
 }

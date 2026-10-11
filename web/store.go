@@ -15,7 +15,7 @@ import (
 
 // indexVersion is the web.db this server reads: schema.rs's VERSION on the
 // Rust side, bumped with it.
-const indexVersion = "16"
+const indexVersion = "17"
 
 // The kinds of place_hist, as schema.rs numbers them.
 const (
@@ -29,8 +29,10 @@ const (
 type store struct {
 	db *sql.DB
 	sc scale
-	// achieve is set when the fit published the achievement rating.
-	achieve bool
+	// achieve is set when the fit published the achievement rating, and
+	// achieveRel is the latest release it took apart.
+	achieve    bool
+	achieveRel int64
 	// teamSteps is set when team_events splits a step into placement and pull.
 	teamSteps bool
 	// cleanFrom is the first day of the clean test window; empty for none.
@@ -92,6 +94,9 @@ func (st *store) readMeta() error {
 		playerPhi: num("player_phi"), provSigma: num("provisional_sigma"), rankSigmas: num("rank_sigmas")}
 	st.achieve, st.teamSteps, st.s2 = num("achieve") != 0, num("team_steps") != 0, num("s2") != 0
 	st.cleanFrom, _ = st.meta("clean_from")
+	if st.achieve {
+		err = errors.Join(err, st.db.QueryRow("select id from releases order by date desc limit 1").Scan(&st.achieveRel))
+	}
 	return err
 }
 

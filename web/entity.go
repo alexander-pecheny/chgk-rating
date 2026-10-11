@@ -210,22 +210,37 @@ func (s *site) teamPage(id int64, at *release) (string, []ui.Item, error) {
 			return "", nil, err
 		}
 		t = teamAt(t, row, hasRow, rank)
-		head := []ui.Item{s.asOfHead(href, at), teamByline(t, at), ui.Stats(teamStats(t)...)}
-		c, err := s.chartSection(kindTeam, id, false, at)
-		results, err2 := s.teamResults(id, at)
-		return teamName(t.name, id), append(head, c, results), errors.Join(err, err2)
+		out := []ui.Item{s.asOfHead(href, at), teamByline(t, at), ui.Stats(teamStats(t)...)}
+		b, err := s.pastBreakdown(id, at)
+		c, err2 := s.chartSection(kindTeam, id, false, at)
+		results, err3 := s.teamResults(id, at)
+		return teamName(t.name, id), append(out, b, c, results), errors.Join(err, err2, err3)
 	}
 	rules, err := s.q.achieveRules()
 	if err != nil {
 		return "", nil, err
 	}
-	a, hasAchieve, err := s.q.achieved(id)
+	a, hasAchieve, err := s.q.achieved(id, nil)
 	if err != nil {
 		return "", nil, err
 	}
 	head := []ui.Item{teamByline(t, nil), ui.Stats(teamStats(t)...), s.pastLink(href)}
 	body, err := s.teamBody(id, a, hasAchieve, rules)
 	return teamName(t.name, id), append(head, body...), err
+}
+
+// pastBreakdown is the rating taken apart as it stood at the release; nil
+// when the team was not listed there.
+func (s *site) pastBreakdown(id int64, at *release) (ui.Node, error) {
+	a, ok, err := s.q.achieved(id, at)
+	if !ok || err != nil {
+		return nil, err
+	}
+	rules, err := s.q.achieveRules()
+	if err != nil {
+		return nil, err
+	}
+	return s.achieveBreakdown(id, a, rules, at)
 }
 
 func teamByline(t standing, at *release) ui.Node {
@@ -258,7 +273,7 @@ func teamStats(t standing) []ui.Item {
 func (s *site) teamBody(id int64, a achieved, hasAchieve bool, rules map[string]string) ([]ui.Item, error) {
 	var out []ui.Item
 	if hasAchieve {
-		b, err := s.achieveBreakdown(id, a, rules)
+		b, err := s.achieveBreakdown(id, a, rules, nil)
 		if err != nil {
 			return nil, err
 		}

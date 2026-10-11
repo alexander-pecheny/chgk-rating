@@ -304,11 +304,22 @@ type achieved struct {
 
 func (r *achieved) fields() []any { return []any{&r.rating, &r.divisor, &r.nResults} }
 
-func (st *store) achieved(id int64) (achieved, bool, error) {
+// achieved is the team's rating taken apart at the release, nil for the
+// latest one.
+func (st *store) achieved(id int64, at *release) (achieved, bool, error) {
 	if !st.achieve {
 		return achieved{}, false, nil
 	}
-	return one[achieved](st.db, "select rating, divisor, n_results from achieve_team where team_id = ?", id)
+	return one[achieved](st.db, "select rating, divisor, n_results from achieve_team where team_id = ? and release_id = ?", id, st.relOf(at))
+}
+
+// relOf is the release an achievement query reads: the one asked for, or
+// the latest.
+func (st *store) relOf(at *release) int64 {
+	if at == nil {
+		return st.achieveRel
+	}
+	return at.id
 }
 
 type rule struct{ key, value string }
@@ -340,13 +351,13 @@ func (r *part) fields() []any {
 		&r.wfield, &r.wreach, &r.peak, &r.fade, &r.ov, &r.contrib, &r.format, &r.nOwn}
 }
 
-func (st *store) parts(id int64) ([]part, error) {
+func (st *store) parts(id int64, at *release) ([]part, error) {
 	return all[part](st.db, `select p.tournament_id, coalesce(t.name, ''), a.date, a.place, a.venue_place, a.n_teams,
 		a.n_venues, a.strength, a.w_format, a.w_field, a.w_reach, p.peak, p.fade, p.overlap,
 		p.contribution, a.format, coalesce(t.n_teams, 0)
 		from achieve_parts p join achieve_values a on a.tournament_id = p.tournament_id and a.team_id = p.team_id
 		left join x.tournament t on t.id = p.tournament_id
-		where p.team_id = ? order by p.slot`, id)
+		where p.team_id = ? and p.release_id = ? order by p.slot`, id, st.relOf(at))
 }
 
 // result is one tournament a team played, with what it was worth.
@@ -371,7 +382,8 @@ func (st *store) results(id int64) ([]result, error) {
 	sel, join := "null, null, null, null, null, null, 0", ""
 	if st.achieve {
 		sel = `a.peak, a.n_teams, a.gain, a.strength, a.w, a.place,
-			exists(select 1 from achieve_parts p where p.team_id = v.team_id and p.tournament_id = v.tournament_id)`
+			exists(select 1 from achieve_parts p where p.team_id = v.team_id and p.release_id = ` + itoa(st.achieveRel) + `
+				and p.tournament_id = v.tournament_id)`
 		join = "left join achieve_values a on a.tournament_id = v.tournament_id and a.team_id = v.team_id"
 	}
 	return all[result](st.db, `select v.tournament_id, t.name, coalesce(v.date, t.date) as d, v.actual_place,
