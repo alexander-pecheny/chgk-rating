@@ -367,6 +367,15 @@ pub struct S2 {
     pub pack_a: f64,
     #[serde(default)]
     pub pack_b: f64,
+    /// How far the forecast moves to the lineup read at the players' score
+    /// ratings (`player.score_k`), put on the field's scale. 0 is off.
+    #[serde(default)]
+    pub k_score: f64,
+    /// The forecast reads a member below their teammates' mean `k_mates ·
+    /// min(1, sigma^2 / sigma_new^2)` of the way up to it: an unsure player
+    /// at a strong table is read nearer the table. 0 is off.
+    #[serde(default)]
+    pub k_mates: f64,
 }
 
 /// What a config that leaves a key of `[team.s2]` out gets: the rule as it
@@ -377,6 +386,8 @@ const S2_DEFAULT: S2 = S2 {
     pack_w: 0.0,
     pack_a: 0.0,
     pack_b: 0.0,
+    k_score: 0.0,
+    k_mates: 0.0,
     d: 1200.0,
     k: 0.4,
     k_q: 0.01,
@@ -962,6 +973,46 @@ pub struct Player {
     /// faster; only the forecast reads it, through `team.s2.k_fast`. 0 is off.
     #[serde(default)]
     pub v_fast: f64,
+    /// The fast estimate's share of equal credit: each member steps on the
+    /// lineup's mean gradient and information, as the London Elo credits a
+    /// team's surprise. 0 is the member's own gradient.
+    #[serde(default)]
+    pub fast_credit: f64,
+    /// Equal credit for the unsure: a player steps on `c` of the lineup's mean
+    /// gradient and information instead of their own, `c = credit_unsure ·
+    /// min(1, var / sigma_new^2)`, so a newcomer at a strong table shares the
+    /// table's surprise. 0 is off.
+    #[serde(default)]
+    pub credit_unsure: f64,
+    /// The score rating, a second strength only the forecast reads: once per
+    /// tournament every member moves by `w (score_k + (v / score_kv)^2)` times
+    /// the lineup's answers minus the answers the fitted questions expected,
+    /// capped at the lineup's uniform shift and at `score_cap`, plus
+    /// `score_infl`; `1/v^2` grows by `w h^2 / score_sv^2`, `h` the member's
+    /// derivative of the expected answers, from `score_v0`. The London Elo's
+    /// update on our scale. 0 is off.
+    #[serde(default)]
+    pub score_k: f64,
+    #[serde(default)]
+    pub score_kv: f64,
+    #[serde(default)]
+    pub score_cap: f64,
+    #[serde(default)]
+    pub score_infl: f64,
+    #[serde(default)]
+    pub score_sv: f64,
+    #[serde(default)]
+    pub score_v0: f64,
+    /// Credit by each member's derivative instead of equally.
+    #[serde(default)]
+    pub score_grad: bool,
+    /// Judge the score rating against questions fitted at the score ratings,
+    /// not at `theta`.
+    #[serde(default)]
+    pub score_own_fit: bool,
+    /// The fast estimate's gain per game, faded by `learn_games` like `learn`.
+    #[serde(default)]
+    pub fast_learn: f64,
     #[serde(default = "kalman")]
     pub update: PUpdate,
     /// `update = "schedule"`: step `eta0 / sqrt(c0 + games)`.

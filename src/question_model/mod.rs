@@ -45,6 +45,7 @@ impl QParams {
 }
 
 /// One team of one tournament, reduced to what the question model needs.
+#[derive(Clone)]
 pub struct TeamObs {
     pub z: Vec<f64>,
     /// Each member's slope, read off `z`.
@@ -58,6 +59,7 @@ pub struct TeamObs {
     pub first: bool,
 }
 
+#[derive(Clone)]
 pub struct Field {
     pub teams: Vec<TeamObs>,
     pub by_q: Vec<Vec<u32>>,
@@ -68,6 +70,16 @@ pub struct Field {
     pub a_fix: f64,
     /// The global collaboration exponent, `question.m_fixed`.
     pub m_fix: f64,
+}
+
+/// The same field with every member at the strength `z` gives them.
+pub fn with_strengths(field: &Field, z: impl Fn(u32) -> f64, cfg: &Config) -> Field {
+    let mut out = field.clone();
+    for tm in out.teams.iter_mut().filter(|tm| !tm.z.is_empty()) {
+        tm.z = tm.members.iter().map(|&i| z(i)).collect();
+        tm.k = tm.z.iter().map(|&zi| slope(zi, cfg)).collect();
+    }
+    out
 }
 
 /// `question.a_in_person` where it applies, 1 elsewhere.

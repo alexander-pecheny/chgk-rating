@@ -3,7 +3,8 @@
 //! step that moves them after each tournament.
 
 use crate::config::{AffStrength, Config, FormatEffect, PUpdate};
-use crate::data::{Format, Tournament};
+use super::{Field, QParams};
+use crate::data::{Format, Tournament, CORRECT, SKIP};
 use crate::util::Rng;
 use std::collections::HashMap;
 
@@ -27,6 +28,9 @@ pub struct PlayerState {
     /// and the published table are untouched. 0 leaves it pinned to `theta_raw`.
     pub theta_fast: f64,
     pub var_fast: f64,
+    /// `player.score_k`: the score rating and its volatility.
+    pub score_r: f64,
+    pub score_v: f64,
     /// Per-player volatility: how fast strength may drift, learned from surprise.
     pub vol: f64,
     pub aff: Vec<f64>,
@@ -165,6 +169,8 @@ impl PlayerState {
             var,
             theta_fast: cfg.player.mu_new,
             var_fast: var,
+            score_r: cfg.player.mu_new,
+            score_v: cfg.player.score_v0,
             vol: cfg.player.tau_p,
             aff: vec![0.0; rank],
             aff_var,
@@ -202,6 +208,8 @@ impl PlayerState {
         self.seen = warm.is_some();
         self.theta_fast = self.theta_raw;
         self.var_fast = self.var;
+        self.score_r = self.theta_raw;
+        self.score_v = cfg.player.score_v0;
         self.vol = cfg.player.tau_p;
     }
 }
@@ -299,6 +307,46 @@ impl Players {
     /// `gauge.publish_step` holds the published scale back.
     pub fn published(&self, i: usize) -> f64 {
         self.state[i].theta_raw - self.shift_pub
+    }
+
+    /// The score rating on the scale of `theta`.
+    pub fn theta_score(&self, i: usize) -> f64 {
+        self.state[i].score_r - self.shift_cum
+    }
+
+    /// `player.score_k`: each lineup's members step on its answers minus the
+    /// answers the fitted questions expected of them at their score ratings.
+    pub fn absorb_score(&mut self, t: &Tournament, field: &Field, params: &[QParams], cfg: &Config) {
+        let p = &cfg.player;
+        if p.score_k <= 0.0 {
+            return;
+        }
+        let vbar = self.editor_mean(t);
+        let w = t.weight;
+        let mut steps = Vec::new();
+        for tm in field.teams.iter().filter(|tm| !tm.members.is_empty()) {
+            let played: Vec<&QParams> = tm.mask.iter().zip(params).filter(|(&y, _)| y != SKIP).map(|(_, q)| q).collect();
+            if played.is_empty() {
+                continue;
+            }
+            let z: Vec<f64> = tm.members.iter().map(|&i| self.theta_score(i as usize) + self.affinity(i as usize, &vbar)).collect();
+            let score = tm.mask.iter().filter(|&&y| y == CORRECT).count() as f64;
+            let (e, h) = expected(&z, &played, 0.0, cfg);
+            let cap = (w * uniform_shift(&z, &played, score, cfg).abs()).min(p.score_cap);
+            let hsum: f64 = h.iter().sum();
+            let n = z.len() as f64;
+            for (&i, &hi) in tm.members.iter().zip(&h) {
+                let s = &self.state[i as usize];
+                let share = if p.score_grad && hsum > 0.0 { n * hi / hsum } else { 1.0 };
+                let raw = w * (p.score_k + (s.score_v / p.score_kv).powi(2)) * (score - e) * share;
+                steps.push((i, raw.clamp(-cap, cap) + w * p.score_infl, w * hi * hi));
+            }
+        }
+        for (i, d, info) in steps {
+            let s = &mut self.state[i as usize];
+            s.score_r += d;
+            s.score_v = (1.0 / (s.score_v * s.score_v) + info / (p.score_sv * p.score_sv)).sqrt().recip();
+        }
     }
 
     /// The fast estimate of the same strength, on the same scale as `theta`.
@@ -621,6 +669,7 @@ impl Players {
                     s.seen = true;
                     s.theta_raw = start;
                     s.theta_fast = start;
+                    s.score_r = start;
                     s.last_day = t.day;
                 }
             }
@@ -656,8 +705,16 @@ impl Players {
         let mut ed_grad = vec![0.0; self.free];
         let joint = cfg.player.team_joint || cfg.player.joint_new_games > 0;
         let extra = if joint { self.teammate_precision(t, grads, cfg) } else { HashMap::new() };
+        let team_mean = if cfg.player.fast_credit != 0.0 || cfg.player.credit_unsure != 0.0 { lineup_means(t, grads) } else { HashMap::new() };
         for &(i, g, info) in grads {
             let s = &mut self.state[i as usize];
+            let (g, info) = match team_mean.get(&i) {
+                Some(&(gm, im)) if cfg.player.credit_unsure != 0.0 => {
+                    let c = cfg.player.credit_unsure * (s.var / (cfg.player.sigma_new * cfg.player.sigma_new)).min(1.0);
+                    ((1.0 - c) * g + c * gm, (1.0 - c) * info + c * im)
+                }
+                _ => (g, info),
+            };
             if s.games < cfg.player.hold_games {
                 step.hold(s, g, info, t, cfg);
                 continue;
@@ -679,7 +736,9 @@ impl Players {
                     self.zstat.2 += z * z;
                 }
             }
-            step.fast(s, &obs, cfg);
+            let c = cfg.player.fast_credit;
+            let (gm, im) = team_mean.get(&i).copied().unwrap_or((g, info));
+            step.fast(s, &Obs { g: (1.0 - c) * g + c * gm, info: (1.0 - c) * info + c * im, ..obs }, cfg);
             let gated = cfg.player.phi_gate_var > 0.0 && s.var > cfg.player.phi_gate_var;
             if !joint && !gated {
                 step.pinned(s, &obs, &self.pins, cfg);
@@ -728,6 +787,61 @@ impl Players {
 
 /// One player's evidence from one tournament: the gradient, the information,
 /// and the years since the player's last game.
+/// The answers a lineup at strengths `z + x` is expected to take on `qs`, and
+/// their derivative in each member's strength.
+fn expected(z: &[f64], qs: &[&QParams], x: f64, cfg: &Config) -> (f64, Vec<f64>) {
+    let mut h = vec![0.0; z.len()];
+    let mut e = 0.0;
+    for q in qs {
+        let (a, m) = (q.a(), q.m());
+        let lam: Vec<f64> = z.iter().map(|&zi| (a * (zi + x - q.b)).clamp(cfg.numeric.exp_lo, cfg.numeric.exp_hi).exp()).collect();
+        let u: f64 = lam.iter().sum();
+        let miss = (-u).exp();
+        let take = -(-u).exp_m1();
+        e += take.powf(m);
+        let du = m * take.powf(m - 1.0) * miss * a;
+        h.iter_mut().zip(&lam).for_each(|(hi, l)| *hi += du * l);
+    }
+    (e, h)
+}
+
+/// The shift of every member at which the lineup's expected answers on `qs`
+/// equal `score`, by bisection.
+fn uniform_shift(z: &[f64], qs: &[&QParams], score: f64, cfg: &Config) -> f64 {
+    let (mut lo, mut hi) = (-SHIFT_MAX, SHIFT_MAX);
+    for _ in 0..SHIFT_ITERS {
+        let mid = 0.5 * (lo + hi);
+        if expected(z, qs, mid, cfg).0 < score {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    0.5 * (lo + hi)
+}
+
+const SHIFT_MAX: f64 = 5.0;
+const SHIFT_ITERS: usize = 40;
+
+/// Each player's lineup mean of the gradient and the information.
+fn lineup_means(t: &Tournament, grads: &[(u32, f64, f64)]) -> HashMap<u32, (f64, f64)> {
+    let own: HashMap<u32, (f64, f64)> = grads.iter().map(|&(i, g, info)| (i, (g, info))).collect();
+    let mut out = HashMap::new();
+    for team in &t.teams {
+        let got: Vec<(f64, f64)> = team.members.iter().filter_map(|i| own.get(i).copied()).collect();
+        if got.is_empty() {
+            continue;
+        }
+        let n = got.len() as f64;
+        let mean = (got.iter().map(|x| x.0).sum::<f64>() / n, got.iter().map(|x| x.1).sum::<f64>() / n);
+        for i in team.members.iter().filter(|i| own.contains_key(i)) {
+            out.insert(*i, mean);
+        }
+    }
+    out
+}
+
+#[derive(Clone, Copy)]
 struct Obs {
     g: f64,
     info: f64,
@@ -908,6 +1022,8 @@ impl Step {
         let prec = 1.0 / s.var_fast + ieff.max(cfg.numeric.info_floor);
         s.theta_fast += (self.weight * p.info_scale * o.g / prec).clamp(-Step::max_step(cfg), Step::max_step(cfg));
         s.var_fast = 1.0 / prec;
+        let fade = if p.learn_games > 0.0 { p.learn_games / (p.learn_games + s.games as f64) } else { 1.0 };
+        s.theta_fast += self.weight * p.fast_learn * fade;
     }
 
     /// A pinned column enters the likelihood exactly as `theta` does, times its

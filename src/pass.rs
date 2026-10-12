@@ -418,6 +418,14 @@ impl<'a> Sweep<'a> {
             next_release: self.next_rel,
         })?;
         self.learn(t, &q.grads, &q.blocks, &events, &q.params);
+        if cfg.player.score_k > 0.0 {
+            let own = cfg.player.score_own_fit.then(|| {
+                let vbar = self.players.editor_mean(t);
+                let field = qm::with_strengths(&q.field, |i| self.players.theta_score(i as usize) + self.players.affinity(i as usize, &vbar), cfg);
+                qm::fit_all(&field, None, cfg)
+            });
+            self.players.absorb_score(t, &q.field, own.as_deref().unwrap_or(&q.params), cfg);
+        }
         self.learn_teams(t, &q.team_grads, &events);
         obs.evening(&Evening { index: n, t, players: self.players, grads: &q.grads, events: &events })
     }

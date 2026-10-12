@@ -168,6 +168,17 @@ star_margin = 0.5
 # the forecast through team.s2.k_fast. Measured and off: recent form is a worse
 # predictor than the long-run estimate at every setting tried.
 v_fast = 0.0
+fast_credit = 0.0
+credit_unsure = 0.0
+fast_learn = 0.0
+score_k = 0.0
+score_kv = 6.46
+score_cap = 0.46
+score_infl = 0.0023
+score_sv = 4.5
+score_v0 = 4.6
+score_grad = false
+score_own_fit = false
 # Extra diffusion of theta per year of absence beyond the first, so a player
 # back after years away is no longer held to their last season.
 tau_gap = 0.2
@@ -261,6 +272,8 @@ sigma_c = 0.0
 sigma_ip = 0.0
 # How much of the fast estimate the forecast reads. Measured and off.
 k_fast = 0.0
+k_score = 0.0
+k_mates = 0.0
 # The lineup's own spread, on top of the mean shift of sigma_c. Measured and
 # off, and negative at both signs.
 sigma_v = 0.0

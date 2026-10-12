@@ -220,6 +220,13 @@ pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -
         let h: Vec<f64> = t.teams.iter().map(|res| pack_score(&res.members, players, p)).collect();
         pack_forecast(&mut rows, &h, p.pack_w);
     }
+    if p.k_score > 0.0 {
+        let h: Vec<f64> = t.teams.iter().map(|res| {
+            let rs: Vec<f64> = res.members.iter().map(|&i| player_rating(players.theta_score(i as usize) + players.affinity(i as usize, &reader.vbar), cfg)).collect();
+            if rs.is_empty() { f64::NAN } else { lineup_strength(&rs, p) }
+        }).collect();
+        pack_forecast(&mut rows, &h, p.k_score);
+    }
     rows
 }
 
@@ -319,7 +326,15 @@ impl<'a> Reader<'a> {
             };
             th + players.affinity(iu, &self.vbar) + p.ed_phi * mem
         };
-        let base: Vec<f64> = res.members.iter().map(|&i| seat(i)).collect();
+        let mut base: Vec<f64> = res.members.iter().map(|&i| seat(i)).collect();
+        if p.k_mates > 0.0 && base.len() > 1 {
+            let (sum, n) = (base.iter().sum::<f64>(), base.len() as f64);
+            let new_var = self.cfg.player.sigma_new * self.cfg.player.sigma_new;
+            for (b, s) in base.iter_mut().zip(&sigmas) {
+                let mates = (sum - *b) / (n - 1.0);
+                *b += p.k_mates * (s * s / new_var).min(1.0) * (mates - *b).max(0.0);
+            }
+        }
         let n = base.len().max(1) as f64;
         Seats { base, sigmas, wides, spread: p.player_scale * (ss / n).sqrt() }
     }
