@@ -1,6 +1,7 @@
-"""The NDCG and NDCG@3 of /method/, each system on its own field: forecast
-position i scores 1/log2(i + 1) when the team there finished at place i (a
-shared place counts when i lies in its range), over the all-hit maximum.
+"""The NDCG and NDCG@3 of /method/, each system on its own field: the team at
+forecast position i has relevance 1/(|i - place| + 1), a shared place standing
+at the centre of its range, discounted by log2(i + 1), over the same sum for
+the actual order.
 
 A spec `label=path[:column]` orders the field by `forecast` (the default), `x`,
 or `mu_before`, where a team with no rating goes last. Prints the weighted and

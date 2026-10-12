@@ -1,9 +1,9 @@
 """Forecast quality of several systems on the same in-person fields, by the
 measures of /method/ and those the London Elo (https://elo-chgk.uk) reports:
 
-- NDCG, NDCG@3 and NDCG@10 of /method/: forecast position i scores
-  1/log2(i + 1) when the team there finished at place i (a shared place counts
-  when i lies in its range), over the all-hit maximum;
+- NDCG, NDCG@3 and NDCG@10 of /method/: the team at forecast position i has
+  relevance 1/(|i - place| + 1), a shared place standing at the centre of its
+  range, discounted by log2(i + 1), over the same sum for the actual order;
 - Pearson's r between the forecast place and the actual place;
 - the pairwise score over every pair of teams in the field, and over the pairs
   among the best 10% of the field by actual result (at least two teams, ties
@@ -25,7 +25,6 @@ system's `predictedPosition` as a row of its own, on the teams it forecast.
 
 import math
 import sqlite3
-from collections import Counter
 
 import lab
 from lab import Rng, ranked
@@ -35,9 +34,8 @@ OLD = "old system"
 TOP_SHARE = 0.10
 TOP_MIN = 2
 METRICS = ("ndcg", "ndcg3", "ndcg10", "pearson", "pairwise", "pairwise_top")
-TITLES = ("NDCG", "NDCG@3", "NDCG@10", "Pearson r", "pairwise, all", "pairwise, top 10%")
+TITLES = ("NDCG", "NDCG@3", "NDCG@10", "Pearson r", "pair", "pair@10%")
 CUTS = {"ndcg": None, "ndcg3": 3, "ndcg10": 10}
-SHARED_EPS = 1e-9
 OPTIONS = [
     ("specs", dict(nargs="+", metavar="label=path")),
     ("--unweighted", dict(action="store_true")),
@@ -50,15 +48,13 @@ OPTIONS = [
 
 
 def hits(order, places, k):
-    """NDCG of /method/: exact hits, a shared place counting across its range."""
-    n = Counter(places.values())
+    """NDCG of /method/: relevance falls with the distance to the actual place."""
     k = min(k or len(order), len(order))
-    got = 0.0
-    for pos, t in enumerate(order[:k], 1):
-        p, c = places[t], n[places[t]]
-        if p - (c - 1) / 2 - SHARED_EPS <= pos <= p + (c - 1) / 2 + SHARED_EPS:
-            got += 1 / math.log2(pos + 1)
-    return got / sum(1 / math.log2(i + 1) for i in range(1, k + 1))
+
+    def dcg(o):
+        return sum(1 / ((abs(pos - places[t]) + 1) * math.log2(pos + 1)) for pos, t in enumerate(o[:k], 1))
+
+    return dcg(order) / dcg(sorted(order, key=places.get))
 
 
 def pearson(xs, ys):
