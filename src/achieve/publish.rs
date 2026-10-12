@@ -25,6 +25,9 @@ const SCHEMA: &str = "DROP TABLE IF EXISTS achieve_values;
          DROP TABLE IF EXISTS achieve_team;
          CREATE TABLE achieve_team (team_id INTEGER, release_id INTEGER, rating REAL, divisor REAL,
            n_results INTEGER, empty_share REAL, date TEXT, PRIMARY KEY (team_id, release_id)) WITHOUT ROWID;
+         DROP TABLE IF EXISTS team_ql;
+         CREATE TABLE team_ql (release_id INTEGER, team_id INTEGER, ql REAL,
+           PRIMARY KEY (release_id, team_id)) WITHOUT ROWID;
          DROP TABLE IF EXISTS achieve_meta;
          CREATE TABLE achieve_meta (key TEXT PRIMARY KEY, value TEXT);";
 
@@ -64,6 +67,7 @@ pub fn publish(lab: &Lab, k: &Knobs, db: &str, cfg: &Config, threads: usize) -> 
     write_values(&tx, &b, &c.gains)?;
     let parts: Vec<Vec<Part>> = pool.install(|| c.releases.par_iter().map(|&(_, d)| release_parts(&b, &c.teams, d)).collect());
     write_parts(&tx, &c.releases, &parts)?;
+    write_ql(&tx, &c.releases, &lab.ql)?;
     write_meta(&tx, k)?;
     tx.execute_batch(INDEXES)?;
     tx.commit()?;
@@ -164,6 +168,19 @@ fn write_steps(tx: &Transaction, steps: &[(i64, f64, f64)], (a, bt): (f64, f64))
         let m0 = (x0 > 0.0).then(|| (x0 - a) / bt);
         let m1 = (x1 > 0.0).then(|| (x1 - a) / bt);
         up.execute(params![i, m0, m1, (x1 - x0) / bt])?;
+    }
+    Ok(())
+}
+
+/// `team_ql`: each team's Q(L), its base roster's strength, at every release
+/// the fit wrote team rows for.
+fn write_ql(tx: &Transaction, releases: &[(i64, i32)], ql: &[(i32, i64, f64)]) -> rusqlite::Result<()> {
+    let id: HashMap<i32, i64> = releases.iter().map(|&(i, d)| (d, i)).collect();
+    let mut ins = tx.prepare("INSERT INTO team_ql VALUES (?1, ?2, ?3)")?;
+    for &(d, t, q) in ql {
+        if let Some(i) = id.get(&d) {
+            ins.execute(params![i, t, q])?;
+        }
     }
     Ok(())
 }

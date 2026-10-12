@@ -977,3 +977,11 @@ td:has(.roster-open input:checked) .roster-open span {
     display: block;
   }
 }
+
+/* A column header the table can be reordered by is a link to that order, and
+   looks like one; the order the table is in shows an arrow instead. */
+.results-table thead th a {
+  color: var(--blue);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

@@ -269,19 +269,31 @@ var RU = Strings{
 		},
 		Roster: func(n string) string { return fmt.Sprintf("Базовый состав (%s)", n) },
 		Stat: TeamStatStrings{
+			Ql:   func() string { return "Q(L)" },
 			Week: func() string { return "За неделю" },
 		},
 	},
 	Teams: TeamsStrings{
+		ByQl:     func() string { return "по Q(L)" },
+		ByRating: func() string { return "по рейтингу" },
 		Col: TeamsColStrings{
+			Ql: func() string { return "Q(L)" },
+			QlTitle: func() string {
+				return "Сила базового состава по рейтингам его шести сильнейших игроков, как её читает прогноз: Q(L) из «Методики»"
+			},
 			Results: func() string { return "Результатов" },
 			ResultsTitle: func() string {
 				return "Сколько результатов из семи входит в рейтинг"
 			},
+			SortTitle: func() string { return "Упорядочить по этому столбцу" },
 		},
 		Lede: func(date string, n int) string {
 			return fmt.Sprintf("Релиз от %s. В таблице %d %s.", date, n, core.Plural("ru", n, "команда", "команды", "команд"))
 		},
+		LedeQl: func(date string, n int) string {
+			return fmt.Sprintf("Релиз от %s. По Q(L), силе базового состава, как её читает прогноз: %d %s с базовым составом, у которого известны рейтинги хотя бы четырёх игроков.", date, n, core.Plural("ru", n, "команда", "команды", "команд"))
+		},
+		Order: func() string { return "Порядок:" },
 		ProvSplit: func() string {
 			return "Предварительные рейтинги — команды, чья неопределённость ещё велика"
 		},

@@ -5,7 +5,7 @@
 use super::frozen::{Names, Res, Seasons};
 use crate::config::Config;
 use crate::data::{Arena, Format, Tournament, BASE_ROSTERS, CORRECT, SKIP};
-use crate::pass::{self, Evening, Morning, Observer};
+use crate::pass::{self, Evening, Morning, Observer, Release};
 use crate::question_model as qm;
 use crate::team_ndcg as metric;
 use crate::team_s2::{lineup_strength, player_rating};
@@ -103,23 +103,34 @@ fn fmt_char(f: Format) -> char {
 /// known players the way a lineup is: in-person strength when `ip`, the plain
 /// rating otherwise.
 fn ref20(rosters: &[Vec<u32>], players: &qm::Players, day: i32, ip: bool, cfg: &Config) -> f64 {
+    let mut qs: Vec<f64> = rosters.iter().filter_map(|r| roster_strength(r, players, day, ip, cfg)).collect();
+    qs.sort_by(|a, b| b.total_cmp(a));
+    qs.iter().take(REF_ROSTERS).sum()
+}
+
+/// A base roster's Q(L), the lineup strength of /method/ (chgk.gg's ТРБ):
+/// its six strongest known players, each at their rating less `sigma_c` of
+/// their uncertainty, in-person strength when `ip`, on the players' scale.
+/// None with fewer than four known.
+fn roster_q(r: &[u32], players: &qm::Players, day: i32, ip: bool, cfg: &Config) -> Option<f64> {
     let p = &cfg.team.s2;
     let rating = |i: usize| {
         let th = players.theta(i) + if ip { players.phi(i) } else { 0.0 };
         player_rating(th - p.sigma_c * players.sigma_at(i, day, cfg), cfg)
     };
-    let strength = |r: &Vec<u32>| {
-        let mut rs: Vec<f64> = r.iter().map(|&i| i as usize).filter(|&i| players.state[i].seen).map(rating).collect();
-        if rs.len() < MIN_ROSTER {
-            return None;
-        }
-        rs.sort_by(|a, b| b.total_cmp(a));
-        rs.truncate(LINEUP);
-        Some((cfg.display.a_team + cfg.display.b_team * lineup_strength(&rs, p)).max(0.0))
-    };
-    let mut qs: Vec<f64> = rosters.iter().filter_map(strength).collect();
-    qs.sort_by(|a, b| b.total_cmp(a));
-    qs.iter().take(REF_ROSTERS).sum()
+    let mut rs: Vec<f64> = r.iter().map(|&i| i as usize).filter(|&i| players.state[i].seen).map(rating).collect();
+    if rs.len() < MIN_ROSTER {
+        return None;
+    }
+    rs.sort_by(|a, b| b.total_cmp(a));
+    rs.truncate(LINEUP);
+    Some(lineup_strength(&rs, p))
+}
+
+/// The same strength on the published team scale, where the field weights
+/// read it.
+fn roster_strength(r: &[u32], players: &qm::Players, day: i32, ip: bool, cfg: &Config) -> Option<f64> {
+    roster_q(r, players, day, ip, cfg).map(|q| (cfg.display.a_team + cfg.display.b_team * q).max(0.0))
 }
 
 /// The observer that freezes every result's values as the player pass goes:
@@ -140,6 +151,8 @@ impl<'a> Freezer<'a> {
             arena,
             cfg,
             by_season: rosters_by_season(arena, &seasons),
+            rosters: rosters_by_team(arena, &seasons),
+            ql: Vec::new(),
             seasons,
             // Each town of the arena as (town id, country id), -1 where unknown.
             town_geo: arena.towns.iter().map(|n| geo.get(n).copied().unwrap_or((UNKNOWN, UNKNOWN))).collect(),
@@ -151,11 +164,14 @@ impl<'a> Freezer<'a> {
         }))
     }
 
-    /// Write `dir/results.tsv`.
+    /// Write `dir/results.tsv` and `dir/ql.tsv`.
     pub fn save(&self, dir: &str) -> std::io::Result<()> {
         let path = format!("{dir}/results.tsv");
         super::frozen::save_results(&self.0.out, &path)?;
         eprintln!("wrote {path}: {} results", self.0.out.len());
+        let path = format!("{dir}/ql.tsv");
+        super::frozen::save_ql(&self.0.ql, &path)?;
+        eprintln!("wrote {path}: {} rosters", self.0.ql.len());
         Ok(())
     }
 }
@@ -168,6 +184,30 @@ impl Observer for Freezer<'_> {
     fn evening(&mut self, e: &Evening) -> pass::Result<()> {
         self.0.evening(e)
     }
+
+    /// Every team's Q(L) at the release: its base roster of the season, or of
+    /// the last one while it has none for this one, at the players' ratings
+    /// of the day.
+    fn release(&mut self, r: &Release) -> pass::Result<()> {
+        let b = &mut self.0;
+        let Some(s) = b.seasons.season_of(r.day) else { return Ok(()) };
+        let mut teams: Vec<i64> = b.rosters.keys().filter(|k| k.1 == s || k.1 == s - 1).map(|k| k.0).collect();
+        teams.sort_unstable();
+        teams.dedup();
+        for t in teams {
+            let Some(roster) = b.rosters.get(&(t, s)).or_else(|| b.rosters.get(&(t, s - 1))) else { continue };
+            if let Some(q) = roster_q(roster, r.players, r.day, false, b.cfg) {
+                b.ql.push((r.day, t, q));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Every (team, season) base roster as player indices of this arena.
+fn rosters_by_team(arena: &Arena, seasons: &Seasons) -> HashMap<(i64, i64), Vec<u32>> {
+    let pidx: HashMap<i64, u32> = arena.player_ids.iter().enumerate().map(|(i, &p)| (p, i as u32)).collect();
+    seasons.players.iter().map(|(&k, v)| (k, v.iter().filter_map(|p| pidx.get(p).copied()).collect())).collect()
 }
 
 /// Every season's base rosters as player indices of this arena.
@@ -188,6 +228,9 @@ struct Build<'a> {
     cfg: &'a Config,
     seasons: Seasons,
     by_season: HashMap<i64, Vec<Vec<u32>>>,
+    rosters: HashMap<(i64, i64), Vec<u32>>,
+    /// Each team's Q(L) at each release: (day, team, strength).
+    ql: Vec<(i32, i64, f64)>,
     town_geo: Vec<(i64, i64)>,
     /// The reference strengths of the week, in person and not: recomputed once
     /// a week, like a release.
