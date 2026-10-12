@@ -4,10 +4,11 @@
 mod fit;
 mod gradients;
 mod likelihood;
+mod pairs;
 mod players;
 
 pub use fit::fit_question;
-pub use gradients::{player_grads, team_grads_by_id};
+pub use gradients::{lineup_fisher, player_grads, team_grads_by_id};
 pub use players::{Pin, PlayerState, Players};
 
 use crate::chemistry::Chemistry;

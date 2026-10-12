@@ -121,6 +121,14 @@ sigma_new = 0.7
 warm_sigma = 0.5
 warm_until = "2016-01-01"
 info_scale = 0.4
+# Preview on pullcap.a2-dev: a newcomer's first ten games move them at most
+# 0.2 each, and partners who play three quarters of their games together
+# drift to one score.
+new_cap = 0.2
+new_cap_games = 10
+pair_pull = 0.2
+pair_pull_games = 30
+pair_pull_share = 0.75
 teammate_shrink = 0.000685
 # Share that pull by uncertainty, var / mean var of the lineup. Measured and
 # off on the hand-tuned set: -0.0001 on tune at 0.0025, worse at larger pulls.

@@ -17,6 +17,9 @@ const SHIFT_ITERS: usize = 8;
 const SHIFT_TOL: f64 = 1e-6;
 const MIN_SLOPE: f64 = 1e-12;
 const MAX_SHIFT: f64 = 4.0;
+/// The Bernoulli variance a question's expected information is divided by
+/// never falls below this, so a sure question adds a bounded amount.
+const FISHER_FLOOR: f64 = 1e-6;
 
 /// `(player, gradient, information)`, one entry per player, sorted by player.
 pub type Grads = Vec<(u32, f64, f64)>;
@@ -64,6 +67,42 @@ pub fn team_grads_by_id(field: &Field, params: &[QParams], cfg: &Config) -> Vec<
             info -= d2 * uz * uz + d1 * a * uz;
         }
         out.push((t.team, g, info));
+    }
+    out
+}
+
+/// `player.pair_cov`: per lineup, its members and the expected Fisher
+/// information of its questions in their strengths, row-major. Each question
+/// adds `v vᵀ / (P (1 − P))` with `v = ∂P/∂z`, so the matrix is never
+/// indefinite, and partners who always share a lineup get one nearly flat
+/// in the direction of their difference.
+pub fn lineup_fisher(field: &Field, params: &[QParams], cfg: &Config) -> Vec<(Vec<u32>, Vec<f64>)> {
+    let shift = relative_shifts(field, params, cfg);
+    let mut out = Vec::new();
+    for (t, &dlt) in field.teams.iter().zip(&shift).filter(|(t, _)| !t.z.is_empty()) {
+        let n = t.z.len();
+        let mut f = vec![0.0; n * n];
+        let mut v = vec![0.0; n];
+        for (q, _) in t.mask.iter().enumerate().filter(|(_, &y)| y != SKIP) {
+            let p = &params[q];
+            let (a, m) = (p.a(), p.m());
+            for (k, &zi) in t.z.iter().enumerate() {
+                v[k] = clamped_exp(a * (zi - p.b - dlt), cfg);
+            }
+            let u: f64 = v.iter().sum();
+            let sc = u_scale(u, cfg);
+            let s = -(-u * sc).exp_m1();
+            let pt = s.powf(m);
+            let var = (pt * (1.0 - pt)).max(FISHER_FLOOR);
+            let dpdu = m * s.powf(m - 1.0) * (-u * sc).exp();
+            v.iter_mut().for_each(|l| *l *= dpdu * a * sc);
+            for j in 0..n {
+                for k in 0..n {
+                    f[j * n + k] += v[j] * v[k] / var;
+                }
+            }
+        }
+        out.push((t.members.clone(), f));
     }
     out
 }

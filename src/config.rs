@@ -837,6 +837,48 @@ pub struct Player {
     pub new_boost: f64,
     #[serde(default)]
     pub new_boost_games: u32,
+    /// Newcomer cap: while a player has fewer than `new_cap_games` games, one
+    /// tournament moves their theta by at most `new_cap`, so one result far
+    /// above or below the lineup's forecast cannot set a career. 0 is off.
+    #[serde(default)]
+    pub new_cap: f64,
+    #[serde(default)]
+    pub new_cap_games: u32,
+    /// The joint step of `team_joint` for newcomers only: members with fewer
+    /// than `joint_new_games` games share one surprise among themselves, so a
+    /// lineup of six newcomers does not hand each of them the whole of its
+    /// result. Established players keep their separate steps. 0 is off.
+    #[serde(default)]
+    pub joint_new_games: u32,
+    /// Held start: a newcomer's first `hold_games` tournaments do not move
+    /// them. Their evidence, scored at the newcomer prior, is summed and taken
+    /// in one step after the last of them, so no single early result sets
+    /// where the player stands, and two newcomers who share a lineup are read
+    /// at one strength until then. 0 is off.
+    #[serde(default)]
+    pub hold_games: u32,
+    /// Pair covariance, a prototype. Empty is off. "diag" steps each member on
+    /// the expected information of the lineup's questions without the cross
+    /// terms, the control. "full" takes one joint step per lineup on the whole
+    /// information matrix and keeps the covariance of every two players who
+    /// shared a lineup, so partners who always play together stay uncertain
+    /// about which of them is stronger, and a game one of them plays apart
+    /// settles it.
+    #[serde(default)]
+    pub pair_cov: String,
+    /// Pair covariances below this correlation are forgotten.
+    #[serde(default)]
+    pub pair_prune: f64,
+    /// Partner pull: after each tournament, two lineup members who have
+    /// shared at least `pair_pull_games` lineups, each at least
+    /// `pair_pull_share` of their own games, move `pair_pull` of the way to
+    /// their mean; their sum stays. 1 gives such partners one number. 0 is off.
+    #[serde(default)]
+    pub pair_pull: f64,
+    #[serde(default)]
+    pub pair_pull_games: u32,
+    #[serde(default)]
+    pub pair_pull_share: f64,
     /// Star cap: a player whose strength led their lineup by at least
     /// `star_margin` gains at most `star_cap` of theta per year from such
     /// tournaments (a ledger decaying with a one-year time constant). 0 is off.
