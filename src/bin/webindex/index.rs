@@ -197,11 +197,13 @@ fn recount(c: &Ctx, tids: &[i64]) -> Vec<(i64, i64, i64)> {
 
 const ROSTER_SQL: &str = "select s.team_id, s.player_id, p.surname, p.name, \
     substr(s.date_added,1,10) as added from team_seasons s left join players p on p.id = s.player_id \
-    where s.season_id = (select max(season_id) from team_seasons l where l.team_id = s.team_id) \
+    where s.player_id > 0 \
+    and s.season_id = (select max(season_id) from team_seasons l where l.team_id = s.team_id and l.player_id > 0) \
     and (s.date_removed is null or substr(s.date_removed,1,10) > date('now'))";
 
 /// Each team's roster in the latest season it declared one for, less the
-/// players removed by today. The mirror's `team_seasons` holds only the two
+/// players removed by today. The mirror gives a team with no roster for a season
+/// a row with player 0. The mirror's `team_seasons` holds only the two
 /// current seasons, and a new season's rosters are entered through its first
 /// weeks, so the previous season stands until the team files the next.
 fn base_rosters(c: &Ctx) {
