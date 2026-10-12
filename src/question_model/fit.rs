@@ -59,7 +59,7 @@ fn clamp_params(p: &mut QParams, cfg: &Config, free_m: bool) {
 
 fn objective(field: &Field, q: usize, sel: Option<u8>, p: &QParams, cfg: &Config, free_m: bool) -> f64 {
     let (a, m) = (p.a(), p.m());
-    let v: f64 = seen(field, q, sel).map(|t| ll_from_u(intensity(&t.z, a, p.b, cfg), m, t.mask[q], cfg)).sum();
+    let v: f64 = seen(field, q, sel).map(|t| ll_from_u(intensity(&t.z, &t.k, a, p.b, cfg), m, t.mask[q], cfg)).sum();
     prior(p, cfg, free_m).0 + field.weight * v
 }
 
@@ -70,7 +70,7 @@ fn init_params(field: &Field, q: usize, sel: Option<u8>, cfg: &Config) -> QParam
     let (a, la, lm) = (field.a_fix, field.a_fix.ln(), field.m_fix.ln());
     let (mut sum_s, mut n, mut hits) = (0.0, 0.0, 0.0);
     for t in seen(field, q, sel) {
-        sum_s += intensity(&t.z, a, 0.0, cfg).max(MIN_INTENSITY).ln();
+        sum_s += intensity(&t.z, &t.k, a, 0.0, cfg).max(MIN_INTENSITY).ln();
         n += 1.0;
         hits += (t.mask[q] == CORRECT) as u8 as f64;
     }
@@ -114,7 +114,7 @@ fn newton_system(field: &Field, q: usize, sel: Option<u8>, p: &QParams, cfg: &Co
     let mut g = [0.0; 3];
     let mut h = [0.0; 6];
     for t in seen(field, q, sel) {
-        let d = team_deriv(&t.z, t.mask[q], p, cfg);
+        let d = team_deriv(&t.z, &t.k, t.mask[q], p, cfg);
         g.iter_mut().zip(d.g).for_each(|(a, v)| *a += v);
         h.iter_mut().zip(d.h).for_each(|(a, v)| *a += v);
     }

@@ -18,6 +18,9 @@ const SHIFT_ITERS: usize = 8;
 const SHIFT_TOL: f64 = 1e-6;
 const MIN_SLOPE: f64 = 1e-12;
 const MAX_SHIFT: f64 = 4.0;
+/// The Bernoulli variance a question's expected information is divided by
+/// never falls below this, so a sure question adds a bounded amount.
+const FISHER_FLOOR: f64 = 1e-6;
 
 /// `(player, gradient, information)`, one entry per player, sorted by player.
 pub type Grads = Vec<(u32, f64, f64)>;
@@ -36,7 +39,11 @@ pub fn player_grads(field: &Field, params: &[QParams], cfg: &Config) -> Grads {
     let mut out = Grads::new();
     for ((t, _), acc) in field.teams.iter().zip(&shift).zip(accs).filter(|((t, _), _)| !t.z.is_empty()) {
         let floor = cfg.question.rel_winner && !cfg.question.rel_place && t.first;
+        let (c, ci) = (cfg.question.equal_credit, cfg.question.equal_info);
+        let n = acc.len() as f64;
+        let (mean, mean_info) = (acc.iter().map(|x| x.0).sum::<f64>() / n, acc.iter().map(|x| x.1).sum::<f64>() / n);
         for (&i, &(g, info)) in t.members.iter().zip(&acc) {
+            let (g, info) = ((1.0 - c) * g + c * mean, (1.0 - ci) * info + ci * mean_info);
             out.push((i, if floor { g.max(0.0) } else { g }, info));
         }
     }
@@ -56,19 +63,57 @@ pub fn team_grads_by_id(field: &Field, params: &[QParams], cfg: &Config) -> Vec<
         for (q, &y) in t.mask.iter().enumerate().filter(|(_, &y)| y != SKIP) {
             let p = &params[q];
             let (a, m) = (p.a(), p.m());
-            let u: f64 = t.z.iter().map(|&zi| clamped_exp(a * (zi - p.b - dlt), cfg)).sum();
+            let lam: Vec<f64> = t.z.iter().zip(&t.k).map(|(&zi, &ki)| clamped_exp(a * ki * (zi - p.b - dlt), cfg)).collect();
+            let u: f64 = lam.iter().sum();
             let s = u_scale(u, cfg);
             let (g0, g1, g2) = step_derivs(u * s);
             let (p1, p2) = phi(m * g0, y);
             let d1 = p1 * m * g1;
             let d2 = p2 * (m * g1) * (m * g1) + p1 * m * g2;
-            let uz = a * u * s;
+            let uz = a * s * lam.iter().zip(&t.k).map(|(l, k)| l * k).sum::<f64>();
+            let uzz = a * a * s * lam.iter().zip(&t.k).map(|(l, k)| l * k * k).sum::<f64>();
             g += d1 * uz;
-            info -= d2 * uz * uz + d1 * a * uz;
+            info -= d2 * uz * uz + d1 * uzz;
         }
         (t.team, g, info)
     };
     field.teams.par_iter().zip(&shift).filter(|(t, _)| !t.z.is_empty()).map(one).collect()
+}
+
+/// `player.pair_cov`: per lineup, its members and the expected Fisher
+/// information of its questions in their strengths, row-major. Each question
+/// adds `v vᵀ / (P (1 − P))` with `v = ∂P/∂z`, so the matrix is never
+/// indefinite, and partners who always share a lineup get one nearly flat
+/// in the direction of their difference.
+pub fn lineup_fisher(field: &Field, params: &[QParams], cfg: &Config) -> Vec<(Vec<u32>, Vec<f64>)> {
+    let shift = relative_shifts(field, params, cfg);
+    let mut out = Vec::new();
+    for (t, &dlt) in field.teams.iter().zip(&shift).filter(|(t, _)| !t.z.is_empty()) {
+        let n = t.z.len();
+        let mut f = vec![0.0; n * n];
+        let mut v = vec![0.0; n];
+        for (q, _) in t.mask.iter().enumerate().filter(|(_, &y)| y != SKIP) {
+            let p = &params[q];
+            let (a, m) = (p.a(), p.m());
+            for (k, (&zi, &ki)) in t.z.iter().zip(&t.k).enumerate() {
+                v[k] = clamped_exp(a * ki * (zi - p.b - dlt), cfg);
+            }
+            let u: f64 = v.iter().sum();
+            let sc = u_scale(u, cfg);
+            let s = -(-u * sc).exp_m1();
+            let pt = s.powf(m);
+            let var = (pt * (1.0 - pt)).max(FISHER_FLOOR);
+            let dpdu = m * s.powf(m - 1.0) * (-u * sc).exp();
+            v.iter_mut().zip(&t.k).for_each(|(l, k)| *l *= dpdu * a * k * sc);
+            for j in 0..n {
+                for k in 0..n {
+                    f[j * n + k] += v[j] * v[k] / var;
+                }
+            }
+        }
+        out.push((t.members.clone(), f));
+    }
+    out
 }
 
 /// One lineup's per-member `(gradient, information)` over the questions it
@@ -80,7 +125,7 @@ fn team_grads(t: &TeamObs, params: &[QParams], dlt: f64, cfg: &Config) -> Vec<(f
         let p = &params[q];
         let (a, m) = (p.a(), p.m());
         lam.clear();
-        lam.extend(t.z.iter().map(|&zi| clamped_exp(a * (zi - p.b - dlt), cfg)));
+        lam.extend(t.z.iter().zip(&t.k).map(|(&zi, &ki)| clamped_exp(a * ki * (zi - p.b - dlt), cfg)));
         let u: f64 = lam.iter().sum();
         let s = u_scale(u, cfg);
         lam.iter_mut().for_each(|l| *l *= s);
@@ -94,25 +139,25 @@ fn team_grads(t: &TeamObs, params: &[QParams], dlt: f64, cfg: &Config) -> Vec<(f
             let total: f64 = lam.iter().sum();
             let w: f64 = lam.iter().map(|l| l.powf(1.0 / temp)).sum();
             for (k, &l) in lam.iter().enumerate() {
-                let uz = a * total * l.powf(1.0 / temp) / w;
+                let uz = a * t.k[k] * total * l.powf(1.0 / temp) / w;
                 acc[k].0 += d1 * uz;
-                acc[k].1 -= d2 * uz * uz + d1 * a * uz;
+                acc[k].1 -= d2 * uz * uz + d1 * a * t.k[k] * uz;
             }
             continue;
         }
         for (k, &l) in lam.iter().enumerate() {
-            let uz = a * l;
+            let uz = a * t.k[k] * l;
             acc[k].0 += d1 * uz;
-            acc[k].1 -= d2 * uz * uz + d1 * a * uz;
+            acc[k].1 -= d2 * uz * uz + d1 * a * t.k[k] * uz;
         }
     }
     acc
 }
 
 /// The chance a lineup takes one question, at the difficulty shifted by `d`.
-fn p_take(z: &[f64], p: &QParams, d: f64, cfg: &Config) -> f64 {
+fn p_take(z: &[f64], k: &[f64], p: &QParams, d: f64, cfg: &Config) -> f64 {
     let a = p.a();
-    let mut u: f64 = z.iter().map(|&zi| clamped_exp(a * (zi - p.b - d), cfg)).sum();
+    let mut u: f64 = z.iter().zip(k).map(|(&zi, &ki)| clamped_exp(a * ki * (zi - p.b - d), cfg)).sum();
     u *= u_scale(u, cfg);
     (-(-u).exp_m1()).powf(p.m())
 }
@@ -146,7 +191,7 @@ fn surpluses(field: &Field, params: &[QParams], cfg: &Config) -> (Vec<f64>, Vec<
         if t.z.is_empty() {
             return (f64::NAN, 0.0);
         }
-        let e: f64 = t.mask.iter().enumerate().filter(|(_, &y)| y != SKIP).map(|(q, _)| p_take(&t.z, &params[q], 0.0, cfg)).sum();
+        let e: f64 = t.mask.iter().enumerate().filter(|(_, &y)| y != SKIP).map(|(q, _)| p_take(&t.z, &t.k, &params[q], 0.0, cfg)).sum();
         (e, t.mask.iter().filter(|&&y| y == CORRECT).count() as f64 - e)
     };
     let er: Vec<(f64, f64)> = field.teams.par_iter().map(one).collect();
@@ -195,11 +240,12 @@ fn expected_and_slope(t: &TeamObs, params: &[QParams], d: f64, cfg: &Config) -> 
     for (q, _) in t.mask.iter().enumerate().filter(|(_, &y)| y != SKIP) {
         let p = &params[q];
         let (a, m) = (p.a(), p.m());
-        let u: f64 = t.z.iter().map(|&zi| clamped_exp(a * (zi - p.b - d), cfg)).sum();
+        let lam: Vec<f64> = t.z.iter().zip(&t.k).map(|(&zi, &ki)| clamped_exp(a * ki * (zi - p.b - d), cfg)).collect();
+        let u: f64 = lam.iter().sum();
         let s = -(-u).exp_m1();
         f += s.powf(m);
-        // d/dd of (1 - e^-u)^m with du/dd = -a u.
-        df -= m * s.powf(m - 1.0) * (-u).exp() * a * u;
+        // d/dd of (1 - e^-u)^m with du/dd = -a Σ k λ.
+        df -= m * s.powf(m - 1.0) * (-u).exp() * a * lam.iter().zip(&t.k).map(|(l, k)| l * k).sum::<f64>();
     }
     (f, df)
 }

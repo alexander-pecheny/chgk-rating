@@ -147,6 +147,17 @@ struct Seats {
     spread: f64,
 }
 
+/// The London Elo's pack and its shape: difficulties from `PACK_FROM - PACK_BELOW`
+/// to `PACK_TO` every `PACK_STEP`, the standard sport `ln 10 / 400`, the slope's
+/// rate and floor, and rho's floor, rate and ceiling.
+const PACK_FROM: f64 = 2000.0;
+const PACK_BELOW: f64 = 400.0;
+const PACK_TO: f64 = 3600.0;
+const PACK_STEP: f64 = 50.0;
+const PACK_SPORT: f64 = std::f64::consts::LN_10 / 400.0;
+const PACK_SLOPE: (f64, f64) = (0.002, 0.4);
+const PACK_RHO: (f64, f64, f64) = (0.7, 0.0002, 0.9);
+
 /// One result as the team engine sees it: no players left, only the number the
 /// lineup that turned up is worth. `src/bin/team_sweep.rs` replays these.
 #[derive(Clone)]
@@ -205,7 +216,58 @@ pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -
         .map(|((res, rs), seat)| reader.row(res, rs, seat, &pt))
         .collect();
     reader.expected_answers(&mut rows);
+    if p.pack_w > 0.0 {
+        let h: Vec<f64> = t.teams.iter().map(|res| pack_score(&res.members, players, p)).collect();
+        pack_forecast(&mut rows, &h, p.pack_w);
+    }
     rows
+}
+
+/// `pack_w`: the London Elo's expected score of a lineup on a fixed pack, its
+/// players read at `pack_a + pack_b · theta` on its scale. A strong player's
+/// chance falls off more slowly with the difficulty, and a strong table pools
+/// its players' chances less, which is what lifts a deep lineup over one star.
+fn pack_score(members: &[u32], players: &Players, p: &S2) -> f64 {
+    if members.is_empty() {
+        return f64::NAN;
+    }
+    let e: Vec<f64> = members.iter().map(|&i| p.pack_a + p.pack_b * players.theta(i as usize)).collect();
+    let mean = e.iter().sum::<f64>() / e.len() as f64;
+    let rho = (PACK_RHO.0 + PACK_RHO.1 * (mean - PACK_FROM)).clamp(PACK_RHO.0, PACK_RHO.2);
+    let slope: Vec<f64> = e.iter().map(|&x| (1.0 / (1.0 + PACK_SLOPE.0 * (x - PACK_FROM).max(0.0))).max(PACK_SLOPE.1)).collect();
+    let mut total = 0.0;
+    let mut d = PACK_FROM - PACK_BELOW;
+    while d <= PACK_TO {
+        let sm: f64 = e.iter().zip(&slope).map(|(&x, &k)| {
+            let z = k * PACK_SPORT * (x - d);
+            let u = z.max(0.0) + (-z.abs()).exp().ln_1p();
+            u.max(f64::MIN_POSITIVE).powf(1.0 / rho)
+        }).sum();
+        total += -(-sm.powf(rho)).exp_m1();
+        d += PACK_STEP;
+    }
+    total
+}
+
+/// Moves each listed lineup's forecast `w` of the way to its pack score, put
+/// on the field's own scale of `q` by matching the mean and the sd.
+fn pack_forecast(rows: &mut [Row], h: &[f64], w: f64) {
+    let pairs: Vec<(f64, f64)> = rows.iter().zip(h).filter(|(r, h)| r.q.is_finite() && h.is_finite()).map(|(r, &h)| (r.q, h)).collect();
+    if pairs.len() < 2 {
+        return;
+    }
+    let n = pairs.len() as f64;
+    let (mq, mh) = (pairs.iter().map(|x| x.0).sum::<f64>() / n, pairs.iter().map(|x| x.1).sum::<f64>() / n);
+    let sd = |f: &dyn Fn(&(f64, f64)) -> f64, m: f64| (pairs.iter().map(|x| (f(x) - m).powi(2)).sum::<f64>() / n).sqrt();
+    let (sq, sh) = (sd(&|x| x.0, mq), sd(&|x| x.1, mh));
+    if sh <= 0.0 {
+        return;
+    }
+    for (r, &h) in rows.iter_mut().zip(h) {
+        if r.q.is_finite() && h.is_finite() {
+            r.fc_bonus += w * (mq + sq / sh * (h - mh) - r.q);
+        }
+    }
 }
 
 /// One tournament's field as the team rules read it.
@@ -868,7 +930,12 @@ impl TeamsS2 {
             qf + res.fc_bonus
         };
         let series = if p.kappa_s != 0.0 && format == Format::InPerson { p.kappa_s * self.sbar(idx) } else { 0.0 };
-        fc + series
+        let team = if q.is_finite() && self.r[idx].is_finite() {
+            p.k_usual * (self.qbar[idx] - q) + p.k_team * (self.r[idx] - q)
+        } else {
+            0.0
+        };
+        fc + series + team
     }
 
     /// One rated result: the placement step, then either the pull or the

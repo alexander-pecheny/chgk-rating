@@ -1,7 +1,7 @@
 [model]
 # The version of the rules. Bump it with any change that moves a published
 # number, so two outputs can be compared knowing which rules made each.
-version = "1.0.1"
+version = "1.1.0"
 
 [data]
 db_path = "buff.db"
@@ -121,6 +121,15 @@ sigma_new = 0.7
 warm_sigma = 0.5
 warm_until = "2016-01-01"
 info_scale = 0.4
+# A newcomer's first ten games move them at most 0.2 each, and partners who
+# play three quarters of their games together drift to one score (1.1).
+# Against the same model without them: -0.0038 +/- 0.0032 NDCG on
+# 2018-09-01..2024-12-31 and -0.0065 +/- 0.0042 on 2025-01-01..2026-08-27.
+new_cap = 0.2
+new_cap_games = 10
+pair_pull = 0.2
+pair_pull_games = 30
+pair_pull_share = 0.75
 teammate_shrink = 0.000685
 # Share that pull by uncertainty, var / mean var of the lineup. Measured and
 # off on the hand-tuned set: -0.0001 on tune at 0.0025, worse at larger pulls.
@@ -266,7 +275,10 @@ q_sigma_c = 0.0
 tight_gap = 0.0
 sigma_c_tight = 1.5
 sigma_c_loose = 1.5
-delta = 700.0
+# Display points below the weakest member that fill each seat short of six.
+# 1100 since 1.1: refit on 2018-09-01..2024-12-31 Pearson +0.0011 +/- 0.0004
+# against 700, and +0.004 NDCG on 2025-01-01..2026-08-27.
+delta = 1100.0
 # theta -> the team scale: player_zero + player_scale * (theta + ln 6 + roster_bias).
 player_scale = 2454.8828
 player_zero = 6000.0

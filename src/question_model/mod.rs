@@ -4,17 +4,18 @@
 mod fit;
 mod gradients;
 mod likelihood;
+mod pairs;
 mod players;
 
 pub use fit::fit_question;
-pub use gradients::{player_grads, team_grads_by_id};
+pub use gradients::{lineup_fisher, player_grads, team_grads_by_id};
 pub use players::{Pin, PlayerState, Players};
 
 use crate::chemistry::Chemistry;
 use crate::config::Config;
 use crate::data::{Format, TeamResult, Tournament, SKIP};
 use crate::util::Rng;
-use likelihood::{clamped_exp, intensity, ll_from_u, log_p_step, u_scale};
+use likelihood::{clamped_exp, intensity, ll_from_u, log_p_step, slope, u_scale};
 use rayon::prelude::*;
 
 const HALF: f64 = 0.5;
@@ -46,6 +47,8 @@ impl QParams {
 /// One team of one tournament, reduced to what the question model needs.
 pub struct TeamObs {
     pub z: Vec<f64>,
+    /// Each member's slope, read off `z`.
+    pub k: Vec<f64>,
     pub members: Vec<u32>,
     /// The team id the lineup played under.
     pub team: u32,
@@ -81,14 +84,17 @@ pub fn build_field(t: &Tournament, players: &Players, chem: &Chemistry, cfg: &Co
     let a_fix = a_of(t.format, cfg);
     let mut rng = Rng::new(cfg.numeric.crossfit_seed ^ (t.id as u64));
     let best = t.teams.iter().map(|r| r.position).filter(|&p| p > 0.0).fold(f64::INFINITY, f64::min);
-    let obs = |tr: &TeamResult| TeamObs {
-        z: lineup(tr, players, &vbar, chem, a_fix, t.day, cfg),
+    let obs = |tr: &TeamResult| {
+        let z = lineup(tr, players, &vbar, chem, a_fix, t.day, cfg);
+        TeamObs {
+        k: z.iter().map(|&zi| slope(zi, cfg)).collect(),
+        z,
         members: tr.members.clone(),
         team: tr.team,
         mask: tr.mask.clone(),
         half: rng.bit(),
         first: tr.position == best,
-    };
+    }};
     let teams: Vec<TeamObs> = t.teams.iter().map(obs).collect();
     let by_q = questions(&teams, t.n_q);
     Field { teams, by_q, n_q: t.n_q, weight: t.weight, a_fix, m_fix: cfg.question.m_fixed }
@@ -131,7 +137,7 @@ pub fn score(field: &Field, params: &[QParams], sel: Option<u8>, cfg: &Config) -
         let (a, m) = (p.a(), p.m());
         let teams = field.by_q[q].iter().map(|&ti| &field.teams[ti as usize]);
         teams.filter(|t| sel.is_none_or(|h| t.half == h)).fold((0.0, 0), |(s, n), t| {
-            (s - ll_from_u(intensity(&t.z, a, p.b, cfg), m, t.mask[q], cfg), n + 1)
+            (s - ll_from_u(intensity(&t.z, &t.k, a, p.b, cfg), m, t.mask[q], cfg), n + 1)
         })
     };
     let per_q: Vec<(f64, u64)> = (0..field.n_q).into_par_iter().map(one).collect();

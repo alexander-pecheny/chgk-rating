@@ -180,6 +180,10 @@ pub struct S2 {
     /// its last `series_k` in-person results. 0 is off.
     pub kappa_s: f64,
     pub series_k: usize,
+    /// Shares of the gap from the lineup's strength to the team's usual lineup
+    /// and to the team's rating that the forecast takes. 0 is the lineup alone.
+    pub k_usual: f64,
+    pub k_team: f64,
     /// Display points the forecast gains per unit of the lineup's mean past
     /// residual under today's editors. 0 is off. This is the editor effect where
     /// the residual check finds it -- in the outcomes -- rather than where
@@ -355,6 +359,14 @@ pub struct S2 {
     /// Pseudo-games against the team's own forecast that keep a performance
     /// finite for a first or last place.
     pub perf_prior: f64,
+    /// How far the forecast moves from `Q(L)` to the London Elo's pack score
+    /// of the lineup, its players at `pack_a + pack_b · theta`. 0 is off.
+    #[serde(default)]
+    pub pack_w: f64,
+    #[serde(default)]
+    pub pack_a: f64,
+    #[serde(default)]
+    pub pack_b: f64,
 }
 
 /// What a config that leaves a key of `[team.s2]` out gets: the rule as it
@@ -362,6 +374,9 @@ pub struct S2 {
 /// which sets every key, so these defaults only reach the older research
 /// configs.
 const S2_DEFAULT: S2 = S2 {
+    pack_w: 0.0,
+    pack_a: 0.0,
+    pack_b: 0.0,
     d: 1200.0,
     k: 0.4,
     k_q: 0.01,
@@ -379,6 +394,8 @@ const S2_DEFAULT: S2 = S2 {
     phi_spread: 0.0,
     difficulty_forecast: false,
     kappa_s: 0.0,
+    k_usual: 0.0,
+    k_team: 0.0,
     series_k: 5,
     editor_memory: 0.0,
     ed_min_n: 2.0,
@@ -663,6 +680,23 @@ pub struct Question {
     /// member of a lineup of unsettled players does not take all of it.
     #[serde(default)]
     pub share_temp: f64,
+    /// Blend every member's gradient towards the lineup's mean gradient, as the
+    /// London Elo gives each member the same surplus. 0 is off, 1 an even split.
+    #[serde(default)]
+    pub equal_credit: f64,
+    /// The same blend for each member's information.
+    #[serde(default)]
+    pub equal_info: f64,
+    /// The London Elo's slope: a player of strength `z` reads every question
+    /// at discrimination `a / (1 + slope_c · max(z − slope_z0, 0))`, never
+    /// below `a · slope_min`, so a strong player is less sure of an easy
+    /// question and less lost on a hard one. 0 is off.
+    #[serde(default)]
+    pub slope_c: f64,
+    #[serde(default)]
+    pub slope_z0: f64,
+    #[serde(default)]
+    pub slope_min: f64,
     /// A strength per team id, added to every member of that team's lineup in
     /// the likelihood and in the forecast, with this prior sd; it takes a
     /// Kalman step on the team's whole gradient, so a stable team's surplus
@@ -838,6 +872,56 @@ pub struct Player {
     pub new_boost: f64,
     #[serde(default)]
     pub new_boost_games: u32,
+    /// Theta a player gains per weighted tournament played, whatever the
+    /// result: the learning that comes with experience, which the London Elo
+    /// gets from its inflation. `learn_games` makes it fade as
+    /// `learn_games / (learn_games + games)`; 0 keeps it constant.
+    #[serde(default)]
+    pub learn: f64,
+    #[serde(default)]
+    pub learn_games: f64,
+    /// Newcomer cap: while a player has fewer than `new_cap_games` games, one
+    /// tournament moves their theta by at most `new_cap`, so one result far
+    /// above or below the lineup's forecast cannot set a career. 0 is off.
+    #[serde(default)]
+    pub new_cap: f64,
+    #[serde(default)]
+    pub new_cap_games: u32,
+    /// The joint step of `team_joint` for newcomers only: members with fewer
+    /// than `joint_new_games` games share one surprise among themselves, so a
+    /// lineup of six newcomers does not hand each of them the whole of its
+    /// result. Established players keep their separate steps. 0 is off.
+    #[serde(default)]
+    pub joint_new_games: u32,
+    /// Held start: a newcomer's first `hold_games` tournaments do not move
+    /// them. Their evidence, scored at the newcomer prior, is summed and taken
+    /// in one step after the last of them, so no single early result sets
+    /// where the player stands, and two newcomers who share a lineup are read
+    /// at one strength until then. 0 is off.
+    #[serde(default)]
+    pub hold_games: u32,
+    /// Pair covariance, a prototype. Empty is off. "diag" steps each member on
+    /// the expected information of the lineup's questions without the cross
+    /// terms, the control. "full" takes one joint step per lineup on the whole
+    /// information matrix and keeps the covariance of every two players who
+    /// shared a lineup, so partners who always play together stay uncertain
+    /// about which of them is stronger, and a game one of them plays apart
+    /// settles it.
+    #[serde(default)]
+    pub pair_cov: String,
+    /// Pair covariances below this correlation are forgotten.
+    #[serde(default)]
+    pub pair_prune: f64,
+    /// Partner pull: after each tournament, two lineup members who have
+    /// shared at least `pair_pull_games` lineups, each at least
+    /// `pair_pull_share` of their own games, move `pair_pull` of the way to
+    /// their mean; their sum stays. 1 gives such partners one number. 0 is off.
+    #[serde(default)]
+    pub pair_pull: f64,
+    #[serde(default)]
+    pub pair_pull_games: u32,
+    #[serde(default)]
+    pub pair_pull_share: f64,
     /// Star cap: a player whose strength led their lineup by at least
     /// `star_margin` gains at most `star_cap` of theta per year from such
     /// tournaments (a ledger decaying with a one-year time constant). 0 is off.
@@ -885,6 +969,10 @@ pub struct Player {
     pub eta0: f64,
     #[serde(default = "c0")]
     pub c0: f64,
+    /// The weight of an unrated or async result fades as `extra_games / (extra_games + games)`,
+    /// so it teaches a player with little history and leaves an established one alone. 0 is off.
+    #[serde(default)]
+    pub extra_games: f64,
 }
 
 fn tau_phi() -> f64 {
