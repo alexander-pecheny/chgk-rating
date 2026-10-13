@@ -16,8 +16,10 @@ const OFFSET_FROM: usize = 16;
 const FIELD_LEN: usize = 2;
 const MINUTES_PER_HOUR: i32 = 60;
 const MINUTES_PER_DAY: i32 = 1440;
-/// Europe/Moscow is UTC+3, in minutes.
-const MOSCOW_OFFSET: i32 = 180;
+/// The shift from UTC to the day a release reads, in minutes: rating-b stores UTC
+/// in a column without a time zone, and Django's `__date` in Europe/Moscow reads
+/// it as Moscow time and converts back, so the day is that of UTC - 3h.
+const RELEASE_DAY_SHIFT: i32 = -180;
 /// The mirror's position for a team that did not finish.
 const NOT_PLACED: f64 = 9999.0;
 /// Teams that leave the field from a shared place lift the rest by half a place each.
@@ -43,9 +45,8 @@ const TOURNAMENTS: &str = "SELECT t.id, t.date_start, t.date_end, t.tournament_t
 const OURS: &str = "SELECT r.date, p.player_id, p.theta FROM player_ratings p JOIN releases r ON r.id = p.release_id \
      WHERE r.date >= ?1 ORDER BY r.date";
 
-/// Date part of an ISO timestamp in Europe/Moscow, the timezone the release window
-/// is evaluated in.
-fn moscow_day(s: &str) -> Option<i32> {
+/// The day an ISO timestamp falls on for the release window, by `RELEASE_DAY_SHIFT`.
+fn release_day(s: &str) -> Option<i32> {
     let day = parse_date(s.get(..DATE_LEN)?)?;
     if s.len() < OFFSET_FROM || s.as_bytes()[DATE_LEN] != b'T' {
         return Some(day);
@@ -57,7 +58,7 @@ fn moscow_day(s: &str) -> Option<i32> {
         let sign = if s.as_bytes()[i] == b'-' { -1 } else { 1 };
         off = sign * (field(i + 1)? * MINUTES_PER_HOUR + field(i + 1 + FIELD_LEN + 1)?);
     }
-    Some(day + (hh * MINUTES_PER_HOUR + mm - off + MOSCOW_OFFSET).div_euclid(MINUTES_PER_DAY))
+    Some(day + (hh * MINUTES_PER_HOUR + mm - off + RELEASE_DAY_SHIFT).div_euclid(MINUTES_PER_DAY))
 }
 
 /// Roster flags in `team_members_full`, in the order of `team_members`.
@@ -196,7 +197,7 @@ fn meta_of(row: &Row, id: i64) -> rusqlite::Result<Option<Meta>> {
     let ds: String = row.get("date_start")?;
     let de: String = row.get("date_end")?;
     let kind: String = row.get::<_, Option<String>>("tournament_type")?.unwrap_or_default();
-    let (Some(start), Some(end)) = (moscow_day(&ds), moscow_day(&de)) else {
+    let (Some(start), Some(end)) = (release_day(&ds), release_day(&de)) else {
         return Ok(None);
     };
     Ok(Some(Meta {
@@ -290,7 +291,7 @@ pub(super) fn seasons(conn: &Connection) -> rusqlite::Result<Vec<(i32, i32, i32)
 /// `base_rosters.csv`: team, player, season, from, to. In order of start, then team id.
 pub(super) fn rosters(ext: &str, teams: &mut Ids, players: &mut Ids) -> Result<Vec<Roster>, Box<dyn std::error::Error>> {
     let mut out = Vec::new();
-    for r in csv_rows(&format!("{ext}/base_rosters.csv"))?.into_iter().skip(1) {
+    for r in csv_rows(&format!("{ext}/base_rosters.csv"))? {
         out.push(Roster {
             team: teams.get(r[0].parse()?),
             player: players.get(r[1].parse()?),
@@ -306,7 +307,7 @@ pub(super) fn rosters(ext: &str, teams: &mut Ids, players: &mut Ids) -> Result<V
 /// `bootstrap_players.csv`: each player's bonuses as of the bootstrap release.
 pub(super) fn bootstrap_players(ext: &str, ids: &mut Ids) -> Result<Vec<Player>, Box<dyn std::error::Error>> {
     let mut players: Vec<Player> = Vec::new();
-    for r in csv_rows(&format!("{ext}/bootstrap_players.csv"))?.into_iter().skip(1) {
+    for r in csv_rows(&format!("{ext}/bootstrap_players.csv"))? {
         let p = ids.get(r[0].parse()?) as usize;
         if players.len() <= p {
             players.resize_with(p + 1, Player::default);

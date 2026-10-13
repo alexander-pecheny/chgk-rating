@@ -66,9 +66,34 @@ fn tech_rating(ratings: &mut [f64], q: f64) -> f64 {
     ratings.sort_by(|a, b| b.total_cmp(a));
     let mut s = 0.0;
     for (k, v) in ratings.iter().take(TR_PLAYERS).enumerate() {
-        s += v * (TR_PLAYERS - k) as f64 / TR_PLAYERS as f64;
+        s += v * ((TR_PLAYERS - k) as f64 / TR_PLAYERS as f64);
     }
     round_even(s) * q
+}
+
+/// numpy's pairwise summation, which pandas' mean uses: the official Q is
+/// matched to the last bit only when its ratios are summed in the same order.
+fn pairwise_sum(a: &[f64]) -> f64 {
+    const UNROLL: usize = 8;
+    const BLOCK: usize = 128;
+    if a.len() < UNROLL {
+        return a.iter().fold(0.0, |s, x| s + x);
+    }
+    if a.len() > BLOCK {
+        let half = a.len() / 2 / UNROLL * UNROLL;
+        return pairwise_sum(&a[..half]) + pairwise_sum(&a[half..]);
+    }
+    let mut r = [0.0; UNROLL];
+    r.copy_from_slice(&a[..UNROLL]);
+    let whole = a.len() / UNROLL * UNROLL;
+    for chunk in a[UNROLL..whole].chunks(UNROLL) {
+        r.iter_mut().zip(chunk).for_each(|(s, x)| *s += x);
+    }
+    let mut s = ((r[0] + r[1]) + (r[2] + r[3])) + ((r[4] + r[5]) + (r[6] + r[7]));
+    for x in &a[whole..] {
+        s += x;
+    }
+    s
 }
 
 /// The value at `t` on the piecewise-linear map from sorted `th` to sorted `pts`.
@@ -476,16 +501,15 @@ impl Gg {
         let rating = |i: usize| self.teams[i].unwrap().rating;
         let mut order: Vec<usize> = (0..self.teams.len()).filter(|&i| self.teams[i].is_some()).collect();
         order.sort_by(|&a, &b| rating(b).total_cmp(&rating(a)).then(self.team_ids.list[a].cmp(&self.team_ids.list[b])));
-        let (mut q_sum, mut q_n) = (0.0, 0.0);
+        let mut ratios = Vec::new();
         for &t in order.iter().take(TOP_TEAMS_Q) {
             let Some(rs) = by_base.get(&(t as u32)).filter(|rs| rs.len() >= MIN_BASE_FOR_Q) else { continue };
             let raw = tech_rating(&mut rs.clone(), 1.0);
             if raw != 0.0 {
-                q_sum += rating(t) / raw;
-                q_n += 1.0;
+                ratios.push(rating(t) / raw);
             }
         }
-        q_sum / q_n
+        pairwise_sum(&ratios) / ratios.len() as f64
     }
 
     /// A.4.9 and A.4.2.3: base technical ratings, and the floor of a team whose
