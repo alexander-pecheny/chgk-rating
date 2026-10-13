@@ -180,7 +180,7 @@ func gamesSection(games []game) ui.Node {
 }
 
 func gameRow(g game) ui.Node {
-	cells := append(tourCells(str(g.date), g.tid, str(g.tname), str(g.typ), counted(g.rated)),
+	cells := append(tourCells(str(g.date), g.tid, str(g.tname), str(g.typ), true),
 		ui.Cell(line(link(teamHref(g.team), orDash(str(g.mname))))),
 		numCell(place(g.position)),
 		numCell(taken(g.score, g.nQ)),
