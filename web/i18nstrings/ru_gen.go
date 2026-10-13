@@ -154,6 +154,19 @@ var RU = Strings{
 		},
 		Untitled: func() string { return "без названия" },
 	},
+	Method: MethodStrings{
+		Metrics: MethodMetricsStrings{
+			All: func() string { return "все" },
+			Caption: func(ref string) string {
+				return fmt.Sprintf("Разница с %s на тех же турнирах: точка — среднее, отрезок — 95-процентный доверительный интервал.", ref)
+			},
+			Metric:      func() string { return "На графике" },
+			Rated:       func() string { return "только рейтинговые" },
+			System:      func() string { return "рейтинг" },
+			Tournaments: func() string { return "Турниры" },
+			Weighted:    func() string { return "Взвешенные метрики" },
+		},
+	},
 	Player: PlayerStrings{
 		Games: func(n string) string { return fmt.Sprintf("Сыгранные турниры (%s)", n) },
 		NotListed: func(date string) string {
@@ -341,6 +354,7 @@ var RU = Strings{
 		Forecast: TournamentForecastStrings{
 			ColSystem: func() string { return "Система" },
 			ColTeams:  func() string { return "Команд" },
+			Elo:       func() string { return "elo-chgk.uk" },
 			Fun:       func() string { return "rating.chgk.fun" },
 			Gg:        func() string { return "chgk.gg" },
 			Ours:      func() string { return "Этот рейтинг" },

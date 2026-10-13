@@ -61,12 +61,30 @@ stamp() { echo "$2" > "out/stamps/$1"; }
 bin=target/release
 k_buff=$(hash buff.db)
 k_data=$(hash config*.toml $(find -L data -type f | sort))
-k_fit=$(echo "$k_buff $k_data $(hash $bin/fit)" | hash -)
+# The London Elo replay the published forecast is blended with ([blend] in
+# config.toml) reads buff.db alone, so it runs first and its key is part of the fit's.
+k_elo=$(echo "$k_buff $k_data $(hash $bin/ext_elo)" | hash -)
+k_fit=$(echo "$k_elo $(hash $bin/fit)" | hash -)
 k_eval=$(echo "$k_fit $(hash $bin/eval)" | hash -)
 k_pub=$(echo "$k_fit $(hash $bin/achieve)" | hash -)
 # Each run's window ends before the day after buff.db's last complete update,
 # not before the clock's today: the same data gives the same numbers on any day.
 today=$(sqlite3 buff.db "select date(substr(d,1,19), printf('%+d minutes', (case substr(d,20,1) when '-' then 1 else -1 end) * (substr(d,21,2) * 60 + substr(d,23,2))), '+1 day') from (select max(datetime) d from db_updates)")
+
+if fresh ext_elo "$k_elo"; then
+    log "elo is current"
+else
+    log "elo"
+    unstamp ext_elo
+    mkdir -p out/ext
+    if ! $bin/ext_elo --to "$today" > out/rivals_ext_elo.log 2>&1; then
+        log "elo failed, see out/rivals_ext_elo.log; the site keeps the old numbers"
+        tail -n 20 out/rivals_ext_elo.log
+        exit 1
+    fi
+    stamp ext_elo "$k_elo"
+    log "elo done: $(tail -n 1 out/rivals_ext_elo.log)"
+fi
 
 # The fit also freezes the achievement rating's values on its own pass, which
 # achieve would otherwise replay. Eval reads the fit's own team rows, which

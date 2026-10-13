@@ -15,6 +15,18 @@ pub struct Config {
     pub numeric: Numeric,
     #[serde(default)]
     pub simple: Option<Simple>,
+    #[serde(default)]
+    pub blend: Option<Blend>,
+}
+
+/// The published forecast: A2's own, or mixed with an `ext_elo` replay's.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Blend {
+    /// The replay's database, whose `team_events.x` is Elo's forecast.
+    pub elo_db: String,
+    /// Elo's share of the forecast, in units of each field's spread.
+    pub elo: f64,
 }
 
 /// What the fit writes into `meta` to say which rules made its numbers.

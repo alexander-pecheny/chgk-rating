@@ -202,6 +202,8 @@ struct Fit<'a> {
     /// The lineup of this tournament and the state the forecast read this
     /// morning, before the update moves it.
     before: Vec<(u32, PlayerEvent)>,
+    /// Elo's share of the published forecast and its forecasts by (tournament, team).
+    elo: Option<(f64, HashMap<(i64, i64), f64>)>,
     /// The venue each player of this tournament played at.
     venue_of: HashMap<u32, i64>,
 }
@@ -227,6 +229,7 @@ impl<'a> Fit<'a> {
             prev_t: vec![f64::NAN; arena.n_teams()],
             before: Vec::new(),
             venue_of: HashMap::new(),
+            elo: cfg.blend.as_ref().filter(|b| b.elo > 0.0).map(|b| load_elo(&b.elo_db).map(|x| (b.elo, x))).transpose()?,
         })
     }
 }
@@ -259,7 +262,10 @@ impl Observer for Fit<'_> {
         let date = format_date(t.day);
         let truedl = chgk_rating::question_model::truedl(m.field, m.params, cfg);
         self.venue_of = t.teams.iter().flat_map(|r| r.members.iter().map(move |&p| (p, r.venue))).collect();
-        for (venue, events) in by_venue(t, m.events) {
+        for (venue, mut events) in by_venue(t, m.events) {
+            if let Some((c, elo)) = &self.elo {
+                blend(venue, &mut events, *c, elo, &self.arena.team_ids);
+            }
             self.w.question_params(venue, &qs)?;
             self.w.team_events(venue, &date, &self.arena.team_ids, &events)?;
             let actual: Vec<f64> = events.iter().map(|e| e.actual_place).collect();
@@ -519,16 +525,52 @@ fn by_venue(t: &Tournament, events: &[TeamEvent]) -> Vec<(i64, Vec<TeamEvent>)> 
         .into_iter()
         .map(|v| {
             let mut evs: Vec<TeamEvent> = events.iter().filter(|e| at.get(&e.team).is_some_and(|a| a.0 == v)).cloned().collect();
-            let f: Vec<f64> = evs.iter().map(|e| e.forecast).collect();
-            for e in evs.iter_mut() {
-                if e.actual_place > 0.0 {
-                    e.actual_place = at[&e.team].1;
-                }
-                let above = f.iter().filter(|&&x| x > e.forecast).count() as f64;
-                let level = f.iter().filter(|&&x| x == e.forecast).count() as f64;
-                e.forecast_place = above + (level + 1.0) / 2.0;
+            for e in evs.iter_mut().filter(|e| e.actual_place > 0.0) {
+                e.actual_place = at[&e.team].1;
             }
+            places(&mut evs);
             (v, evs)
         })
         .collect()
+}
+
+/// Each team's place in the order of its forecast, a shared place at the centre of its range.
+fn places(evs: &mut [TeamEvent]) {
+    let f: Vec<f64> = evs.iter().map(|e| e.forecast).collect();
+    for e in evs.iter_mut() {
+        let above = f.iter().filter(|&&x| x > e.forecast).count() as f64;
+        let level = f.iter().filter(|&&x| x == e.forecast).count() as f64;
+        e.forecast_place = above + (level + 1.0) / 2.0;
+    }
+}
+
+/// Every forecast of an `ext_elo` replay, by tournament and team.
+fn load_elo(path: &str) -> rusqlite::Result<HashMap<(i64, i64), f64>> {
+    let c = rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut st = c.prepare("SELECT tournament_id, team_id, x FROM team_events")?;
+    let rows = st.query_map([], |r| Ok(((r.get(0)?, r.get(1)?), r.get(2)?)))?;
+    rows.collect()
+}
+
+/// A venue's forecast mixed with Elo's, `(1 - c) z_A2 + c z_Elo` in units of the
+/// field's spread and put back on A2's scale. A team Elo did not forecast keeps A2's.
+fn blend(venue: i64, evs: &mut [TeamEvent], c: f64, elo: &HashMap<(i64, i64), f64>, ids: &[i64]) {
+    let both: Vec<(usize, f64)> =
+        evs.iter().enumerate().filter_map(|(k, e)| elo.get(&(venue, ids[e.team as usize])).map(|&x| (k, x))).collect();
+    if both.len() < 2 {
+        return;
+    }
+    let spread = |v: Vec<f64>| {
+        let n = v.len() as f64;
+        let mean = v.iter().sum::<f64>() / n;
+        let sd = (v.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0)).sqrt();
+        (mean, if sd > 0.0 { sd } else { 1.0 })
+    };
+    let (ma, sa) = spread(both.iter().map(|&(k, _)| evs[k].forecast).collect());
+    let (mx, sx) = spread(both.iter().map(|&(_, x)| x).collect());
+    for &(k, x) in &both {
+        let za = (evs[k].forecast - ma) / sa;
+        evs[k].forecast = ma + sa * ((1.0 - c) * za + c * (x - mx) / sx);
+    }
+    places(evs);
 }

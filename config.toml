@@ -1,7 +1,7 @@
 [model]
 # The version of the rules. Bump it with any change that moves a published
 # number, so two outputs can be compared knowing which rules made each.
-version = "1.1.0"
+version = "1.2.0"
 
 [data]
 db_path = "buff.db"
@@ -16,7 +16,8 @@ from = "2013-01-01"
 w_in_person = 1.0
 w_strict_sync = 1.0
 w_sync = 1.0
-w_async = 0.0
+# Asynchronous results move the players at a quarter of a table's weight.
+w_async = 0.25
 # Per-player and per-team rows are written every Nth weekly release (plus the last one);
 # releases and their listed counts stay weekly. 1 is every release, 0 the last one only.
 # This is the only config that keeps the history; the research configs use 0.
@@ -36,11 +37,10 @@ merge_venue_drop = true
 # One person entered under two ids that rating.chgk.info has since merged;
 # tools/fetch/player_merges.py rebuilds the list from the official API.
 player_aliases = "data/player_aliases.csv"
-# The tournaments the official system leaves out, for the player side only: they
-# move theta and phi, open no team state, write no team event and enter no
-# metric. Measured and off: +0.0002 +/- 0.0018 on tune and -0.0037 +/- 0.0019 on
-# test, over the same 650 and 284 fields, with 1126 extra tournaments trained on.
-train_unrated = false
+# The tournaments the official system leaves out, for the player side only, at
+# w_unrated: they move theta and phi, open no team state, write no team event
+# and enter no metric.
+train_unrated = true
 w_unrated = 0.5
 
 [question]
@@ -50,8 +50,8 @@ w_unrated = 0.5
 # 2025-01-01..2026-08-27 they tie the hand-tuned set they replace (-0.0015 +/-
 # 0.0032). The comments below that quote a measurement made it on that set.
 b_bar = 3.82
-s_b = 0.735
-s_a = 0.158
+s_b = 5
+s_a = 0.5
 # s_m = 0 fixes m at 1, the nested noisy-OR baseline.
 s_m = 0.0
 s_aff = 0.3
@@ -120,7 +120,7 @@ sigma_new = 0.7
 # Restart width for --passes 2; see the report.
 warm_sigma = 0.5
 warm_until = "2016-01-01"
-info_scale = 0.4
+info_scale = 0.5
 # A newcomer's first ten games move them at most 0.2 each, and partners who
 # play three quarters of their games together drift to one score (1.1).
 # Against the same model without them: -0.0038 +/- 0.0032 NDCG on
@@ -171,6 +171,9 @@ v_fast = 0.0
 # Extra diffusion of theta per year of absence beyond the first, so a player
 # back after years away is no longer held to their last season.
 tau_gap = 0.2
+# A player's gain per game fades with the games played: learn * G / (G + games).
+learn = 0.004
+learn_games = 100
 
 [gauge]
 n_est = 8
@@ -425,3 +428,9 @@ info_floor = 1e-3
 theta_max_step = 1.5
 u_max = 15.0
 crossfit_seed = 20250829
+
+[blend]
+# The published forecast mixes A2's with the London Elo's (https://elo-chgk.uk),
+# replayed by ext_elo before the fit: 0.65 z_A2 + 0.35 z_Elo in each field.
+elo_db = "out/ext/elo.db"
+elo = 0.35

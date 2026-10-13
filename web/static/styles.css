@@ -288,7 +288,8 @@ td:has(.roster-open input:checked) .roster-open span {
 }
 
 /* The venue filter of a merged field: a label and a select on one line. */
-.venue-filter {
+.venue-filter,
+.metrics-controls .field {
   flex-direction: row;
   align-items: center;
   gap: var(--space-2);
@@ -595,7 +596,8 @@ td:has(.roster-open input:checked) .roster-open span {
 
 .post p,
 .post ul,
-.post blockquote {
+.post blockquote,
+.post .metrics {
   margin: 0 0 var(--space-3);
 }
 
@@ -690,6 +692,64 @@ td:has(.roster-open input:checked) .roster-open span {
   margin: 0 0 var(--space-3);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
+}
+
+/* /method/'s metrics block: every view is rendered, and the checkbox and the
+   two selects above it show one table, one chart and one measure on it. */
+.metrics-view,
+.m-view {
+  display: none;
+}
+
+.metrics:has(.metrics-weighted input:checked):has(.metrics-set option[value="rated"]:checked) .metrics-rated-w,
+.metrics:has(.metrics-weighted input:checked):has(.metrics-set option[value="all"]:checked) .metrics-all-w,
+.metrics:has(.metrics-weighted input:not(:checked)):has(.metrics-set option[value="rated"]:checked) .metrics-rated-u,
+.metrics:has(.metrics-weighted input:not(:checked)):has(.metrics-set option[value="all"]:checked) .metrics-all-u {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.metrics:has(.metrics-metric option[value="0"]:checked) .m-0,
+.metrics:has(.metrics-metric option[value="1"]:checked) .m-1,
+.metrics:has(.metrics-metric option[value="2"]:checked) .m-2,
+.metrics:has(.metrics-metric option[value="3"]:checked) .m-3,
+.metrics:has(.metrics-metric option[value="4"]:checked) .m-4,
+.metrics:has(.metrics-metric option[value="5"]:checked) .m-5 {
+  display: inline;
+}
+
+.metrics-chart {
+  flex: 1 1 300px;
+  max-width: 440px;
+  margin: 0;
+}
+
+.metrics-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.m-name {
+  fill: var(--text);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+.m-zero {
+  stroke: var(--muted);
+  vector-effect: non-scaling-stroke;
+}
+
+.m-ci {
+  stroke: var(--blue);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.m-dot {
+  fill: var(--blue);
 }
 
 .post th,

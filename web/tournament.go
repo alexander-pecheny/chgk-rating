@@ -137,7 +137,7 @@ func forecastSection(rows []forecastRow) ui.Node {
 	if len(rows) == 0 {
 		return nil
 	}
-	names := map[string]string{"ours": S.Tournament.Forecast.Ours(), "fun": S.Tournament.Forecast.Fun(), "gg": S.Tournament.Forecast.Gg(), "quest": S.Tournament.Forecast.Quest()}
+	names := map[string]string{"ours": S.Tournament.Forecast.Ours(), "fun": S.Tournament.Forecast.Fun(), "gg": S.Tournament.Forecast.Gg(), "quest": S.Tournament.Forecast.Quest(), "elo": S.Tournament.Forecast.Elo()}
 	var body []ui.Item
 	for _, r := range rows {
 		name := names[r.system]

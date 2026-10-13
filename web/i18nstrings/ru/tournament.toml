@@ -26,6 +26,7 @@ ours = "Этот рейтинг"
 fun = "rating.chgk.fun"
 gg = "chgk.gg"
 quest = "chgk.quest"
+elo = "elo-chgk.uk"
 
 [field]
 title = "Итоги"
