@@ -301,6 +301,10 @@ td:has(.roster-open input:checked) .roster-open span {
   max-width: 100%;
 }
 
+.metrics-controls select {
+  width: auto;
+}
+
 /* One factor of a breakdown's formula, kept on one line, with a wide gap
    before the next. */
 .term {
@@ -692,6 +696,34 @@ td:has(.roster-open input:checked) .roster-open span {
   margin: 0 0 var(--space-3);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
+}
+
+/* A team page: the base roster and the chart beside the breakdown on a wide
+   screen, above it on a narrow one. The gaps are the body's own. */
+.split {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+@media (min-width: 1360px) {
+  .split {
+    display: grid;
+    grid-template-columns: max-content minmax(560px, 1fr);
+    gap: var(--space-4) var(--space-6);
+    align-items: start;
+  }
+
+  .split > :first-child {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
+/* One player a line. */
+.base-roster {
+  flex-direction: column;
+  flex-wrap: nowrap;
 }
 
 /* The switch between A2 and the view with Elo on /players/ and tournament

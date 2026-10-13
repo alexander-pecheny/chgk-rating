@@ -220,7 +220,7 @@ func (s *site) teamPage(id int64, at *release) (string, []ui.Item, error) {
 		b, err := s.pastBreakdown(id, at)
 		c, err2 := s.chartSection(kindTeam, id, false, at)
 		results, err3 := s.teamResults(id, at)
-		return teamName(t.name, id), append(out, b, c, results), errors.Join(err, err2, err3)
+		return teamName(t.name, id), append(out, teamSplit([]ui.Node{c}, b), results), errors.Join(err, err2, err3)
 	}
 	rules, err := s.q.achieveRules()
 	if err != nil {
@@ -287,18 +287,33 @@ func teamStats(t standing, ql *float64) []ui.Item {
 // teamBody is the team page under its stats: the achievement breakdown, the
 // history, the declared roster and every result.
 func (s *site) teamBody(id int64, a achieved, hasAchieve bool, rules map[string]string) ([]ui.Item, error) {
-	var out []ui.Item
+	var b ui.Node
 	if hasAchieve {
-		b, err := s.achieveBreakdown(id, a, rules, nil)
-		if err != nil {
+		var err error
+		if b, err = s.achieveBreakdown(id, a, rules, nil); err != nil {
 			return nil, err
 		}
-		out = append(out, b)
 	}
 	c, err := s.chartSection(kindTeam, id, false, nil)
 	roster, err2 := s.baseRoster(id)
 	results, err3 := s.teamResults(id, nil)
-	return append(out, c, roster, results), errors.Join(err, err2, err3)
+	return []ui.Item{teamSplit([]ui.Node{roster, c}, b), results}, errors.Join(err, err2, err3)
+}
+
+// teamSplit sets the roster and the chart beside the breakdown on a wide
+// screen and above it on a narrow one.
+func teamSplit(side []ui.Node, main ui.Node) ui.Node {
+	var col []ui.Item
+	for _, n := range side {
+		if n != nil {
+			col = append(col, n)
+		}
+	}
+	items := []ui.Item{ui.Col(append([]ui.Item{ui.SpaceLG}, col...)...)}
+	if main != nil {
+		items = append(items, main)
+	}
+	return ui.Split(items...)
 }
 
 // baseRoster is the roster in force at the last release, strongest first; a

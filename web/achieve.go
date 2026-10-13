@@ -41,7 +41,7 @@ func (s *site) achieveBreakdown(id int64, a achieved, rules map[string]string, a
 		rows = append(rows, b.partRow(p))
 	}
 	rows = append(append(rows, b.emptySlots(len(parts))...), b.footRow(sum))
-	if row := shownRow(a.rating, rules); row != nil {
+	if row := strengthRow(a.rating, rules); row != nil {
 		rows = append(rows, row)
 	}
 	t := ui.Table(append([]ui.Item{ui.Scroll(), ui.Breakdown(), ui.Trow(breakdownCols()...)}, rows...)...)
@@ -130,16 +130,16 @@ func (b breakdown) footRow(sum float64) ui.Node {
 	return ui.Trow(ui.FootRow(), textCell(text, ui.Colspan("4")), numCell(disp(b.rating)))
 }
 
-// shownRow is the published number under the sum, when the table squeezes
-// ratings (the achievement rule's squeeze below 1): ref·(rating/ref)^squeeze.
-func shownRow(rating float64, rules map[string]string) ui.Node {
-	p, err1 := strconv.ParseFloat(ruleOr(rules, "squeeze", "1"), 64)
-	ref, err2 := strconv.ParseFloat(ruleOr(rules, "squeeze_ref", "1"), 64)
-	if err1 != nil || err2 != nil || p >= 1 || rating <= 0 {
+// strengthRow is the rating under the points: the strength they stand for,
+// strength_a·points^strength_p, with the constants the achievement rule fixed.
+func strengthRow(points float64, rules map[string]string) ui.Node {
+	a, err1 := strconv.ParseFloat(ruleOr(rules, "strength_a", "0"), 64)
+	p, err2 := strconv.ParseFloat(ruleOr(rules, "strength_p", "0"), 64)
+	if err1 != nil || err2 != nil || p <= 0 || points <= 0 {
 		return nil
 	}
-	text := S.Team.Breakdown.Shown(disp(ref), strconv.FormatFloat(p, 'f', -1, 64))
-	return ui.Trow(ui.FootRow(), textCell(text, ui.Colspan("4")), numCell(disp(ref*math.Pow(rating/ref, p)), ui.Bold()))
+	text := S.Team.Breakdown.Strength(disp(a), strconv.FormatFloat(p, 'f', -1, 64))
+	return ui.Trow(ui.FootRow(), textCell(text, ui.Colspan("4")), numCell(disp(a*math.Pow(points, p)), ui.Bold()))
 }
 
 // teamResults is every result the team has played, with what it was worth and

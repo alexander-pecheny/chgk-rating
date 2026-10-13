@@ -380,6 +380,10 @@ func Article(items ...Item) *Element {
 	return base.New("article", items...)
 }
 
+func Split(items ...Item) *Element {
+	return base.New("split", items...)
+}
+
 // Prop constructors.
 
 func On() Attr {

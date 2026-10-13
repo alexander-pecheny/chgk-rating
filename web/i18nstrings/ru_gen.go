@@ -160,16 +160,15 @@ var RU = Strings{
 	},
 	Method: MethodStrings{
 		Metrics: MethodMetricsStrings{
-			All:  func() string { return "все" },
+			All:  func() string { return "все турниры" },
 			Base: func() string { return "Относительно" },
 			Caption: func(ref string) string {
 				return fmt.Sprintf("Разница с %s на тех же турнирах: точка — среднее, отрезок — 95-процентный доверительный интервал.", ref)
 			},
-			Metric:      func() string { return "На графике" },
-			Rated:       func() string { return "только рейтинговые" },
-			System:      func() string { return "рейтинг" },
-			Tournaments: func() string { return "Турниры" },
-			Weighted:    func() string { return "Взвешенные метрики" },
+			Metric:   func() string { return "На графике" },
+			Rated:    func() string { return "рейтинговые турниры" },
+			System:   func() string { return "рейтинг" },
+			Weighted: func() string { return "Взвешенные метрики" },
 		},
 	},
 	Player: PlayerStrings{
@@ -259,11 +258,9 @@ var RU = Strings{
 			Now:      func() string { return "Сейчас" },
 			NowTitle: func() string { return "Балл сегодня: V · f(t) · ω" },
 			Place:    func(v string) string { return fmt.Sprintf("M = %s", v) },
-			Shown: func(ref string, p string) string {
-				return fmt.Sprintf("Опубликованный рейтинг: %s · (рейтинг ÷ %s)^%s", ref, ref, p)
-			},
+			Strength: func(a string, p string) string { return fmt.Sprintf("Рейтинг = %s · очки^%s", a, p) },
 			Sum: func(sum string, divisor string) string {
-				return fmt.Sprintf("Сумма %s ÷ %s = рейтинг", sum, divisor)
+				return fmt.Sprintf("Сумма %s ÷ %s = очки", sum, divisor)
 			},
 			Title:   func() string { return "Из чего складывается рейтинг" },
 			W:       func() string { return "w" },
@@ -375,7 +372,7 @@ var RU = Strings{
 			Hint: func(lo string, hi string) string {
 				return fmt.Sprintf("Столбик — трудность вопроса b: выше значит сложнее. От %s до %s по этому пакету.", lo, hi)
 			},
-			Title: func() string { return "Трудность вопросов" },
+			Title: func() string { return "Сложность вопросов" },
 		},
 		Stat: TournamentStatStrings{
 			LlCross:     func() string { return "Log-loss (кросс-фит)" },

@@ -48,10 +48,9 @@ impl Book<'_> {
         ndcg(&self.lab.rows, |r| self.rating(r.team, r.day).0)
     }
 
-    /// The published number for a rating: squeezed so the lower table spreads.
+    /// The published number for a rating: the strength its points stand for.
     pub(super) fn shown(&self, x: f64) -> f64 {
-        let r = self.k.squeeze_ref;
-        if x > 0.0 { r * (x / r).powf(self.k.squeeze) } else { x }
+        if self.k.strength_p > 0.0 && x > 0.0 { self.k.strength_a * x.powf(self.k.strength_p) } else { x }
     }
 
     /// The rating on the morning of `day`, and the results that make it, each

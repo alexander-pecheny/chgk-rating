@@ -65,10 +65,10 @@ func metricsBlock() (string, error) {
 		return "", err
 	}
 	var b strings.Builder
-	b.WriteString(`<div class="metrics u-col u-gap-md"><div class="metrics-controls u-row u-wrap u-align-center u-gap-lg">`)
+	b.WriteString(`<div class="metrics u-col u-gap-md"><div class="metrics-controls u-row u-wrap u-align-center u-gap-md">`)
 	fmt.Fprintf(&b, `<label class="checkbox metrics-weighted"><input type="checkbox" checked> %s</label>`, html.EscapeString(S.Method.Metrics.Weighted()))
-	fmt.Fprintf(&b, `<label class="field metrics-set"><span>%s</span><select class="input"><option value="rated">%s</option><option value="all">%s</option></select></label>`,
-		html.EscapeString(S.Method.Metrics.Tournaments()), html.EscapeString(S.Method.Metrics.Rated()), html.EscapeString(S.Method.Metrics.All()))
+	fmt.Fprintf(&b, `<label class="field metrics-set"><select class="input"><option value="rated">%s</option><option value="all">%s</option></select></label>`,
+		html.EscapeString(S.Method.Metrics.Rated()), html.EscapeString(S.Method.Metrics.All()))
 	fmt.Fprintf(&b, `<label class="field metrics-metric"><span>%s</span><select class="input">`, html.EscapeString(S.Method.Metrics.Metric()))
 	for i, n := range metricNames {
 		fmt.Fprintf(&b, `<option value="%d">%s</option>`, i, html.EscapeString(n))
