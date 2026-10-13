@@ -388,6 +388,12 @@ pub struct S2 {
     /// at a strong table is read nearer the table. 0 is off.
     #[serde(default)]
     pub k_mates: f64,
+    /// Display points per unit of the lineup's past-year share of games in
+    /// school, student or novice fields (`data.classes`), on the forecast
+    /// alone. 0 is off. Measured and off (2026-10-13): -150 to -450 moved
+    /// test Pearson by under 0.0005, as such lineups rarely reach a weighted field.
+    #[serde(default)]
+    pub k_youth: f64,
 }
 
 /// What a config that leaves a key of `[team.s2]` out gets: the rule as it
@@ -400,6 +406,7 @@ const S2_DEFAULT: S2 = S2 {
     pack_b: 0.0,
     k_score: 0.0,
     k_mates: 0.0,
+    k_youth: 0.0,
     d: 1200.0,
     k: 0.4,
     k_q: 0.01,
@@ -570,6 +577,24 @@ pub struct Data {
     /// Weight of one of those tournaments, on top of its format weight.
     #[serde(default = "one")]
     pub w_unrated: f64,
+    /// `tools/tournament_class.py`'s table of tournament classes, read by the
+    /// class weights below and by `team.s2.k_youth`. Empty reads none.
+    #[serde(default)]
+    pub classes: String,
+    /// Weights, on top of the format weight, of a school, student or novice
+    /// field, of an easy pack and of a major tournament. 1 is off. Measured
+    /// and off (2026-10-13): 0.5 for the young fields, 0.5 for easy packs and
+    /// 1.5 for majors each moved test Pearson by under 0.0005.
+    #[serde(default = "one")]
+    pub w_school: f64,
+    #[serde(default = "one")]
+    pub w_student: f64,
+    #[serde(default = "one")]
+    pub w_novice: f64,
+    #[serde(default = "one")]
+    pub w_easy: f64,
+    #[serde(default = "one")]
+    pub w_major: f64,
     /// Per-entity rows are written every Nth release and always on the last;
     /// `0` means the last release only.
     pub rows_every: i64,

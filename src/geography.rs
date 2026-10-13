@@ -27,6 +27,9 @@ pub struct Geography {
 /// The two load windows, in days.
 const WEEK: i32 = 7;
 const MONTH: i32 = 30;
+const YEAR: i32 = 365;
+/// Fewer past-year games than this leave a player out of the lineup's youth share.
+const YOUTH_MIN_GAMES: usize = 5;
 
 fn key(player: u32, town: u32) -> u64 {
     crate::util::pack(player, town)
@@ -135,6 +138,50 @@ impl PlayerLoad {
                 let v = self.days.entry(p).or_default();
                 v.retain(|&d| d > t.day - MONTH);
                 v.push(t.day);
+            }
+        }
+    }
+}
+
+/// Each player's games of the past year, in person or synchronous, and whether
+/// each was in a school, student or novice field: ratings earned there carry
+/// over to open fields at a discount.
+pub struct YouthLoad {
+    on: bool,
+    games: HashMap<u32, Vec<(i32, bool)>>,
+}
+
+impl YouthLoad {
+    pub fn new(on: bool) -> YouthLoad {
+        YouthLoad { on, games: HashMap::new() }
+    }
+
+    pub fn on(&self) -> bool {
+        self.on
+    }
+
+    /// The mean over the lineup of each member's past-year youth share, over
+    /// members with at least `YOUTH_MIN_GAMES` games.
+    pub fn share(&self, members: &[u32], day: i32) -> f64 {
+        let shares: Vec<f64> = members
+            .iter()
+            .filter_map(|p| self.games.get(p))
+            .map(|v| v.iter().filter(|(d, _)| *d >= day - YEAR && *d < day).collect::<Vec<_>>())
+            .filter(|v| v.len() >= YOUTH_MIN_GAMES)
+            .map(|v| v.iter().filter(|(_, y)| *y).count() as f64 / v.len() as f64)
+            .collect();
+        if shares.is_empty() { 0.0 } else { shares.iter().sum::<f64>() / shares.len() as f64 }
+    }
+
+    pub fn absorb(&mut self, t: &Tournament) {
+        if !self.on {
+            return;
+        }
+        for res in &t.teams {
+            for &p in &res.members {
+                let v = self.games.entry(p).or_default();
+                v.retain(|(d, _)| *d > t.day - YEAR);
+                v.push((t.day, t.young));
             }
         }
     }
