@@ -23,6 +23,8 @@ w = "w"
 w_format = "формат"
 w_top = "топ"
 w_towns = "города"
+w_legion = "легионеры"
+shown = 'Опубликованный рейтинг: {{.ref}} · (рейтинг ÷ {{.ref}})^{{.p}}'
 equals = ' = {{.v}}'
 fade = 'f(t) = {{.fade}}%'
 fade_overlap = 'f(t) = {{.fade}}%, ω = {{.overlap}}%'

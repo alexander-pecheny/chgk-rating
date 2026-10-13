@@ -27,6 +27,10 @@ pub struct Blend {
     pub elo_db: String,
     /// Elo's share of the forecast, in units of each field's spread.
     pub elo: f64,
+    /// Elo's share of each published player rating, in units of the spread of
+    /// the experienced players' ratings at the release; 0 leaves them A2's.
+    #[serde(default)]
+    pub players: f64,
 }
 
 /// What the fit writes into `meta` to say which rules made its numbers.

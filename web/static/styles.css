@@ -694,9 +694,20 @@ td:has(.roster-open input:checked) .roster-open span {
   font-variant-numeric: tabular-nums;
 }
 
+/* The switch between A2 and the view with Elo on /players/ and tournament
+   pages: the kit's segmented control, its options links. */
+.view-switch {
+  align-self: flex-start;
+}
+
+.view-switch .seg-btn {
+  text-decoration: none;
+}
+
 /* /method/'s metrics block: every view is rendered, and the checkbox and the
    two selects above it show one table, one chart and one measure on it. */
 .metrics-view,
+.mb,
 .m-view {
   display: none;
 }
@@ -717,6 +728,24 @@ td:has(.roster-open input:checked) .roster-open span {
 .metrics:has(.metrics-metric option[value="4"]:checked) .m-4,
 .metrics:has(.metrics-metric option[value="5"]:checked) .m-5 {
   display: inline;
+}
+
+.metrics:has(.metrics-base option[value="0"]:checked) .mb-0,
+.metrics:has(.metrics-base option[value="1"]:checked) .mb-1,
+.metrics:has(.metrics-base option[value="2"]:checked) .mb-2,
+.metrics:has(.metrics-base option[value="3"]:checked) .mb-3,
+.metrics:has(.metrics-base option[value="4"]:checked) .mb-4,
+.metrics:has(.metrics-base option[value="5"]:checked) .mb-5 {
+  display: inline;
+}
+
+.metrics-table th {
+  vertical-align: bottom;
+}
+
+.metrics-table th + th,
+.metrics-table td + td {
+  width: 4.5ch;
 }
 
 .metrics-chart {

@@ -42,6 +42,8 @@ pub(super) struct Val {
     /// The reach factor and the town count behind it.
     pub geo: f64,
     pub n_towns: usize,
+    /// Q(L) of the base roster over that of the lineup, when the lineup was stronger; else 1.
+    pub legion: f64,
 }
 
 fn own_lineup(r: &Res) -> bool {
@@ -139,7 +141,8 @@ fn value(lab: &Lab, r: &Res, f: &Field, k: &Knobs, fw: &mut HashMap<i64, (f64, f
     let (wf, fs) = *fw.entry(r.tid).or_insert_with(|| field_weight(f, k));
     let (geo, _, n_towns) = reach(f, k);
     let w = wfmt * wf * geo;
-    let base = w * (perf.max(0.0) + if r.place == 1.0 { k.win_bonus } else { 0.0 });
+    let legion = if k.legion && r.q_base > 0.0 && r.q_lineup > r.q_base { r.q_base / r.q_lineup } else { 1.0 };
+    let base = w * legion * (perf.max(0.0) + if r.place == 1.0 { k.win_bonus } else { 0.0 });
     Some(Val {
         day: r.day,
         tid: r.tid,
@@ -160,6 +163,7 @@ fn value(lab: &Lab, r: &Res, f: &Field, k: &Knobs, fw: &mut HashMap<i64, (f64, f
         season: lab.seasons.season_of(r.day).unwrap_or(UNKNOWN_SEASON),
         geo,
         n_towns,
+        legion,
     })
 }
 

@@ -16,8 +16,9 @@ from = "2013-01-01"
 w_in_person = 1.0
 w_strict_sync = 1.0
 w_sync = 1.0
-# Asynchronous results move the players at a quarter of a table's weight.
-w_async = 0.25
+# Only the official rating's tournaments: no asynchronous ones. The view with
+# Elo on /players/ and tournament pages trains on everything (see update.sh).
+w_async = 0.0
 # Per-player and per-team rows are written every Nth weekly release (plus the last one);
 # releases and their listed counts stay weekly. 1 is every release, 0 the last one only.
 # This is the only config that keeps the history; the research configs use 0.
@@ -39,8 +40,8 @@ merge_venue_drop = true
 player_aliases = "data/player_aliases.csv"
 # The tournaments the official system leaves out, for the player side only, at
 # w_unrated: they move theta and phi, open no team state, write no team event
-# and enter no metric.
-train_unrated = true
+# and enter no metric. Off in A2; on in the view with Elo.
+train_unrated = false
 w_unrated = 0.5
 
 [question]
@@ -428,9 +429,3 @@ info_floor = 1e-3
 theta_max_step = 1.5
 u_max = 15.0
 crossfit_seed = 20250829
-
-[blend]
-# The published forecast mixes A2's with the London Elo's (https://elo-chgk.uk),
-# replayed by ext_elo before the fit: 0.65 z_A2 + 0.35 z_Elo in each field.
-elo_db = "out/ext/elo.db"
-elo = 0.35

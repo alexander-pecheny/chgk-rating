@@ -17,7 +17,7 @@ const SCHEMA: &str = "DROP TABLE IF EXISTS achieve_values;
          CREATE TABLE achieve_values (tournament_id INTEGER, field_id INTEGER, team_id INTEGER, date TEXT,
            format TEXT, place REAL, venue_place REAL, n_teams INTEGER, n_venues INTEGER, field REAL,
            perf REAL, strength REAL, w REAL, w_format REAL, w_field REAL, w_reach REAL, n_towns INTEGER, peak REAL,
-           gain REAL);
+           gain REAL, w_legion REAL);
          DROP TABLE IF EXISTS achieve_parts;
          CREATE TABLE achieve_parts (team_id INTEGER, release_id INTEGER, slot INTEGER, tournament_id INTEGER,
            field_id INTEGER, peak REAL, fade REAL, overlap REAL, share REAL, contribution REAL,
@@ -81,7 +81,7 @@ fn compute(b: &Book, releases: Vec<(i64, i32)>, events: &[(i64, i64, i32)], t0: 
     eprintln!("publish: {} releases rated [{:.0}s]", releases.len(), t0.elapsed().as_secs_f64());
     // Every event's rating before and after, on the mornings of its day and the next.
     let steps: Vec<(i64, f64, f64)> =
-        events.par_iter().map(|&(i, t, d)| (i, b.rating(t, d).0, b.rating(t, d + 1).0)).collect();
+        events.par_iter().map(|&(i, t, d)| (i, b.shown(b.rating(t, d).0), b.shown(b.rating(t, d + 1).0))).collect();
     eprintln!("publish: {} events stepped [{:.0}s]", steps.len(), t0.elapsed().as_secs_f64());
     let gains = teams.par_iter().flat_map_iter(|&t| gains(b, t)).collect();
     Computed { releases, per_release, steps, gains, teams }
@@ -115,7 +115,7 @@ fn events(conn: &Connection) -> rusqlite::Result<Vec<(i64, i64, i32)>> {
 fn release_rows(b: &Book, teams: &[i64], d: i32) -> Vec<(i64, f64, usize)> {
     let row = |&t: &i64| {
         let (x, c) = b.rating(t, d);
-        (x > 0.0).then_some((t, x, c.len()))
+        (x > 0.0).then_some((t, b.shown(x), c.len()))
     };
     teams.iter().filter(|&&t| b.listed(t, d)).filter_map(row).collect()
 }
@@ -128,9 +128,9 @@ fn gains(b: &Book, t: i64) -> Vec<((i64, i64), f64)> {
     days.dedup();
     let mut out = Vec::new();
     for d in days {
-        let x0 = b.rating(t, d).0;
+        let x0 = b.shown(b.rating(t, d).0);
         let (x1, c, slots) = b.rating_slots(t, d + 1);
-        let rise = x1 - x0;
+        let rise = b.shown(x1) - x0;
         let entered: Vec<(i64, f64)> = c.iter().filter(|(v, _)| v.day == d).map(|(v, now)| (v.venue, now / slots)).collect();
         let total: f64 = entered.iter().map(|e| e.1).sum();
         if rise > 0.0 && total > 0.0 {
@@ -188,14 +188,14 @@ fn write_ql(tx: &Transaction, releases: &[(i64, i32)], ql: &[(i32, i64, f64)]) -
 /// `achieve_values`: every counted result and what it was worth on the day.
 fn write_values(tx: &Transaction, b: &Book, gains: &HashMap<(i64, i64), f64>) -> rusqlite::Result<()> {
     let mut ins =
-        tx.prepare("INSERT INTO achieve_values VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)")?;
+        tx.prepare("INSERT INTO achieve_values VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)")?;
     for (&t, vals) in &b.vals {
         for v in vals {
             let wf = v.w / (v.wfmt * v.geo).max(EPS);
             ins.execute(params![
                 v.venue, v.tid, t, format_date(v.day), v.format.to_string(), v.place, v.vplace,
                 v.nt as i64, v.nv as i64, v.fs, v.perf, v.shown, v.w, v.wfmt, wf, v.geo,
-                v.n_towns as i64, v.base, gains.get(&(v.venue, t))
+                v.n_towns as i64, v.base, gains.get(&(v.venue, t)), v.legion
             ])?;
         }
     }

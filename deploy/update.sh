@@ -61,30 +61,12 @@ stamp() { echo "$2" > "out/stamps/$1"; }
 bin=target/release
 k_buff=$(hash buff.db)
 k_data=$(hash config*.toml $(find -L data -type f | sort))
-# The London Elo replay the published forecast is blended with ([blend] in
-# config.toml) reads buff.db alone, so it runs first and its key is part of the fit's.
-k_elo=$(echo "$k_buff $k_data $(hash $bin/ext_elo)" | hash -)
-k_fit=$(echo "$k_elo $(hash $bin/fit)" | hash -)
+k_fit=$(echo "$k_buff $k_data $(hash $bin/fit)" | hash -)
 k_eval=$(echo "$k_fit $(hash $bin/eval)" | hash -)
 k_pub=$(echo "$k_fit $(hash $bin/achieve)" | hash -)
 # Each run's window ends before the day after buff.db's last complete update,
 # not before the clock's today: the same data gives the same numbers on any day.
 today=$(sqlite3 buff.db "select date(substr(d,1,19), printf('%+d minutes', (case substr(d,20,1) when '-' then 1 else -1 end) * (substr(d,21,2) * 60 + substr(d,23,2))), '+1 day') from (select max(datetime) d from db_updates)")
-
-if fresh ext_elo "$k_elo"; then
-    log "elo is current"
-else
-    log "elo"
-    unstamp ext_elo
-    mkdir -p out/ext
-    if ! $bin/ext_elo --to "$today" > out/rivals_ext_elo.log 2>&1; then
-        log "elo failed, see out/rivals_ext_elo.log; the site keeps the old numbers"
-        tail -n 20 out/rivals_ext_elo.log
-        exit 1
-    fi
-    stamp ext_elo "$k_elo"
-    log "elo done: $(tail -n 1 out/rivals_ext_elo.log)"
-fi
 
 # The fit also freezes the achievement rating's values on its own pass, which
 # achieve would otherwise replay. Eval reads the fit's own team rows, which
@@ -153,13 +135,38 @@ rival() {
 rival ext_fun --as-of "$today" &
 rival ext_gg --to "$today" --rows-every 0 &
 rival ext_quest --to "$today" &
+rival ext_elo --to "$today" &
 wait
 log "rivals done"
+
+# The second view of /players/ and tournament pages: A2 trained on every
+# tournament, its forecasts and player ratings blended with the London Elo's.
+# Team ratings stay A2's. It reads the Elo replay, so it runs after the rivals.
+mkdir -p out/best
+sed -e 's|^out_path = .*|out_path = "out/best/ratings.db"|' -e 's/^w_async = .*/w_async = 0.25/' \
+    -e 's/^train_unrated = .*/train_unrated = true/' config.toml > out/best/config.toml
+printf '\n[blend]\nelo_db = "out/ext/elo.db"\nelo = 0.35\nplayers = 0.35\n' >> out/best/config.toml
+k_best=$(echo "$k_pub $(cat out/stamps/ext_elo 2>/dev/null) $(hash out/best/config.toml)" | hash -)
+if fresh best "$k_best"; then
+    log "best is current"
+else
+    log "best"
+    unstamp best
+    # Its team columns are A2's: achieve publishes the values the A2 fit froze.
+    if $bin/fit --config out/best/config.toml > out/best/fit.log 2>&1 &&
+        $bin/achieve --publish out/best/ratings.db > out/best/achieve.log 2>&1 &&
+        $bin/webindex --rebuild --config out/best/config.toml --ratings out/best/ratings.db --out out/best/web.db > out/best/webindex.log 2>&1; then
+        stamp best "$k_best"
+        log "best done"
+    else
+        log "best failed, see out/best/*.log; its view keeps yesterday's numbers"
+    fi
+fi
 
 # The serving index: names, rosters, ranking tables and anomaly scores. It is
 # built beside the old one and renamed in, so the running site never reads half
 # of it.
-k_web=$(echo "$k_pub $k_eval $(cat out/stamps/ext_fun out/stamps/ext_gg out/stamps/ext_quest 2>/dev/null) $(hash $bin/webindex)" | hash -)
+k_web=$(echo "$k_pub $k_eval $(cat out/stamps/ext_fun out/stamps/ext_gg out/stamps/ext_quest out/stamps/ext_elo 2>/dev/null) $(hash $bin/webindex)" | hash -)
 if fresh webindex "$k_web"; then
     log "webindex is current"
     SKIP_RESTART=${SKIP_RESTART:-1}

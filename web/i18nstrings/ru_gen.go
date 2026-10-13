@@ -153,10 +153,15 @@ var RU = Strings{
 			},
 		},
 		Untitled: func() string { return "без названия" },
+		View: CommonViewStrings{
+			A2:   func() string { return "A2" },
+			Best: func() string { return "А2+Сатыбалдыев+онлайны" },
+		},
 	},
 	Method: MethodStrings{
 		Metrics: MethodMetricsStrings{
-			All: func() string { return "все" },
+			All:  func() string { return "все" },
+			Base: func() string { return "Относительно" },
 			Caption: func(ref string) string {
 				return fmt.Sprintf("Разница с %s на тех же турнирах: точка — среднее, отрезок — 95-процентный доверительный интервал.", ref)
 			},
@@ -254,12 +259,16 @@ var RU = Strings{
 			Now:      func() string { return "Сейчас" },
 			NowTitle: func() string { return "Балл сегодня: V · f(t) · ω" },
 			Place:    func(v string) string { return fmt.Sprintf("M = %s", v) },
+			Shown: func(ref string, p string) string {
+				return fmt.Sprintf("Опубликованный рейтинг: %s · (рейтинг ÷ %s)^%s", ref, ref, p)
+			},
 			Sum: func(sum string, divisor string) string {
 				return fmt.Sprintf("Сумма %s ÷ %s = рейтинг", sum, divisor)
 			},
 			Title:   func() string { return "Из чего складывается рейтинг" },
 			W:       func() string { return "w" },
 			WFormat: func() string { return "формат" },
+			WLegion: func() string { return "легионеры" },
 			WTop:    func() string { return "топ" },
 			WTowns:  func() string { return "города" },
 		},

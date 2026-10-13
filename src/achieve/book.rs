@@ -48,6 +48,12 @@ impl Book<'_> {
         ndcg(&self.lab.rows, |r| self.rating(r.team, r.day).0)
     }
 
+    /// The published number for a rating: squeezed so the lower table spreads.
+    pub(super) fn shown(&self, x: f64) -> f64 {
+        let r = self.k.squeeze_ref;
+        if x > 0.0 { r * (x / r).powf(self.k.squeeze) } else { x }
+    }
+
     /// The rating on the morning of `day`, and the results that make it, each
     /// with its value on that day: faded, and scaled by the roster overlap.
     pub(super) fn rating(&self, team: i64, day: i32) -> (f64, Vec<(Val, f64)>) {

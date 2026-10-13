@@ -45,7 +45,7 @@ OPTIONS = [
     ("--old", dict(action="store_true", help="add the old system's forecast")),
     ("--from", dict(dest="frm", default=lab.TEST[0])),
     ("--to", dict(default=lab.TEST[1])),
-    ("--json", dict(action="store_true", help="print the rows, and with --paired their differences, as JSON")),
+    ("--json", dict(action="store_true", help="print the rows and their paired differences as JSON")),
 ]
 
 
@@ -180,17 +180,15 @@ def main():
 
 def as_json(a, w, labels, res, used):
     """The table for /method/'s metrics block: each row's values and, against
-    `--paired`, its differences with their paired bootstrap SEs."""
-    rows = []
-    for label in labels:
-        row = {"label": label, "value": [lab.wmean(res[label][m], used, w) for m in METRICS]}
-        if a.paired:
-            pairs = [lab.paired(res[label][m], res[a.paired][m],
-                                [t for t in used if res[label][m].get(t) is not None and res[a.paired][m].get(t) is not None], w)
-                     for m in METRICS] if label != a.paired else [(0.0, 0.0)] * len(METRICS)
-            row["diff"], row["se"] = [d for d, _ in pairs], [se for _, se in pairs]
-        rows.append(row)
-    return {"from": a.frm, "to": a.to, "weighted": w is not None, "n": len(used), "reference": a.paired, "rows": rows}
+    every other row, its differences with their paired bootstrap SEs."""
+    def vs(label, base):
+        pairs = [lab.paired(res[label][m], res[base][m],
+                            [t for t in used if res[label][m].get(t) is not None and res[base][m].get(t) is not None], w)
+                 for m in METRICS]
+        return {"diff": [d for d, _ in pairs], "se": [se for _, se in pairs]}
+    rows = [{"label": label, "value": [lab.wmean(res[label][m], used, w) for m in METRICS],
+             "vs": {base: vs(label, base) for base in labels if base != label}} for label in labels]
+    return {"from": a.frm, "to": a.to, "weighted": w is not None, "n": len(used), "rows": rows}
 
 
 if __name__ == "__main__":

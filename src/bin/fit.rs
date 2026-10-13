@@ -204,6 +204,9 @@ struct Fit<'a> {
     before: Vec<(u32, PlayerEvent)>,
     /// Elo's share of the published forecast and its forecasts by (tournament, team).
     elo: Option<(f64, HashMap<(i64, i64), f64>)>,
+    /// Elo's share of each published player rating, and every player's Elo
+    /// after each of their tournaments, by day, by player index.
+    elo_players: Option<(f64, Vec<Vec<(i32, f64)>>)>,
     /// The venue each player of this tournament played at.
     venue_of: HashMap<u32, i64>,
 }
@@ -230,6 +233,12 @@ impl<'a> Fit<'a> {
             before: Vec::new(),
             venue_of: HashMap::new(),
             elo: cfg.blend.as_ref().filter(|b| b.elo > 0.0).map(|b| load_elo(&b.elo_db).map(|x| (b.elo, x))).transpose()?,
+            elo_players: cfg
+                .blend
+                .as_ref()
+                .filter(|b| b.players > 0.0)
+                .map(|b| load_elo_trace(&b.elo_db, arena).map(|x| (b.players, x)))
+                .transpose()?,
         })
     }
 }
@@ -356,11 +365,14 @@ impl Observer for Fit<'_> {
             d
         };
         let mut prows: Vec<PlayerRow> = Vec::with_capacity(listed.len());
-        for &i in &listed {
+        // The published number may carry a share of the format effect; the
+        // forecast reads `theta` and `phi` separately and never this.
+        let mut thetas: Vec<f64> = listed.iter().map(|&i| r.players.published(i) + cfg.display.player_phi * r.players.phi(i)).collect();
+        if let Some((c, trace)) = &self.elo_players {
+            blend_players(&mut thetas, &listed, r, *c, trace);
+        }
+        for (&i, &theta) in listed.iter().zip(&thetas) {
             let change = since(r.players.state[i].theta_raw, &mut self.prev_p[i]);
-            // The published number may carry a share of the format effect; the
-            // forecast reads `theta` and `phi` separately and never this.
-            let theta = r.players.published(i) + cfg.display.player_phi * r.players.phi(i);
             let delta = since(chgk_rating::display::player(theta, cfg), &mut self.prev_d[i]);
             let vol = r.players.state[i].vol;
             prows.push((arena.player_ids[i], theta, r.players.sigma_at(i, r.day, cfg), r.activity.count[i], change, delta, vol));
@@ -573,4 +585,60 @@ fn blend(venue: i64, evs: &mut [TeamEvent], c: f64, elo: &HashMap<(i64, i64), f6
         evs[k].forecast = ma + sa * ((1.0 - c) * za + c * (x - mx) / sx);
     }
     places(evs);
+}
+
+/// A player is read for the scale of a release's blend once this experienced.
+const BLEND_GAMES: u32 = 50;
+
+/// Every player's Elo after each of their tournaments, from an `ext_elo`
+/// replay's `elo_trace`, by player index of this arena and in order of day.
+fn load_elo_trace(path: &str, arena: &Arena) -> rusqlite::Result<Vec<Vec<(i32, f64)>>> {
+    let idx: HashMap<i64, usize> = arena.player_ids.iter().enumerate().map(|(i, &p)| (p, i)).collect();
+    let c = rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut out = vec![Vec::new(); arena.n_players()];
+    let mut st = c.prepare("SELECT player_id, day, elo FROM elo_trace ORDER BY day")?;
+    let mut rows = st.query([])?;
+    while let Some(r) = rows.next()? {
+        if let Some(&i) = idx.get(&r.get::<_, i64>(0)?) {
+            out[i].push((r.get(1)?, r.get(2)?));
+        }
+    }
+    Ok(out)
+}
+
+/// Each listed player's published theta mixed with their latest Elo before
+/// the release: both in units of their spread over the players with
+/// `BLEND_GAMES` games and an Elo, then `(1 - c) theta + c Elo` on theta's
+/// scale. A player Elo has not rated keeps theta.
+fn blend_players(thetas: &mut [f64], listed: &[usize], r: &Release, c: f64, trace: &[Vec<(i32, f64)>]) {
+    let elo: Vec<Option<f64>> = listed
+        .iter()
+        .map(|&i| {
+            let t = &trace[i];
+            let k = t.partition_point(|x| x.0 < r.day);
+            (k > 0).then(|| t[k - 1].1)
+        })
+        .collect();
+    let pairs: Vec<(f64, f64)> = listed
+        .iter()
+        .zip(thetas.iter())
+        .zip(&elo)
+        .filter(|((&i, _), e)| e.is_some() && r.players.state[i].games >= BLEND_GAMES)
+        .map(|((_, &th), e)| (th, e.unwrap()))
+        .collect();
+    if pairs.len() < 2 {
+        return;
+    }
+    let spread = |v: Vec<f64>| {
+        let n = v.len() as f64;
+        let mean = v.iter().sum::<f64>() / n;
+        (mean, (v.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0)).sqrt().max(f64::EPSILON))
+    };
+    let (mt, st) = spread(pairs.iter().map(|p| p.0).collect());
+    let (me, se) = spread(pairs.iter().map(|p| p.1).collect());
+    for (th, e) in thetas.iter_mut().zip(&elo) {
+        if let Some(e) = e {
+            *th = (1.0 - c) * *th + c * (mt + st * (e - me) / se);
+        }
+    }
 }
