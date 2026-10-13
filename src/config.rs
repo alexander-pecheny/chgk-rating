@@ -846,6 +846,14 @@ pub struct Player {
     /// at `mu_new`, however strong the table they join.
     #[serde(default)]
     pub seed_w: f64,
+    /// Added to the start of a player whose first game is in a school,
+    /// student or novice field (`data.classes`): such a field cannot place its
+    /// players against adults, so they arrive in open fields overrated. 0 is
+    /// off. At -0.25 (2026-10-13) young fields gain +0.035 per-field Pearson on
+    /// tune and +0.036 on test (tools/class_metrics.py), the weighted metric
+    /// +0.0009 / +0.0006, and open fields lose nothing.
+    #[serde(default)]
+    pub mu_young: f64,
     /// Volatility bounds and adaptation rate; `tau_p` is the starting volatility.
     pub v_min: f64,
     pub v_max: f64,
