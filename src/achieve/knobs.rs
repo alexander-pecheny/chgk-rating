@@ -168,8 +168,8 @@ const DEFAULT: Knobs = Knobs {
     overlap_by: "strength",
     win_bonus: 0.0,
     legion: true,
-    strength_a: 3836.0,
-    strength_p: 0.105,
+    strength_a: 4520.0,
+    strength_p: 0.0956,
 };
 
 impl Default for Knobs {
