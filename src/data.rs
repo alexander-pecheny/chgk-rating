@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::util::parse_date;
 use rusqlite::Connection;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub const CORRECT: u8 = 1;
 pub const WRONG: u8 = 0;
@@ -86,7 +86,7 @@ pub struct Tournament {
     pub teams: Vec<TeamResult>,
     pub n_q: usize,
     pub n_q_declared: usize,
-    /// A school, student or novice field by `data.classes`.
+    /// A school, student or novice field, by `crate::age`.
     pub young: bool,
 }
 
@@ -383,7 +383,7 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
     let conn = Connection::open_with_flags(&cfg.data.db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut stmt = conn.prepare(&results_sql(cfg))?;
     let mut rows = stmt.query([from, to])?;
-    let mut ld = Loader::new(cfg);
+    let mut ld = Loader::new(cfg, crate::age::young_fields(&conn)?);
     let mut skip_id = i64::MIN;
     while let Some(row) = rows.next()? {
         let tid: i64 = row.get(C_ID)?;
@@ -441,10 +441,11 @@ struct Loader<'a> {
     tournaments: Vec<Tournament>,
     /// `data.classes`: each tournament's age, prestige and pack difficulty.
     classes: HashMap<i64, [String; 3]>,
+    young: HashSet<i64>,
 }
 
 impl<'a> Loader<'a> {
-    fn new(cfg: &'a Config) -> Loader<'a> {
+    fn new(cfg: &'a Config, young: HashSet<i64>) -> Loader<'a> {
         Loader {
             cfg,
             players: Interner::new(),
@@ -456,6 +457,7 @@ impl<'a> Loader<'a> {
             no_alias: HashMap::new(),
             tournaments: Vec::new(),
             classes: classes(&cfg.data.classes),
+            young,
         }
     }
 
@@ -481,7 +483,7 @@ impl<'a> Loader<'a> {
         let unrated_async = format == Format::Async && in_rating == 0 && !cfg.data.include_unrated;
         let train_only = unrated_async || (cfg.data.train_unrated && !cfg.data.include_unrated && in_rating == 0);
         let class = self.classes.get(&id);
-        let young = class.is_some_and(|[age, _, _]| matches!(age.as_str(), "school" | "student" | "novice"));
+        let young = self.young.contains(&id);
         let weight = format.weight(cfg)
             * if train_only && !unrated_async { cfg.data.w_unrated } else { 1.0 }
             * class.map_or(1.0, |c| class_weight(c, cfg));

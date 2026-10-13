@@ -424,6 +424,10 @@ impl<'a> Reader<'a> {
             let (l7, l30) = ctx.load.counts(&res.members, t.day);
             b += p.load_7 * l7 + p.load_30 * l30;
         }
+        if in_person && p.k_ip_new != 0.0 && !res.members.is_empty() {
+            let fresh: f64 = res.members.iter().map(|&i| 1.0 / (1.0 + self.players.state[i as usize].games_ip as f64)).sum();
+            b += p.k_ip_new * fresh / res.members.len() as f64;
+        }
         if listed && ctx.youth.on() {
             b += p.k_youth * ctx.youth.share(&res.members, t.day);
         }

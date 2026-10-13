@@ -394,6 +394,15 @@ pub struct S2 {
     /// test Pearson by under 0.0005, as such lineups rarely reach a weighted field.
     #[serde(default)]
     pub k_youth: f64,
+    /// Display points per unit of the lineup's mean `1 / (1 + games_ip)`, at an
+    /// in-person table and on the forecast alone: a player new to the table
+    /// underperforms the strength their synchronous games earned. 0 is off.
+    /// At -600 on top of `player.mu_young` (2026-10-13) young in-person fields
+    /// gain +0.025 per-field Pearson on tune and +0.016 on test, open and
+    /// synchronous fields move by under 0.001 and the weighted NDCG by
+    /// -0.0006 +/- 0.0011 and -0.0010 +/- 0.0015.
+    #[serde(default)]
+    pub k_ip_new: f64,
 }
 
 /// What a config that leaves a key of `[team.s2]` out gets: the rule as it
@@ -407,6 +416,7 @@ const S2_DEFAULT: S2 = S2 {
     k_score: 0.0,
     k_mates: 0.0,
     k_youth: 0.0,
+    k_ip_new: 0.0,
     d: 1200.0,
     k: 0.4,
     k_q: 0.01,
@@ -578,7 +588,7 @@ pub struct Data {
     #[serde(default = "one")]
     pub w_unrated: f64,
     /// `tools/tournament_class.py`'s table of tournament classes, read by the
-    /// class weights below and by `team.s2.k_youth`. Empty reads none.
+    /// class weights below. Empty reads none.
     #[serde(default)]
     pub classes: String,
     /// Weights, on top of the format weight, of a school, student or novice
@@ -847,7 +857,7 @@ pub struct Player {
     #[serde(default)]
     pub seed_w: f64,
     /// Added to the start of a player whose first game is in a school,
-    /// student or novice field (`data.classes`): such a field cannot place its
+    /// student or novice field (`crate::age`): such a field cannot place its
     /// players against adults, so they arrive in open fields overrated. 0 is
     /// off. At -0.25 (2026-10-13) young fields gain +0.035 per-field Pearson on
     /// tune and +0.036 on test (tools/class_metrics.py), the weighted metric
