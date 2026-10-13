@@ -9,7 +9,7 @@ use crate::data::{Arena, Format, Tournament};
 use crate::difficulty::Difficulties;
 use crate::editor_memory::EditorMemory;
 use crate::gauge::{self, Activity};
-use crate::geography::{Geography, PlayerLoad};
+use crate::geography::{Geography, PlayerLoad, YouthLoad};
 use crate::question_model::{self as qm, Field, Players, QParams};
 use crate::team_event::TeamEvent;
 use crate::team_model::Teams;
@@ -89,6 +89,7 @@ pub struct Memories {
     pub edmem: EditorMemory,
     pub geo: Geography,
     pub load: PlayerLoad,
+    pub youth: YouthLoad,
     /// `team.s2.ed_from`.
     ed_from: i32,
 }
@@ -102,17 +103,21 @@ impl Memories {
             edmem: EditorMemory::new(s2.editor_memory != 0.0 || s2.ed_phi != 0.0, s2.ed_min_n, s2.ed_key, s2.ed_half_life),
             geo: Geography::new(s2.home_bonus != 0.0 || s2.home_team_bonus != 0.0),
             load: PlayerLoad::new(s2.load_7 != 0.0 || s2.load_30 != 0.0),
+            youth: YouthLoad::new(s2.k_youth != 0.0),
             ed_from: parse_date(&s2.ed_from).unwrap_or(i32::MIN),
         }
     }
 
     pub fn context(&self) -> Context<'_> {
-        Context { chem: &self.chem, diff: &self.diff, edmem: &self.edmem, geo: &self.geo, load: &self.load }
+        Context { chem: &self.chem, diff: &self.diff, edmem: &self.edmem, geo: &self.geo, load: &self.load, youth: &self.youth }
     }
 
     /// Everything the memories learn from one tournament once it has been
     /// forecast. A tournament kept for the player side alone teaches them nothing.
     fn absorb(&mut self, t: &Tournament, events: &[TeamEvent], params: &[QParams]) {
+        if t.format != Format::Async {
+            self.youth.absorb(t);
+        }
         if t.train_only {
             return;
         }

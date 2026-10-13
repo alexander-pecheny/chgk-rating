@@ -3,11 +3,16 @@
 // Rust side (`fit`, then `webindex`), and renders every page per request
 // through DopeUIKit's kit. Nothing here computes a rating.
 //
-//	serve [--ratings out/ratings.db] [--web out/web.db] [--addr 127.0.0.1:8080] [--dev]
+//	serve [--ratings out/ratings.db] [--web out/web.db] [--best-ratings out/best/ratings.db]
+//	      [--best-web out/best/web.db] [--addr 127.0.0.1:8080] [--dev]
+//
+// The second pair is the view with Elo that /players/ and tournament pages
+// switch to; without it they show A2 alone.
 package main
 
 import (
 	"embed"
+	"html"
 	"errors"
 	"flag"
 	"log"
@@ -27,6 +32,8 @@ var embedded embed.FS
 func main() {
 	ratings := flag.String("ratings", "out/ratings.db", "the fit's output")
 	web := flag.String("web", "out/web.db", "the serving index webindex builds")
+	bestRatings := flag.String("best-ratings", "out/best/ratings.db", "the fit of the view with Elo")
+	bestWeb := flag.String("best-web", "out/best/web.db", "its serving index")
 	addr := flag.String("addr", "127.0.0.1:8080", "where to listen")
 	dev := flag.Bool("dev", false, "read web/static from disk on every request, for editing the CSS and JS")
 	flag.StringVar(&typstBin, "typst", typstBin, "the typst executable, which draws /method/'s formulas")
@@ -41,6 +48,11 @@ func main() {
 		roots = []string{"web", "."}
 	}
 	h := &handler{site: s, assets: kit.Assets(embedded, roots...)}
+	if best, err := open(*bestRatings, *bestWeb); err == nil {
+		h.best = best
+	} else {
+		log.Printf("no view with Elo: %v", err)
+	}
 	log.Printf("serving %d teams and %d players from release %s on http://%s", s.nTeams, s.nPlayers, s.releaseDate, *addr)
 	log.Fatal(http.ListenAndServe(*addr, noindex(webassets.Gzip(h.mux()))))
 }
@@ -85,8 +97,39 @@ func noindex(next http.Handler) http.Handler {
 }
 
 type handler struct {
-	site   *site
+	site *site
+	// best is the view with Elo; nil when its fit is missing.
+	best   *site
 	assets *webassets.Assets
+}
+
+// viewCookie keeps a reader's choice of view; ?view= sets it.
+const viewCookie = "view"
+
+// switched are the sections served from the view a reader picked.
+var switched = map[string]bool{"players": true, "tournaments": true}
+
+// pick is the site for this request, and whether the page carries the switch.
+func (h *handler) pick(r *http.Request, segs []string) (*site, bool) {
+	if h.best == nil || len(segs) == 0 || !switched[segs[0]] {
+		return h.site, false
+	}
+	if c, err := r.Cookie(viewCookie); err == nil && c.Value == "best" {
+		return h.best, true
+	}
+	return h.site, true
+}
+
+// viewSwitch is the two views as links, the one shown marked.
+func viewSwitch(best bool) ui.Item {
+	btn := func(v, label string, on bool) string {
+		cls := "seg-btn"
+		if on {
+			cls += " active"
+		}
+		return `<a class="` + cls + `" href="?view=` + v + `">` + html.EscapeString(label) + `</a>`
+	}
+	return ui.Raw(`<div class="seg view-switch">` + btn("a2", S.Common.View.A2(), !best) + btn("best", S.Common.View.Best(), best) + `</div>`)
 }
 
 // page is a page's name and content; an entity page's name also ends the
@@ -188,6 +231,9 @@ func entity(kind string) page {
 // idBits is the width of an id in an address.
 const idBits = 64
 
+// yearSeconds is how long the view cookie lasts.
+const yearSeconds = 365 * 24 * 60 * 60
+
 // pageNo is a page number from the address; anything else is the first page.
 func pageNo(seg string) int {
 	if v, err := strconv.Atoi(seg); err == nil {
@@ -197,7 +243,13 @@ func pageNo(seg string) int {
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if v := r.URL.Query().Get("view"); v != "" {
+		http.SetCookie(w, &http.Cookie{Name: viewCookie, Value: v, Path: "/", MaxAge: yearSeconds, SameSite: http.SameSiteLaxMode})
+		http.Redirect(w, r, r.URL.Path, http.StatusSeeOther)
+		return
+	}
 	segs := strings.FieldsFunc(r.URL.Path, func(c rune) bool { return c == '/' })
+	s, withSwitch := h.pick(r, segs)
 	section := "teams"
 	if len(segs) > 0 {
 		section = sectionOf[segs[0]]
@@ -206,7 +258,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var body []ui.Item
 	err := errNotFound
 	if p := route(segs); p != nil {
-		title, body, err = p(h.site, r, segs)
+		title, body, err = p(s, r, segs)
+	}
+	if withSwitch && err == nil {
+		body = append([]ui.Item{viewSwitch(s == h.best)}, body...)
 	}
 	leaf := ""
 	if len(segs) == 2 && segs[0] != "page" || len(segs) > 2 && segs[0] == "releases" {

@@ -292,14 +292,14 @@ type game struct {
 	tid, team               int64
 	tname, date, typ, mname *string
 	position                *float64
-	score, nQ, rated        *int64
+	score, nQ               *int64
 	theta, after, phi       *float64
 	before, afterShown      *float64
 }
 
 func (r *game) fields() []any {
 	return []any{&r.tid, &r.tname, &r.date, &r.typ, &r.team, &r.mname, &r.position, &r.score, &r.nQ,
-		&r.theta, &r.after, &r.phi, &r.rated}
+		&r.theta, &r.after, &r.phi}
 }
 
 // games are every tournament the player played, newest first. The number
@@ -307,11 +307,10 @@ func (r *game) fields() []any {
 // number and the tournament roster.
 func (st *store) games(id int64) ([]game, error) {
 	rows, err := all[game](st.db, `select g.tournament_id, t.name, t.date, t.type, g.team_id, m.name, g.position,
-		g.score, t.n_q, v.theta_before, v.theta_after, v.phi_before, te.rated
+		g.score, t.n_q, v.theta_before, v.theta_after, v.phi_before
 		from x.player_game g join x.tournament t on t.id = g.tournament_id
 		left join x.team m on m.id = g.team_id
 		left join player_events v on v.player_id = g.player_id and v.tournament_id = g.tournament_id
-		left join team_events te on te.tournament_id = g.tournament_id and te.team_id = g.team_id
 		where g.player_id = ? order by t.date desc, t.id desc`, id)
 	for i := range rows {
 		g := &rows[i]
@@ -386,18 +385,18 @@ func (st *store) achieveRules() (map[string]string, error) {
 type part struct {
 	tid, n, nv, nOwn                                                            int64
 	name, date, format                                                          string
-	placeAll, placeOwn, strength, wfmt, wfield, wreach, peak, fade, ov, contrib float64
+	placeAll, placeOwn, strength, wfmt, wfield, wreach, wlegion, peak, fade, ov, contrib float64
 }
 
 func (r *part) fields() []any {
 	return []any{&r.tid, &r.name, &r.date, &r.placeAll, &r.placeOwn, &r.n, &r.nv, &r.strength, &r.wfmt,
-		&r.wfield, &r.wreach, &r.peak, &r.fade, &r.ov, &r.contrib, &r.format, &r.nOwn}
+		&r.wfield, &r.wreach, &r.peak, &r.fade, &r.ov, &r.contrib, &r.format, &r.nOwn, &r.wlegion}
 }
 
 func (st *store) parts(id int64, at *release) ([]part, error) {
 	return all[part](st.db, `select p.tournament_id, coalesce(t.name, ''), a.date, a.place, a.venue_place, a.n_teams,
 		a.n_venues, a.strength, a.w_format, a.w_field, a.w_reach, p.peak, p.fade, p.overlap,
-		p.contribution, a.format, coalesce(t.n_teams, 0)
+		p.contribution, a.format, coalesce(t.n_teams, 0), coalesce(a.w_legion, 1)
 		from achieve_parts p join achieve_values a on a.tournament_id = p.tournament_id and a.team_id = p.team_id
 		left join x.tournament t on t.id = p.tournament_id
 		where p.team_id = ? and p.release_id = ? order by p.slot`, id, st.relOf(at))

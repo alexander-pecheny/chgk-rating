@@ -48,6 +48,11 @@ impl Book<'_> {
         ndcg(&self.lab.rows, |r| self.rating(r.team, r.day).0)
     }
 
+    /// The published number for a rating: the strength its points stand for.
+    pub(super) fn shown(&self, x: f64) -> f64 {
+        if self.k.strength_p > 0.0 && x > 0.0 { self.k.strength_a * x.powf(self.k.strength_p) } else { x }
+    }
+
     /// The rating on the morning of `day`, and the results that make it, each
     /// with its value on that day: faded, and scaled by the roster overlap.
     pub(super) fn rating(&self, team: i64, day: i32) -> (f64, Vec<(Val, f64)>) {

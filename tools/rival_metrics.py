@@ -6,8 +6,8 @@ measures of /method/ and those the London Elo (https://elo-chgk.uk) reports:
   range, discounted by log2(i + 1), over the same sum for the actual order;
 - Pearson's r between the forecast place and the actual place;
 - the pairwise score over every pair of teams in the field, and over the pairs
-  among the best 10% of the field by actual result (at least two teams, ties
-  at the cut kept). A pair scores 1 when the forecast orders it as the result
+  among the best 10% of the field by actual result (at least five teams,
+  ties at the cut kept). A pair scores 1 when the forecast orders it as the result
   does, a tie included, 0.5 when only one of the two is a tie, 0 otherwise; the
   score is the share of the maximum.
 
@@ -23,6 +23,7 @@ system's `predictedPosition` as a row of its own, on the teams it forecast.
     uv run tools/rival_metrics.py "ours=out/ratings.db" "elo=out/ext/elo.db" ... [--paired ours]
 """
 
+import json
 import math
 import sqlite3
 
@@ -32,7 +33,7 @@ from lab import Rng, ranked
 COLUMNS = ("forecast", "x")
 OLD = "old system"
 TOP_SHARE = 0.10
-TOP_MIN = 2
+TOP_MIN = 5
 METRICS = ("ndcg", "ndcg3", "ndcg10", "pearson", "pairwise", "pairwise_top")
 TITLES = ("NDCG", "NDCG@3", "NDCG@10", "Pearson r", "pair", "pair@10%")
 CUTS = {"ndcg": None, "ndcg3": 3, "ndcg10": 10}
@@ -44,6 +45,7 @@ OPTIONS = [
     ("--old", dict(action="store_true", help="add the old system's forecast")),
     ("--from", dict(dest="frm", default=lab.TEST[0])),
     ("--to", dict(default=lab.TEST[1])),
+    ("--json", dict(action="store_true", help="print the rows and their paired differences as JSON")),
 ]
 
 
@@ -83,7 +85,7 @@ def pairwise(teams, value, places):
 
 
 def top(teams, places):
-    """The best tenth of the field by actual place, ties at the cut kept."""
+    """The best tenth of the field by actual place, at least `TOP_MIN` teams, ties at the cut kept."""
     k = max(TOP_MIN, math.ceil(TOP_SHARE * len(teams)))
     cut = sorted(places[t] for t in teams)[k - 1]
     return [t for t in teams if places[t] <= cut]
@@ -151,6 +153,9 @@ def main():
             value = {t: old[tid][t] for t in teams} if label == OLD else {t: data[label][tid][t][1] for t in teams}
             for m, v in score(tid, teams, value, places).items():
                 res[label][m][tid] = v
+    if a.json:
+        print(json.dumps(as_json(a, w, labels, res, used), ensure_ascii=False))
+        return
     how = "unweighted" if w is None else "weighted by " + a.weights
     print(f"In-person, {a.frm} to {a.to}, {how}, {len(used)} tournaments every system forecasts\n")
     print("| system | " + " | ".join(TITLES) + " |")
@@ -171,6 +176,19 @@ def main():
                 d, se = lab.paired(res[label][m], res[a.paired][m], keys, w)
                 cells.append(f"{d:+.4f} ± {se:.4f}")
             print(f"| {label} | " + " | ".join(cells) + " |")
+
+
+def as_json(a, w, labels, res, used):
+    """The table for /method/'s metrics block: each row's values and, against
+    every other row, its differences with their paired bootstrap SEs."""
+    def vs(label, base):
+        pairs = [lab.paired(res[label][m], res[base][m],
+                            [t for t in used if res[label][m].get(t) is not None and res[base][m].get(t) is not None], w)
+                 for m in METRICS]
+        return {"diff": [d for d, _ in pairs], "se": [se for _, se in pairs]}
+    rows = [{"label": label, "value": [lab.wmean(res[label][m], used, w) for m in METRICS],
+             "vs": {base: vs(label, base) for base in labels if base != label}} for label in labels]
+    return {"from": a.frm, "to": a.to, "weighted": w is not None, "n": len(used), "rows": rows}
 
 
 if __name__ == "__main__":

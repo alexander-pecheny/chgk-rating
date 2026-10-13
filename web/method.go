@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	_ "embed"
+	"errors"
 	"html"
 	"regexp"
 	"slices"
@@ -51,8 +52,17 @@ func renderMethod() (string, error) {
 	}
 	var out bytes.Buffer
 	out.WriteString(glyphs)
-	err = md.Renderer().Render(&out, src, doc)
-	return out.String(), err
+	if err := md.Renderer().Render(&out, src, doc); err != nil {
+		return "", err
+	}
+	block, err := metricsBlock()
+	if err != nil {
+		return "", err
+	}
+	if !bytes.Contains(out.Bytes(), []byte(metricsMark)) {
+		return "", errors.New("method.md has no {{metrics}} line")
+	}
+	return strings.Replace(out.String(), metricsMark, block, 1), nil
 }
 
 func (s *site) methodPage() (string, []ui.Item) {

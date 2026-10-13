@@ -135,13 +135,38 @@ rival() {
 rival ext_fun --as-of "$today" &
 rival ext_gg --to "$today" --rows-every 0 &
 rival ext_quest --to "$today" &
+rival ext_elo --to "$today" &
 wait
 log "rivals done"
+
+# The second view of /players/ and tournament pages: A2 trained on every
+# tournament, its forecasts and player ratings blended with the London Elo's.
+# Team ratings stay A2's. It reads the Elo replay, so it runs after the rivals.
+mkdir -p out/best
+sed -e 's|^out_path = .*|out_path = "out/best/ratings.db"|' -e 's/^w_async = .*/w_async = 0.25/' \
+    -e 's/^train_unrated = .*/train_unrated = true/' config.toml > out/best/config.toml
+printf '\n[blend]\nelo_db = "out/ext/elo.db"\nelo = 0.35\nplayers = 0.35\n' >> out/best/config.toml
+k_best=$(echo "$k_pub $(cat out/stamps/ext_elo 2>/dev/null) $(hash out/best/config.toml)" | hash -)
+if fresh best "$k_best"; then
+    log "best is current"
+else
+    log "best"
+    unstamp best
+    # Its team columns are A2's: achieve publishes the values the A2 fit froze.
+    if $bin/fit --config out/best/config.toml > out/best/fit.log 2>&1 &&
+        $bin/achieve --publish out/best/ratings.db > out/best/achieve.log 2>&1 &&
+        $bin/webindex --rebuild --config out/best/config.toml --ratings out/best/ratings.db --out out/best/web.db > out/best/webindex.log 2>&1; then
+        stamp best "$k_best"
+        log "best done"
+    else
+        log "best failed, see out/best/*.log; its view keeps yesterday's numbers"
+    fi
+fi
 
 # The serving index: names, rosters, ranking tables and anomaly scores. It is
 # built beside the old one and renamed in, so the running site never reads half
 # of it.
-k_web=$(echo "$k_pub $k_eval $(cat out/stamps/ext_fun out/stamps/ext_gg out/stamps/ext_quest 2>/dev/null) $(hash $bin/webindex)" | hash -)
+k_web=$(echo "$k_pub $k_eval $(cat out/stamps/ext_fun out/stamps/ext_gg out/stamps/ext_quest out/stamps/ext_elo 2>/dev/null) $(hash $bin/webindex)" | hash -)
 if fresh webindex "$k_web"; then
     log "webindex is current"
     SKIP_RESTART=${SKIP_RESTART:-1}

@@ -104,6 +104,16 @@ pub struct Knobs {
     pub overlap_by: &'static str,
     /// Published points added to a sole first place before the weights.
     pub win_bonus: f64,
+    /// A result's value times Q(L) of the season's base roster over Q(L) of the
+    /// lineup that played, when the lineup was the stronger: legionnaires who
+    /// lift a team above its base roster do not lift its rating as far.
+    pub legion: bool,
+    /// The published rating is strength_a·points^strength_p: the strength a
+    /// team's counted results show, on the lineup scale. Fitted once on the top
+    /// 100 of the releases of 2016-2024 and fixed, so a team's number never
+    /// moves because others' did; strength_p = 0 publishes the points.
+    pub strength_a: f64,
+    pub strength_p: f64,
 }
 
 /// The variant on the site: the user's constraints (seven results,
@@ -157,6 +167,9 @@ const DEFAULT: Knobs = Knobs {
     overlap_k: 0.6,
     overlap_by: "strength",
     win_bonus: 0.0,
+    legion: true,
+    strength_a: 4520.0,
+    strength_p: 0.0956,
 };
 
 impl Default for Knobs {
@@ -171,7 +184,7 @@ pub const KNOBS: &[&str] = &[
     "field_mode", "scale", "sum_ref", "sum_gamma", "field_k", "field_zero", "field_ref", "field_gamma", "field_min", "field_pad", "size_pow", "fallback",
     "country_pow", "country_min", "town_pow", "town_min", "country_ref", "town_ref", "geo_cap", "fade", "loss_ip",
     "loss_sync", "full_days", "zero_days", "half_life", "sync_full", "sync_zero", "sync_half_life", "tail_days",
-    "slow_k", "slow_ref", "base_rule", "grace", "active_days", "overlap_k", "overlap_by", "win_bonus",
+    "slow_k", "slow_ref", "base_rule", "grace", "active_days", "overlap_k", "overlap_by", "win_bonus", "legion", "strength_a", "strength_p",
 ];
 
 /// `val` as one of `opts`, or the error the lab shows.
@@ -229,6 +242,9 @@ impl Knobs {
             "overlap_k" => self.overlap_k.to_string(),
             "overlap_by" => self.overlap_by.to_string(),
             "win_bonus" => self.win_bonus.to_string(),
+            "legion" => (self.legion as u8).to_string(),
+            "strength_a" => self.strength_a.to_string(),
+            "strength_p" => self.strength_p.to_string(),
             _ => String::new(),
         }
     }
@@ -298,6 +314,9 @@ impl Knobs {
             "active_days" => self.active_days = x as i32,
             "overlap_k" => self.overlap_k = x,
             "win_bonus" => self.win_bonus = x,
+            "legion" => self.legion = x != 0.0,
+            "strength_a" => self.strength_a = x.max(0.0),
+            "strength_p" => self.strength_p = x.clamp(0.0, 1.0),
             _ => return Err(format!("нет такой ручки: {key}")),
         }
         Ok(())

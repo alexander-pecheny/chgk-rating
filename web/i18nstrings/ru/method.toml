@@ -1,0 +1,9 @@
+# /method/'s metrics block: the forecast tables and the chart beside them.
+[metrics]
+weighted = "Взвешенные метрики"
+rated = "рейтинговые турниры"
+all = "все турниры"
+metric = "На графике"
+base = "Относительно"
+system = "рейтинг"
+caption = 'Разница с {{.ref}} на тех же турнирах: точка — среднее, отрезок — 95-процентный доверительный интервал.'

@@ -320,6 +320,9 @@ impl Build<'_> {
         let (perf_s, taken, n_q) = self.perf_s(r, m);
         let team = self.arena.team_ids[r.team as usize];
         let geo = self.town_geo.get(r.town as usize);
+        let ip = t.format == Format::InPerson;
+        let q_of = |lineup: &[u32]| roster_q(lineup, m.players, t.day, ip, self.cfg).map_or(f64::NAN, |q| self.disp(q));
+        let base = self.seasons.season_of(t.day).and_then(|s| self.rosters.get(&(team, s)).or_else(|| self.rosters.get(&(team, s - 1))));
         Res {
             tid: t.id,
             day: t.day,
@@ -342,6 +345,8 @@ impl Build<'_> {
             ref20: d.ref20,
             town: geo.map_or(UNKNOWN, |g| g.0),
             country: geo.map_or(UNKNOWN, |g| g.1),
+            q_lineup: q_of(&r.members),
+            q_base: base.map_or(f64::NAN, |b| q_of(b)),
         }
     }
 }

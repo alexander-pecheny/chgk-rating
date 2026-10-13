@@ -413,7 +413,10 @@ impl Gg {
         let ext = args.or("--ext", "data/external/chgk_gg");
         let conn = open_read_only(&args.or("--db", "buff.db"))?;
         let (mut team_ids, mut player_ids) = (Ids::default(), Ids::default());
-        let tournaments = gg_load::all_tournaments(&conn, &ext, &mut team_ids, &mut player_ids)?;
+        let mut tournaments = gg_load::all_tournaments(&conn, &ext, &mut team_ids, &mut player_ids)?;
+        if args.has("--move-all") {
+            tournaments.iter_mut().for_each(|t| t.maii = true);
+        }
         let seasons = Self::seasons(&conn, &ext, &mut team_ids, &mut player_ids)?;
         let mut players = gg_load::bootstrap_players(&ext, &mut player_ids)?;
         let boot_day = parse_date(BOOTSTRAP).unwrap();

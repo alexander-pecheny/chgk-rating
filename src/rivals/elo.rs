@@ -403,6 +403,8 @@ pub struct Elo {
     to_day: i32,
     from_day: i32,
     start: Instant,
+    /// Whether `elo_trace` exists yet in the output.
+    traced: bool,
 }
 
 impl Elo {
@@ -435,7 +437,7 @@ impl Elo {
         let np = arena.n_players();
         println!("loaded {} tournaments, {np} players in {:.1}s", arena.tournaments.len(), start.elapsed().as_secs_f64());
         let m = Model { elo: vec![ELO_NEW; np], vol: vec![VOL_NEW; np], games: vec![0; np], last: vec![i32::MIN / 2; np] };
-        Ok(Elo { cfg, arena, m, kn, prev: Changes::new(np), to_day, from_day, start })
+        Ok(Elo { cfg, arena, m, kn, prev: Changes::new(np), to_day, from_day, start, traced: false })
     }
 }
 
@@ -474,6 +476,12 @@ impl Rival for Elo {
             let vols: Vec<f64> = ms.iter().map(|&p| self.m.vol[p as usize]).collect();
             Some(rate_team(l, &r.mask, &qs, wt, &vols, &self.kn))
         }).collect();
+        if !self.traced {
+            // Every move of every player, for a fit that blends player ratings with Elo's.
+            w.conn.execute_batch("CREATE TABLE IF NOT EXISTS elo_trace (player_id INTEGER, day INTEGER, elo REAL)")?;
+            self.traced = true;
+        }
+        let mut trace = w.conn.prepare_cached("INSERT INTO elo_trace VALUES (?1, ?2, ?3)")?;
         let mut evs = Vec::new();
         let mut pevs = Vec::new();
         for (k, f) in fits.iter().enumerate() {
@@ -488,6 +496,7 @@ impl Rival for Elo {
                 self.m.vol[p] = prec.max(VOL_FLOOR).powf(-0.5);
                 self.m.games[p] += 1;
                 self.m.last[p] = t.day;
+                trace.execute(rusqlite::params![self.arena.player_ids[p], t.day, self.m.elo[p]])?;
                 if t.format == Format::InPerson {
                     let mut e = bare_player_event(self.arena.player_ids[p], before, self.m.elo[p]);
                     (e.sigma_before, e.sigma_after) = (vol_before, self.m.vol[p]);

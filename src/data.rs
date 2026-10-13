@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::util::parse_date;
 use rusqlite::Connection;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub const CORRECT: u8 = 1;
 pub const WRONG: u8 = 0;
@@ -86,6 +86,8 @@ pub struct Tournament {
     pub teams: Vec<TeamResult>,
     pub n_q: usize,
     pub n_q_declared: usize,
+    /// A school, student or novice field, by `crate::age`.
+    pub young: bool,
 }
 
 /// Everything the online pass reads, loaded once and kept in memory.
@@ -381,7 +383,7 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
     let conn = Connection::open_with_flags(&cfg.data.db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut stmt = conn.prepare(&results_sql(cfg))?;
     let mut rows = stmt.query([from, to])?;
-    let mut ld = Loader::new(cfg);
+    let mut ld = Loader::new(cfg, crate::age::young_fields(&conn)?);
     let mut skip_id = i64::MIN;
     while let Some(row) = rows.next()? {
         let tid: i64 = row.get(C_ID)?;
@@ -437,10 +439,13 @@ struct Loader<'a> {
     alias: HashMap<i64, i64>,
     no_alias: HashMap<i64, i64>,
     tournaments: Vec<Tournament>,
+    /// `data.classes`: each tournament's age, prestige and pack difficulty.
+    classes: HashMap<i64, [String; 3]>,
+    young: HashSet<i64>,
 }
 
 impl<'a> Loader<'a> {
-    fn new(cfg: &'a Config) -> Loader<'a> {
+    fn new(cfg: &'a Config, young: HashSet<i64>) -> Loader<'a> {
         Loader {
             cfg,
             players: Interner::new(),
@@ -451,6 +456,8 @@ impl<'a> Loader<'a> {
             alias: aliases(&cfg.data.player_aliases),
             no_alias: HashMap::new(),
             tournaments: Vec::new(),
+            classes: classes(&cfg.data.classes),
+            young,
         }
     }
 
@@ -475,7 +482,11 @@ impl<'a> Loader<'a> {
         // `w_async` reads them for the players alone, at that weight.
         let unrated_async = format == Format::Async && in_rating == 0 && !cfg.data.include_unrated;
         let train_only = unrated_async || (cfg.data.train_unrated && !cfg.data.include_unrated && in_rating == 0);
-        let weight = format.weight(cfg) * if train_only && !unrated_async { cfg.data.w_unrated } else { 1.0 };
+        let class = self.classes.get(&id);
+        let young = self.young.contains(&id);
+        let weight = format.weight(cfg)
+            * if train_only && !unrated_async { cfg.data.w_unrated } else { 1.0 }
+            * class.map_or(1.0, |c| class_weight(c, cfg));
         if weight <= 0.0 {
             return Ok(None);
         }
@@ -486,7 +497,7 @@ impl<'a> Loader<'a> {
         let n_q_declared = declared.map_or(0, |s| s.split(',').filter_map(|x| x.trim().parse::<usize>().ok()).sum());
         let town_name = row.get::<_, Option<i64>>(C_TOWN)?.and_then(|i| self.names.get(&i).cloned());
         let town = self.town(town_name);
-        Ok(Some(Tournament { id, day, format, weight, train_only, town, editors, teams: Vec::new(), n_q: 0, n_q_declared }))
+        Ok(Some(Tournament { id, day, format, weight, train_only, town, editors, teams: Vec::new(), n_q: 0, n_q_declared, young }))
     }
 
     /// One result of the current tournament.
@@ -542,4 +553,34 @@ fn mark_base(t: &mut Tournament, rosters: &Rosters, team_ids: &[i64], player_ids
         let on = |&m: &u32| rosters.get(&(team, player_ids[m as usize])).is_some_and(|v| v.iter().any(|&(a, b)| day >= a && day <= b));
         r.base = r.members.iter().map(on).collect();
     }
+}
+
+/// `tools/tournament_class.py`'s table as `id -> [age, prestige, difficulty]`;
+/// empty when `path` is.
+fn classes(path: &str) -> HashMap<i64, [String; 3]> {
+    if path.is_empty() {
+        return HashMap::new();
+    }
+    let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("data.classes {path}: {e}"));
+    let mut lines = text.lines();
+    let head: Vec<&str> = lines.next().unwrap_or("").split('\t').collect();
+    let col = |name: &str| head.iter().position(|h| *h == name).unwrap_or_else(|| panic!("data.classes lacks {name}"));
+    let (id, age, prestige, difficulty) = (col("id"), col("age"), col("prestige"), col("difficulty"));
+    lines
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split('\t').collect();
+            Some((f.get(id)?.parse().ok()?, [f.get(age)?.to_string(), f.get(prestige)?.to_string(), f.get(difficulty)?.to_string()]))
+        })
+        .collect()
+}
+
+fn class_weight([age, prestige, difficulty]: &[String; 3], cfg: &Config) -> f64 {
+    let d = &cfg.data;
+    let by_age = match age.as_str() {
+        "school" => d.w_school,
+        "student" => d.w_student,
+        "novice" => d.w_novice,
+        _ => 1.0,
+    };
+    by_age * if difficulty == "easy" { d.w_easy } else { 1.0 } * if prestige == "major" { d.w_major } else { 1.0 }
 }

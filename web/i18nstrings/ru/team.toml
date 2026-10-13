@@ -23,12 +23,14 @@ w = "w"
 w_format = "формат"
 w_top = "топ"
 w_towns = "города"
+w_legion = "легионеры"
 equals = ' = {{.v}}'
 fade = 'f(t) = {{.fade}}%'
 fade_overlap = 'f(t) = {{.fade}}%, ω = {{.overlap}}%'
 merged = 'место {{.all}}/{{.teams}} (сводное), {{.own}}/{{.here}} (своя площадка)'
 empty_slot = "пустой слот"
-sum = 'Сумма {{.sum}} ÷ {{.divisor}} = рейтинг'
+sum = 'Сумма {{.sum}} ÷ {{.divisor}} = очки'
+strength = 'Рейтинг = {{.a}} · очки^{{.p}}'
 
 [results]
 title = 'Все результаты ({{.n}})'

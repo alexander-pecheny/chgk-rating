@@ -70,6 +70,10 @@ var expanders = map[string]base.ExpandFunc{
 	"venuefilter": expandVenuefilter,
 	"releasepick": expandReleasepick,
 	"explainer":   expandExplainer,
+	// split sets its first child beside its second on a wide screen and above it on a narrow one.
+	"split": func(c *base.ExpandCtx, p *base.Element) []base.Node {
+		return one(base.El("div", base.RootAttrs([]string{"split"}, p), c.Nodes(p.Block)...))
+	},
 	"article": func(c *base.ExpandCtx, p *base.Element) []base.Node {
 		return one(base.El("article", base.RootAttrs([]string{"post"}, p), c.Nodes(p.Block)...))
 	},

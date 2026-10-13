@@ -168,9 +168,10 @@ fn new_res(row: &rusqlite::Row, teams: &mut Ids, players: &mut Ids) -> rusqlite:
     })
 }
 
-fn load(db: &str, max_end: &str, teams: &mut Ids, players: &mut Ids) -> rusqlite::Result<Vec<Tour>> {
+fn load(db: &str, max_end: &str, rated_only: bool, teams: &mut Ids, players: &mut Ids) -> rusqlite::Result<Vec<Tour>> {
     let conn = open_read_only(db)?;
-    let mut stmt = conn.prepare(SCOPE)?;
+    let scope = if rated_only { SCOPE.replace("ORDER BY", "AND t.in_rating = 1 AND t.tournament_type != 'Асинхрон'\n     ORDER BY") } else { SCOPE.to_string() };
+    let mut stmt = conn.prepare(&scope)?;
     let mut rows = stmt.query([max_end])?;
     let mut tours: Vec<Tour> = Vec::new();
     while let Some(row) = rows.next()? {
@@ -542,7 +543,7 @@ impl Fun {
         let max_end = format_date(epoch + WEEK * (actual + LOOKAHEAD_WEEKS) + 1);
         eprintln!("scope: date_end < {max_end}, releases through {}", actual + LOOKAHEAD_WEEKS);
         let (mut teams, mut players) = (Ids::default(), Ids::default());
-        let tours = load(&db, &max_end, &mut teams, &mut players)?;
+        let tours = load(&db, &max_end, args.has("--rated-only"), &mut teams, &mut players)?;
         let seats = base_rosters(&db, &players)?;
         eprintln!(
             "{} tournaments, {} players, {} teams, {} base-roster seats",

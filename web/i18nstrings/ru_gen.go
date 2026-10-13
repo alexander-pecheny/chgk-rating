@@ -153,6 +153,23 @@ var RU = Strings{
 			},
 		},
 		Untitled: func() string { return "без названия" },
+		View: CommonViewStrings{
+			A2:   func() string { return "A2" },
+			Best: func() string { return "А2+Сатыбалдыев+онлайны" },
+		},
+	},
+	Method: MethodStrings{
+		Metrics: MethodMetricsStrings{
+			All:  func() string { return "все турниры" },
+			Base: func() string { return "Относительно" },
+			Caption: func(ref string) string {
+				return fmt.Sprintf("Разница с %s на тех же турнирах: точка — среднее, отрезок — 95-процентный доверительный интервал.", ref)
+			},
+			Metric:   func() string { return "На графике" },
+			Rated:    func() string { return "рейтинговые турниры" },
+			System:   func() string { return "рейтинг" },
+			Weighted: func() string { return "Взвешенные метрики" },
+		},
 	},
 	Player: PlayerStrings{
 		Games: func(n string) string { return fmt.Sprintf("Сыгранные турниры (%s)", n) },
@@ -241,12 +258,14 @@ var RU = Strings{
 			Now:      func() string { return "Сейчас" },
 			NowTitle: func() string { return "Балл сегодня: V · f(t) · ω" },
 			Place:    func(v string) string { return fmt.Sprintf("M = %s", v) },
+			Strength: func(a string, p string) string { return fmt.Sprintf("Рейтинг = %s · очки^%s", a, p) },
 			Sum: func(sum string, divisor string) string {
-				return fmt.Sprintf("Сумма %s ÷ %s = рейтинг", sum, divisor)
+				return fmt.Sprintf("Сумма %s ÷ %s = очки", sum, divisor)
 			},
 			Title:   func() string { return "Из чего складывается рейтинг" },
 			W:       func() string { return "w" },
 			WFormat: func() string { return "формат" },
+			WLegion: func() string { return "легионеры" },
 			WTop:    func() string { return "топ" },
 			WTowns:  func() string { return "города" },
 		},
@@ -341,6 +360,7 @@ var RU = Strings{
 		Forecast: TournamentForecastStrings{
 			ColSystem: func() string { return "Система" },
 			ColTeams:  func() string { return "Команд" },
+			Elo:       func() string { return "elo-chgk.uk" },
 			Fun:       func() string { return "rating.chgk.fun" },
 			Gg:        func() string { return "chgk.gg" },
 			Ours:      func() string { return "Этот рейтинг" },
@@ -352,7 +372,7 @@ var RU = Strings{
 			Hint: func(lo string, hi string) string {
 				return fmt.Sprintf("Столбик — трудность вопроса b: выше значит сложнее. От %s до %s по этому пакету.", lo, hi)
 			},
-			Title: func() string { return "Трудность вопросов" },
+			Title: func() string { return "Сложность вопросов" },
 		},
 		Stat: TournamentStatStrings{
 			LlCross:     func() string { return "Log-loss (кросс-фит)" },

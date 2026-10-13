@@ -313,6 +313,11 @@
       "name": "article",
       "props": [],
       "children": "any"
+    },
+    {
+      "name": "split",
+      "props": [],
+      "children": "any"
     }
   ]
 }

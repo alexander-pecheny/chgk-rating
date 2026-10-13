@@ -6,7 +6,7 @@ use crate::config::{Config, MarginShape, PullTarget, RankRule, S2Lineup, S2};
 use crate::data::{Format, TeamResult, Tournament};
 use crate::difficulty::Difficulties;
 use crate::editor_memory::EditorMemory;
-use crate::geography::{Geography, PlayerLoad};
+use crate::geography::{Geography, PlayerLoad, YouthLoad};
 use crate::question_model::Players;
 use crate::team_event::TeamEvent;
 use crate::util::{avg_ranks, Rng};
@@ -57,6 +57,7 @@ pub struct Context<'a> {
     pub edmem: &'a EditorMemory,
     pub geo: &'a Geography,
     pub load: &'a PlayerLoad,
+    pub youth: &'a YouthLoad,
 }
 
 /// S2 carries no variance, so `sigma` is only the provisional flag in the shape
@@ -422,6 +423,13 @@ impl<'a> Reader<'a> {
         if in_person && ctx.load.on() {
             let (l7, l30) = ctx.load.counts(&res.members, t.day);
             b += p.load_7 * l7 + p.load_30 * l30;
+        }
+        if in_person && p.k_ip_new != 0.0 && !res.members.is_empty() {
+            let fresh: f64 = res.members.iter().map(|&i| 1.0 / (1.0 + self.players.state[i as usize].games_ip as f64)).sum();
+            b += p.k_ip_new * fresh / res.members.len() as f64;
+        }
+        if listed && ctx.youth.on() {
+            b += p.k_youth * ctx.youth.share(&res.members, t.day);
         }
         b
     }

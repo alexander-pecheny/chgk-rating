@@ -661,8 +661,9 @@ impl Players {
     /// Gives players their first appearance a prior on the current gauge:
     /// `mu_new`, moved `seed_w` of the way to their rated teammates' mean.
     pub fn seed(&mut self, t: &Tournament, cfg: &Config) {
+        let young = if t.young { cfg.player.mu_young } else { 0.0 };
         for team in &t.teams {
-            let start = self.newcomer_start(&team.members, cfg);
+            let start = self.newcomer_start(&team.members, cfg) + young;
             for &i in &team.members {
                 let s = &mut self.state[i as usize];
                 if !s.seen {

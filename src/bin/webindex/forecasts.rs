@@ -1,5 +1,5 @@
 //! How well each system forecast every tournament of the clean window: ours
-//! and our reimplementations of rating.chgk.fun, chgk.gg and chgk.quest, each scored with the NDCG of
+//! and our reimplementations of rating.chgk.fun, chgk.gg, chgk.quest and elo-chgk.uk, each scored with the NDCG of
 //! `src/ndcg.rs`. No rule of the model was chosen on a tournament after
 //! `display.clean_from`, so these are honest out-of-sample numbers.
 
@@ -16,10 +16,12 @@ enum Source {
     Ratings,
     /// A reimplementation's database under the ext dir.
     Ext(&'static str),
+    /// One that forecasts by its `x` column, as `ext_elo` does.
+    Pack(&'static str),
 }
 
 const SYSTEMS: &[(&str, Source)] =
-    &[("ours", Source::Ratings), ("fun", Source::Ext("fun.db")), ("gg", Source::Ext("gg.db")), ("quest", Source::Ext("quest.db"))];
+    &[("ours", Source::Ratings), ("fun", Source::Ext("fun.db")), ("gg", Source::Ext("gg.db")), ("quest", Source::Ext("quest.db")), ("elo", Source::Pack("elo.db"))];
 
 /// The `(tournament_id, f, actual_place)` rows of a source from `{from}` on,
 /// `f` higher for a better forecast.
@@ -33,6 +35,10 @@ fn sql(src: &Source, from: &str) -> String {
             "select tournament_id, -forecast_place as f, actual_place from team_events
              where date >= '{from}' and actual_place > 0 and forecast_place > 0"
         ),
+        Source::Pack(_) => format!(
+            "select tournament_id, x as f, actual_place from team_events
+             where date >= '{from}' and actual_place > 0 and x is not null"
+        ),
     }
 }
 
@@ -45,7 +51,7 @@ pub fn build(c: &Ctx, ext: &Path, from: &str) {
         let own;
         let db = match src {
             Source::Ratings => c.r,
-            Source::Ext(f) => match Connection::open_with_flags(ext.join(f), OpenFlags::SQLITE_OPEN_READ_ONLY) {
+            Source::Ext(f) | Source::Pack(f) => match Connection::open_with_flags(ext.join(f), OpenFlags::SQLITE_OPEN_READ_ONLY) {
                 Ok(conn) => {
                     own = conn;
                     &own

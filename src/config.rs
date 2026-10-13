@@ -15,6 +15,22 @@ pub struct Config {
     pub numeric: Numeric,
     #[serde(default)]
     pub simple: Option<Simple>,
+    #[serde(default)]
+    pub blend: Option<Blend>,
+}
+
+/// The published forecast: A2's own, or mixed with an `ext_elo` replay's.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Blend {
+    /// The replay's database, whose `team_events.x` is Elo's forecast.
+    pub elo_db: String,
+    /// Elo's share of the forecast, in units of each field's spread.
+    pub elo: f64,
+    /// Elo's share of each published player rating, in units of the spread of
+    /// the experienced players' ratings at the release; 0 leaves them A2's.
+    #[serde(default)]
+    pub players: f64,
 }
 
 /// What the fit writes into `meta` to say which rules made its numbers.
@@ -376,6 +392,21 @@ pub struct S2 {
     /// at a strong table is read nearer the table. 0 is off.
     #[serde(default)]
     pub k_mates: f64,
+    /// Display points per unit of the lineup's past-year share of games in
+    /// school, student or novice fields (`data.classes`), on the forecast
+    /// alone. 0 is off. Measured and off (2026-10-13): -150 to -450 moved
+    /// test Pearson by under 0.0005, as such lineups rarely reach a weighted field.
+    #[serde(default)]
+    pub k_youth: f64,
+    /// Display points per unit of the lineup's mean `1 / (1 + games_ip)`, at an
+    /// in-person table and on the forecast alone: a player new to the table
+    /// underperforms the strength their synchronous games earned. 0 is off.
+    /// At -600 on top of `player.mu_young` (2026-10-13) young in-person fields
+    /// gain +0.025 per-field Pearson on tune and +0.016 on test, open and
+    /// synchronous fields move by under 0.001 and the weighted NDCG by
+    /// -0.0006 +/- 0.0011 and -0.0010 +/- 0.0015.
+    #[serde(default)]
+    pub k_ip_new: f64,
 }
 
 /// What a config that leaves a key of `[team.s2]` out gets: the rule as it
@@ -388,6 +419,8 @@ const S2_DEFAULT: S2 = S2 {
     pack_b: 0.0,
     k_score: 0.0,
     k_mates: 0.0,
+    k_youth: 0.0,
+    k_ip_new: 0.0,
     d: 1200.0,
     k: 0.4,
     k_q: 0.01,
@@ -558,6 +591,24 @@ pub struct Data {
     /// Weight of one of those tournaments, on top of its format weight.
     #[serde(default = "one")]
     pub w_unrated: f64,
+    /// `tools/tournament_class.py`'s table of tournament classes, read by the
+    /// class weights below. Empty reads none.
+    #[serde(default)]
+    pub classes: String,
+    /// Weights, on top of the format weight, of a school, student or novice
+    /// field, of an easy pack and of a major tournament. 1 is off. Measured
+    /// and off (2026-10-13): 0.5 for the young fields, 0.5 for easy packs and
+    /// 1.5 for majors each moved test Pearson by under 0.0005.
+    #[serde(default = "one")]
+    pub w_school: f64,
+    #[serde(default = "one")]
+    pub w_student: f64,
+    #[serde(default = "one")]
+    pub w_novice: f64,
+    #[serde(default = "one")]
+    pub w_easy: f64,
+    #[serde(default = "one")]
+    pub w_major: f64,
     /// Per-entity rows are written every Nth release and always on the last;
     /// `0` means the last release only.
     pub rows_every: i64,
@@ -809,6 +860,14 @@ pub struct Player {
     /// at `mu_new`, however strong the table they join.
     #[serde(default)]
     pub seed_w: f64,
+    /// Added to the start of a player whose first game is in a school,
+    /// student or novice field (`crate::age`): such a field cannot place its
+    /// players against adults, so they arrive in open fields overrated. 0 is
+    /// off. At -0.25 (2026-10-13) young fields gain +0.035 per-field Pearson on
+    /// tune and +0.036 on test (tools/class_metrics.py), the weighted metric
+    /// +0.0009 / +0.0006, and open fields lose nothing.
+    #[serde(default)]
+    pub mu_young: f64,
     /// Volatility bounds and adaptation rate; `tau_p` is the starting volatility.
     pub v_min: f64,
     pub v_max: f64,

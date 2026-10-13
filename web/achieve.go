@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 
 	"ratingweb/ui"
@@ -40,6 +41,9 @@ func (s *site) achieveBreakdown(id int64, a achieved, rules map[string]string, a
 		rows = append(rows, b.partRow(p))
 	}
 	rows = append(append(rows, b.emptySlots(len(parts))...), b.footRow(sum))
+	if row := strengthRow(a.rating, rules); row != nil {
+		rows = append(rows, row)
+	}
 	t := ui.Table(append([]ui.Item{ui.Scroll(), ui.Breakdown(), ui.Trow(breakdownCols()...)}, rows...)...)
 	return section(S.Team.Breakdown.Title(), t), nil
 }
@@ -91,7 +95,7 @@ func (b breakdown) how(p part) []ui.Item {
 	for _, w := range []struct {
 		name string
 		v    float64
-	}{{S.Team.Breakdown.WFormat(), p.wfmt}, {S.Team.Breakdown.WTop(), p.wfield}, {S.Team.Breakdown.WTowns(), p.wreach}} {
+	}{{S.Team.Breakdown.WFormat(), p.wfmt}, {S.Team.Breakdown.WTop(), p.wfield}, {S.Team.Breakdown.WTowns(), p.wreach}, {S.Team.Breakdown.WLegion(), p.wlegion}} {
 		terms = append(terms, []ui.Item{ui.Text(S.Team.Breakdown.W()), ui.Sub(ui.Text(w.name)), ui.Text(S.Team.Breakdown.Equals(w2(w.v)))})
 	}
 	var how []ui.Item
@@ -123,7 +127,19 @@ func (b breakdown) emptySlots(parts int) []ui.Item {
 
 func (b breakdown) footRow(sum float64) ui.Node {
 	text := S.Team.Breakdown.Sum(disp(sum*b.divisor), fmt.Sprintf("%.0f", b.divisor))
-	return ui.Trow(ui.FootRow(), textCell(text, ui.Colspan("4")), numCell(disp(b.rating), ui.Bold()))
+	return ui.Trow(ui.FootRow(), textCell(text, ui.Colspan("4")), numCell(disp(b.rating)))
+}
+
+// strengthRow is the rating under the points: the strength they stand for,
+// strength_a·points^strength_p, with the constants the achievement rule fixed.
+func strengthRow(points float64, rules map[string]string) ui.Node {
+	a, err1 := strconv.ParseFloat(ruleOr(rules, "strength_a", "0"), 64)
+	p, err2 := strconv.ParseFloat(ruleOr(rules, "strength_p", "0"), 64)
+	if err1 != nil || err2 != nil || p <= 0 || points <= 0 {
+		return nil
+	}
+	text := S.Team.Breakdown.Strength(disp(a), strconv.FormatFloat(p, 'f', -1, 64))
+	return ui.Trow(ui.FootRow(), textCell(text, ui.Colspan("4")), numCell(disp(a*math.Pow(points, p)), ui.Bold()))
 }
 
 // teamResults is every result the team has played, with what it was worth and
