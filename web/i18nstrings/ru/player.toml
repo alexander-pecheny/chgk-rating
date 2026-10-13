@@ -1,9 +1,13 @@
 # A player's page at /players/id/.
+# https://v12.a2-dev.pecheny.me/players/108995/
 rank = '{{.n}}-е место в таблице игроков'
+# https://v12.a2-dev.pecheny.me/players/3568/
 not_listed = 'Не в текущем релизе — последняя игра {{.date}}'
 games = 'Сыгранные турниры ({{.n}})'
+# A player page at ?release= for a release the player was not in
 not_listed_at = 'Не в таблице игроков релиза от {{.date}}'
 
+# Numbers under the name on https://v12.a2-dev.pecheny.me/players/108995/
 [stat]
 last_rating = "Последний рейтинг"
 # R_pub and R of /method/: the rating is the lower bound, R the estimate.

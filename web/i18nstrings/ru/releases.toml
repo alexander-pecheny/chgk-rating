@@ -1,9 +1,13 @@
 # The release list at /releases/.
+# https://v12.a2-dev.pecheny.me/releases/
 lede = 'Всего релизов: {{.n}}.'
+# https://v12.a2-dev.pecheny.me/releases/562/ and https://v12.a2-dev.pecheny.me/releases/562/players/
 title = 'Релиз от {{.date}}'
+# Link between the two tables of one release: https://v12.a2-dev.pecheny.me/releases/562/
 players = "Игроки этого релиза"
 teams = "Команды этого релиза"
 
+# Column heads on https://v12.a2-dev.pecheny.me/releases/
 [col]
 players = "Игроков"
 teams = "Команд"

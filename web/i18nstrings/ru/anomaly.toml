@@ -1,4 +1,5 @@
 # The anomaly scores at /anomaly/.
+# https://v12.a2-dev.pecheny.me/anomaly/
 title = "Аномалии"
 
 [col]
@@ -8,6 +9,7 @@ forecast = "Прогноз"
 hard = "Трудные вопросы"
 score = "Коэффициент"
 
+# «Как считается», the fold above the table on https://v12.a2-dev.pecheny.me/anomaly/
 [explain]
 summary = "Как считается"
 gap = "Коэффициент — это разница между тем, как команды игрока играют на синхронных турнирах и на очных, по двум независимым величинам."

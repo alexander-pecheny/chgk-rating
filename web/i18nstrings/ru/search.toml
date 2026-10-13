@@ -1,4 +1,5 @@
 # The search page at /search/?q=.
+# https://v12.a2-dev.pecheny.me/search/?q=тигры
 title = "Поиск"
 page_title = 'Поиск: {{.q}}'
 query = 'Запрос: {{.q}}'
@@ -8,6 +9,7 @@ players = 'Игроки ({{.n}})'
 teams = 'Команды ({{.n}})'
 tournaments = 'Турниры ({{.n}})'
 
+# Column heads on https://v12.a2-dev.pecheny.me/search/?q=тигры
 [col]
 games = "Игр"
 tournaments = "Турниров"

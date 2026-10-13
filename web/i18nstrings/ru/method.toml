@@ -1,4 +1,5 @@
 # /method/'s metrics block: the forecast tables and the chart beside them.
+# Controls, table and chart in «Качество прогноза» on https://v12.a2-dev.pecheny.me/method/
 [metrics]
 weighted = "Взвешенные метрики"
 rated = "рейтинговые турниры"

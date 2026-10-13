@@ -1,7 +1,9 @@
 # The player table at /players/.
+# https://v12.a2-dev.pecheny.me/players/
 lede = 'Релиз от {{.date}}. В таблице {{.n}} {{plural .n "игрок" "игрока" "игроков"}}.'
 prov_split = "Предварительные рейтинги — игроки, чья неопределённость ещё велика"
 
+# Column heads and their hover tooltips on https://v12.a2-dev.pecheny.me/players/
 [col]
 games_year = "Игр за год"
 rating_title = "R_pub = R − {{.k}} · ±: нижняя граница оценки силы, по ней игроки упорядочены"

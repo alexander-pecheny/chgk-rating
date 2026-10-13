@@ -1,16 +1,25 @@
 # Words every page shares: the header and footer, the column names that mean
 # the same thing in every table, and the marks a row can carry.
+# Logo at the top left of every page, e.g. https://v12.a2-dev.pecheny.me/
 brand = "Рейтинг ЧГК"
+# Browser tab title of every page
 title = '{{.title}} — Рейтинг ЧГК'
+# Tab title on page 2 and later of a table: https://v12.a2-dev.pecheny.me/page/2/
 page_title = '{{.title}} — страница {{.n}}'
+# A tournament with no name, in a results table: https://v12.a2-dev.pecheny.me/players/108995/
 untitled = "без названия"
+# A team or player with no name in the mirror, wherever the name would be
 team_fallback = 'Команда {{.n}}'
 player_fallback = 'Игрок {{.n}}'
+# Muted «из N» after a place, «Место» column: https://v12.a2-dev.pecheny.me/teams/75592/
 of_n = 'из {{.n}}'
+# A player or team page with no tournaments, in place of the results table
 no_tournaments = "Рейтинговых турниров нет."
+# Line under the heading: https://v12.a2-dev.pecheny.me/releases/ and https://v12.a2-dev.pecheny.me/method/
 model_version = 'Версия модели {{.v}}'
 
 # A player's or team's page as of a past release, at ?release=id.
+# https://v12.a2-dev.pecheny.me/teams/75592/?release=540 and https://v12.a2-dev.pecheny.me/players/108995/?release=540; «earlier» and «pick» sit under the stats on https://v12.a2-dev.pecheny.me/teams/75592/
 [as_of]
 lede = 'Как было на релизе от {{.date}}.'
 prev = '← {{.date}}'
@@ -20,6 +29,7 @@ earlier = 'Как было на прошлых релизах: {{.date}} и ра
 pick = "Релиз от"
 pick_hint = "ГГГГ-ММ-ДД"
 
+# Section links in the header of every page, e.g. https://v12.a2-dev.pecheny.me/; «picker» is read aloud by screen readers, not shown on the page
 [nav]
 teams = "Команды"
 players = "Игроки"
@@ -28,6 +38,7 @@ releases = "Релизы"
 method = "Методика"
 picker = "Разделы"
 
+# Search box at the top right of every page, e.g. https://v12.a2-dev.pecheny.me/; «label» and «close» are read aloud by screen readers, not shown on the page
 [search]
 placeholder = "Игрок, команда или турнир"
 label = "Поиск"
@@ -36,23 +47,28 @@ close = "Закрыть поиск"
 [foot]
 note = "Экспериментальный рейтинг спортивного ЧГК. Данные — зеркало rating.chgk.info."
 
+# Page links under a long table, https://v12.a2-dev.pecheny.me/; «label» is read aloud by screen readers, not shown on the page
 [pager]
 label = "Страницы"
 
+# https://v12.a2-dev.pecheny.me/nope/
 [not_found]
 title = "Не найдено"
 lede = "Такой страницы нет. Попробуйте поиск в шапке."
 
+# The page shown when a page fails to build; seen only on a server error
 [failed]
 title = "Ошибка"
 lede = "Страницу не удалось построить. Попробуйте ещё раз чуть позже."
 
+# «Тип» column of results tables: https://v12.a2-dev.pecheny.me/players/108995/; byline of https://v12.a2-dev.pecheny.me/tournaments/13176/
 [format]
 in_person = "очный"
 strict_sync = "строгий синхрон"
 sync = "синхрон"
 async = "асинхрон"
 
+# Provisional ratings: the «предв.» badge and the switch above the table on https://v12.a2-dev.pecheny.me/ and https://v12.a2-dev.pecheny.me/players/
 [prov]
 badge = "предв."
 title = "Рейтинг предварительный: неопределённость велика"
@@ -60,10 +76,12 @@ toggle = "Показывать предварительные"
 hidden = 'скрыто на этой странице: {{.n}}'
 from_page = 'они начинаются со страницы {{.n}}'
 
+# Pill under a team's name in «Итоги» on https://v12.a2-dev.pecheny.me/tournaments/13176/, and in its results on https://v12.a2-dev.pecheny.me/teams/75592/
 [unrated]
 tag = "не в рейтинг"
 title = "Результат не учтён в рейтинге команды; рейтинги игроков он меняет"
 
+# Column heads shared by tables: https://v12.a2-dev.pecheny.me/, https://v12.a2-dev.pecheny.me/players/, https://v12.a2-dev.pecheny.me/teams/75592/, https://v12.a2-dev.pecheny.me/players/108995/. A *_title is the tooltip on hover
 [col]
 place = "Место"
 team = "Команда"
@@ -73,19 +91,25 @@ date = "Дата"
 type = "Тип"
 rating = "Рейтинг"
 change = "ΔR"
+# Tooltip of «ΔR» on https://v12.a2-dev.pecheny.me/
 change_team_title = "Изменение рейтинга за неделю: прибавка от новых результатов минус угасание старых. Без новых результатов рейтинг каждую неделю немного снижается"
+# Tooltip of «ΔR» on https://v12.a2-dev.pecheny.me/players/
 change_player_title = "Изменение R за неделю, вместе с недельным сдвигом шкалы"
 sigma_title = "Неопределённость оценки"
 taken = "Взято"
+# «Было» / «Стало» in the games table on https://v12.a2-dev.pecheny.me/players/108995/
 before = "Было"
 after = "Стало"
+# Column on https://v12.a2-dev.pecheny.me/tournaments/ and a stat on https://v12.a2-dev.pecheny.me/tournaments/13176/
 difficulty = "Сложность"
 difficulty_title = "Сложность пакета"
+# «Балл» in «Из чего складывается рейтинг» on https://v12.a2-dev.pecheny.me/teams/75592/ and in «Итоги» on https://v12.a2-dev.pecheny.me/tournaments/13176/
 value = "Балл"
 value_title = "Рейтинговый балл V: сколько результат стоил в день турнира"
 gain = "Прибавка"
 gain_title = "Насколько вырос рейтинг, когда результат вошёл в семь лучших"
 
+# «История рейтинга» chart: https://v12.a2-dev.pecheny.me/teams/75592/ and https://v12.a2-dev.pecheny.me/players/108995/; the *_point strings are the tooltip on a point
 [chart]
 title = "История рейтинга"
 rating = "Рейтинг"
@@ -96,6 +120,7 @@ floor_point = '{{.pub}} · R {{.r}} ± {{.sd}}'
 empty = "Точек для графика пока нет."
 
 # The switch on /players/ and tournament pages between A2 and the view with Elo.
+# Switch at the top of https://v12.a2-dev.pecheny.me/players/, https://v12.a2-dev.pecheny.me/players/108995/ and https://v12.a2-dev.pecheny.me/tournaments/13176/
 [view]
 a2 = "A2"
 best = "А2+Сатыбалдыев+онлайны"

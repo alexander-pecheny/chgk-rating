@@ -1,6 +1,8 @@
 # The tournament list at /tournaments/.
+# https://v12.a2-dev.pecheny.me/tournaments/
 lede = 'Рейтинговые турниры с 2013 года — {{.n}} {{plural .n "турнир" "турнира" "турниров"}}, от новых к старым.'
 
+# Column heads on https://v12.a2-dev.pecheny.me/tournaments/
 [col]
 weight = "Вес"
 teams = "Команд"

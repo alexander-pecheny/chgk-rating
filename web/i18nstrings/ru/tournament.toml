@@ -1,9 +1,12 @@
 # A tournament's page at /tournaments/id/: its numbers, the difficulty of its
 # questions and the field, with the forecast beside the result.
+# https://v12.a2-dev.pecheny.me/tournaments/13176/
 untitled = "Турнир без названия"
 byline = '{{.date}} · {{.format}} · вес {{.weight}}'
+# Line under the title when a tournament has several venues: https://v12.a2-dev.pecheny.me/tournaments/13176/
 venues = 'Сводный зачёт {{.n}} {{plural .n "площадки" "площадок" "площадок"}}:'
 
+# Numbers under the title on https://v12.a2-dev.pecheny.me/tournaments/13176/
 [stat]
 teams = "Команд"
 venues = "Площадок"
@@ -13,11 +16,13 @@ ll_in = "Log-loss (по выборке)"
 rho_forecast = "ρ прогноза"
 rho_old = "ρ старой системы"
 
+# Bar chart «Сложность вопросов» on https://v12.a2-dev.pecheny.me/tournaments/13176/; «bar» is the tooltip on a bar
 [questions]
 title = "Сложность вопросов"
 bar = 'Вопрос {{.n}}: b = {{.b}}'
 hint = 'Столбик — трудность вопроса b: выше значит сложнее. От {{.lo}} до {{.hi}} по этому пакету.'
 
+# Table «Качество прогноза» on https://v12.a2-dev.pecheny.me/tournaments/13176/
 [forecast]
 title = "Качество прогноза"
 col_system = "Система"
@@ -28,12 +33,15 @@ gg = "chgk.gg"
 quest = "chgk.quest"
 elo = "elo-chgk.uk"
 
+# «Итоги», the results table on https://v12.a2-dev.pecheny.me/tournaments/13176/. A *_title is the tooltip on hover
 [field]
 title = "Итоги"
+# Note above the table when some results did not count: https://v12.a2-dev.pecheny.me/tournaments/13176/
 unrated = 'Не зачтено результатов: {{.n}} из {{.total}}. Такая команда получает прогноз, но её рейтинг турнир не двигает — за старым номером вышел состав, ничего этой команде не наигравший.'
 empty = "Данных по командам нет."
 roster_toggle = "Показывать составы"
 roster_open = "состав"
+# Venue filter above the table, shown when a tournament has several venues: https://v12.a2-dev.pecheny.me/tournaments/13176/
 venue = "Площадка"
 all_venues = "Все площадки"
 venue_option = '{{.name}} ({{.n}})'
@@ -45,6 +53,7 @@ lineup = "Состав"
 lineup_title = "Сила вышедшего состава по рейтингам игроков на утро турнира"
 value_title = "Рейтинговый балл команды V за этот турнир"
 gain_title = "Насколько вырос рейтинг команды, когда результат вошёл в семь её лучших"
+# by_place, to_lineup and winner are columns of the old team rules, not shown under the current ones
 by_place = "за место"
 by_place_title = "Шаг за место: против ожидания по силе команд в поле"
 to_lineup = "к составу"

@@ -2,22 +2,29 @@
 # roster and every result it has played. The letters are the post's at
 # /method/: S⁺ the strength shown above 800, M the place, w the weights, V the result's
 # rating points, f(t) the fade and ω the share of the roster kept.
+# https://v12.a2-dev.pecheny.me/teams/75592/
 rank = '{{.n}}-е место · {{.town}}'
+# https://v12.a2-dev.pecheny.me/teams/3425/
 not_listed = 'Не в текущем релизе · {{.town}}'
+# A team page at ?release= for a release the team was not in
 not_listed_at = 'Не в таблице релиза от {{.date}} · {{.town}}'
 no_town = "город не указан"
+# Roster list at the right on https://v12.a2-dev.pecheny.me/teams/75592/ (above the breakdown on a phone)
 roster = 'Базовый состав ({{.n}})'
 
+# Numbers under the name on https://v12.a2-dev.pecheny.me/teams/75592/
 [stat]
 week = "За неделю"
 ql = "Q(L)"
 
+# «Из чего складывается рейтинг» on https://v12.a2-dev.pecheny.me/teams/75592/
 [breakdown]
 title = "Из чего складывается рейтинг"
 left = "Осталось"
 left_title = "Доля балла, которая осталась сегодня: f(t) · ω"
 now = "Сейчас"
 now_title = "Балл сегодня: V · f(t) · ω"
+# The line under each tournament: M, the w factors, S⁺ and the fade
 place = 'M = {{.v}}'
 w = "w"
 w_format = "формат"
@@ -27,11 +34,14 @@ w_legion = "легионеры"
 equals = ' = {{.v}}'
 fade = 'f(t) = {{.fade}}%'
 fade_overlap = 'f(t) = {{.fade}}%, ω = {{.overlap}}%'
+# A result from a tournament with several venues, in place of the single place
 merged = 'место {{.all}}/{{.teams}} (сводное), {{.own}}/{{.here}} (своя площадка)'
 empty_slot = "пустой слот"
+# The two bottom rows of the breakdown
 sum = 'Сумма {{.sum}} ÷ {{.divisor}} = очки'
 strength = 'Рейтинг = {{.a}} · очки^{{.p}}'
 
+# «Все результаты», the table at the bottom of https://v12.a2-dev.pecheny.me/teams/75592/
 [results]
 title = 'Все результаты ({{.n}})'
 older_toggle = "Показать и старые результаты"

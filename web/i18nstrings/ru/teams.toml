@@ -1,12 +1,16 @@
 # The team table at / and /page/n/.
+# https://v12.a2-dev.pecheny.me/
 lede = 'Релиз от {{.date}}. В таблице {{.n}} {{plural .n "команда" "команды" "команд"}}.'
 # The same table at /ql/ and /ql/page/n/, ordered by Q(L).
+# https://v12.a2-dev.pecheny.me/ql/
 lede_ql = 'Релиз от {{.date}}. По Q(L), силе базового состава, как её читает прогноз: {{.n}} {{plural .n "команда" "команды" "команд"}} с базовым составом, у которого известны рейтинги хотя бы четырёх игроков.'
+# Order switch above the table: https://v12.a2-dev.pecheny.me/ and https://v12.a2-dev.pecheny.me/ql/
 order = "Порядок:"
 by_rating = "по рейтингу"
 by_ql = "по Q(L)"
 prov_split = "Предварительные рейтинги — команды, чья неопределённость ещё велика"
 
+# Column heads and their hover tooltips on https://v12.a2-dev.pecheny.me/ and https://v12.a2-dev.pecheny.me/ql/
 [col]
 results = "Результатов"
 results_title = "Сколько результатов из семи входит в рейтинг"
