@@ -1,5 +1,5 @@
 //! The reimplementations of other production ratings: chgk.gg (`gg`),
-//! rating.chgk.fun (`fun`), chgk.quest (`quest`) and the London Elo (`elo`). Each engine owns its own
+//! rating.chgk.fun (`fun`), chgk.quest (`quest`) and the London Elo (`elo`), and a TrueSkill-family rating on places (`ts`). Each engine owns its own
 //! rules and its own scope of tournaments; everything else is here. An engine
 //! opens its state from the command line, rates one tournament at a time and
 //! publishes a weekly release, and `drive` owns the calendar and the writer, so
@@ -14,6 +14,7 @@ pub mod gg;
 mod gg_load;
 pub mod quest;
 mod shared;
+pub mod ts;
 
 pub use shared::*;
 
@@ -63,6 +64,7 @@ pub enum System {
     Fun,
     Gg,
     Quest,
+    Ts,
 }
 
 /// The shared `main` of `ext_elo`, `ext_fun`, `ext_gg` and `ext_quest`.
@@ -74,6 +76,7 @@ pub fn run(system: System) -> Fallible<()> {
         System::Fun => Box::new(fun::Fun::open(&args)?),
         System::Gg => Box::new(gg::Gg::open(&args)?),
         System::Quest => Box::new(quest::Quest::open(&args)?),
+        System::Ts => Box::new(ts::Ts::open(&args)?),
     };
     let w = Writer::create(engine.out_path())?;
     let releases = drive(engine.as_mut(), &w)?;
