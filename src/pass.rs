@@ -417,7 +417,15 @@ impl<'a> Sweep<'a> {
             scores: q.scores,
             next_release: self.next_rel,
         })?;
-        self.learn(t, &q.grads, &events, &q.params);
+        self.learn(t, &q.grads, &q.blocks, &events, &q.params);
+        if cfg.player.score_k > 0.0 {
+            let own = cfg.player.score_own_fit.then(|| {
+                let vbar = self.players.editor_mean(t);
+                let field = qm::with_strengths(&q.field, |i| self.players.theta_score(i as usize) + self.players.affinity(i as usize, &vbar), cfg);
+                qm::fit_all(&field, None, cfg)
+            });
+            self.players.absorb_score(t, &q.field, own.as_deref().unwrap_or(&q.params), cfg);
+        }
         self.learn_teams(t, &q.team_grads, &events);
         obs.evening(&Evening { index: n, t, players: self.players, grads: &q.grads, events: &events })
     }
@@ -435,12 +443,13 @@ impl<'a> Sweep<'a> {
         let scores = cross.map(|cross| FitScores { in_sample: qm::score(&field, &params, None, cfg), cross });
         let grads = qm::player_grads(&field, &params, cfg);
         let team_grads = qm::team_grads_by_id(&field, &params, cfg);
-        Questions { field, params, scores, grads, team_grads }
+        let blocks = if cfg.player.pair_cov.is_empty() { Vec::new() } else { qm::lineup_fisher(&field, &params, cfg) };
+        Questions { field, params, scores, grads, team_grads, blocks }
     }
 
     /// Everything that learns from a tournament once it has been forecast: the
     /// memories, then the players, then the gauge's activity record.
-    fn learn(&mut self, t: &Tournament, grads: &[(u32, f64, f64)], events: &[TeamEvent], params: &[QParams]) {
+    fn learn(&mut self, t: &Tournament, grads: &[(u32, f64, f64)], blocks: &[(Vec<u32>, Vec<f64>)], events: &[TeamEvent], params: &[QParams]) {
         let cfg = self.cfg;
         self.mem.absorb(t, events, params);
         let p = &cfg.player;
@@ -462,13 +471,14 @@ impl<'a> Sweep<'a> {
         } else {
             HashMap::new()
         };
-        self.players.absorb(t, steered.as_deref().unwrap_or(grads), &mut self.ed_seen, collect, cfg);
+        self.players.absorb(t, steered.as_deref().unwrap_or(grads), blocks, &mut self.ed_seen, collect, cfg);
         self.players.shrink_to_lineups(t, cfg);
         for (i, before) in floor {
             let s = &mut self.players.state[i as usize];
             s.theta_raw = s.theta_raw.max(before);
         }
         self.players.cap_stars(t, &before, cfg);
+        self.players.pull_partners(t, cfg);
         for &(i, _, info) in grads {
             self.activity.push(t.day, i, t.weight * info);
         }
@@ -534,6 +544,8 @@ struct Questions {
     grads: Vec<(u32, f64, f64)>,
     /// `question.team_effect_sd`: `(team, gradient, information)` per lineup.
     team_grads: Vec<(u32, f64, f64)>,
+    /// `player.pair_cov`: each lineup's members and information matrix.
+    blocks: Vec<(Vec<u32>, Vec<f64>)>,
 }
 
 /// The question log-likelihood of each of the two halves of the field,

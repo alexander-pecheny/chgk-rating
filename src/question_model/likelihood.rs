@@ -10,8 +10,16 @@ pub(super) fn clamped_exp(x: f64, cfg: &Config) -> f64 {
     x.clamp(cfg.numeric.exp_lo, cfg.numeric.exp_hi).exp()
 }
 
-pub(super) fn intensity(z: &[f64], a: f64, b: f64, cfg: &Config) -> f64 {
-    z.iter().map(|&zi| clamped_exp(a * (zi - b), cfg)).sum()
+/// `k` is each member's slope, `question.slope_c`: a strong player's chance
+/// falls off more slowly with the difficulty.
+pub(super) fn intensity(z: &[f64], k: &[f64], a: f64, b: f64, cfg: &Config) -> f64 {
+    z.iter().zip(k).map(|(&zi, &ki)| clamped_exp(a * ki * (zi - b), cfg)).sum()
+}
+
+/// The slope a player of strength `z` reads questions at, 1 when `slope_c` is off.
+pub(super) fn slope(z: f64, cfg: &Config) -> f64 {
+    let q = &cfg.question;
+    (1.0 / (1.0 + q.slope_c * (z - q.slope_z0).max(0.0))).max(q.slope_min)
 }
 
 /// Saturating the total intensity keeps one observation from costing more than `u_max` nats.
@@ -71,28 +79,28 @@ pub(super) struct Deriv {
     pub h: [f64; 6],
 }
 
-/// `u`, `Σ d_i λ_i` and `Σ d_i² λ_i` over the lineup, `d_i = z_i − b`, all
-/// saturated by the same `u_scale`.
-fn moments(z: &[f64], p: &QParams, cfg: &Config) -> (f64, f64, f64) {
+/// Sums over the lineup of `λ_i` times `1, k_i, k_i², d_i, d_i², k_i d_i`,
+/// `d_i = k_i (z_i − b)`, all saturated by the same `u_scale`.
+fn moments(z: &[f64], k: &[f64], p: &QParams, cfg: &Config) -> [f64; 6] {
     let a = p.a();
-    let (mut u, mut u1, mut u2) = (0.0, 0.0, 0.0);
-    for &zi in z {
-        let d = zi - p.b;
+    let mut m = [0.0; 6];
+    for (&zi, &ki) in z.iter().zip(k) {
+        let d = ki * (zi - p.b);
         let l = clamped_exp(a * d, cfg);
-        u += l;
-        u1 += d * l;
-        u2 += d * d * l;
+        for (acc, x) in m.iter_mut().zip([1.0, ki, ki * ki, d, d * d, ki * d]) {
+            *acc += x * l;
+        }
     }
-    let s = u_scale(u, cfg);
-    (u * s, u1 * s, u2 * s)
+    let s = u_scale(m[0], cfg);
+    m.map(|x| x * s)
 }
 
-pub(super) fn team_deriv(z: &[f64], y: u8, p: &QParams, cfg: &Config) -> Deriv {
+pub(super) fn team_deriv(z: &[f64], k: &[f64], y: u8, p: &QParams, cfg: &Config) -> Deriv {
     let (a, m) = (p.a(), p.m());
-    let (u, u1, u2) = moments(z, p, cfg);
+    let [u, uk, ukk, u1, u2, ukd] = moments(z, k, p, cfg);
     let (g0, g1, g2) = step_derivs(u);
-    let (u_b, u_l) = (-a * u, a * u1);
-    let (u_bb, u_bl, u_ll) = (a * a * u, -a * u - a * a * u1, a * (u1 + a * u2));
+    let (u_b, u_l) = (-a * uk, a * u1);
+    let (u_bb, u_bl, u_ll) = (a * a * ukk, -a * uk - a * a * ukd, a * (u1 + a * u2));
     let (h_b, h_l, h_m) = (m * g1 * u_b, m * g1 * u_l, m * g0);
     let h_bb = m * (g2 * u_b * u_b + g1 * u_bb);
     let h_bl = m * (g2 * u_b * u_l + g1 * u_bl);

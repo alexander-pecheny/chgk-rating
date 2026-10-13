@@ -409,6 +409,8 @@ fn results_sql(cfg: &Config) -> String {
         ""
     } else if cfg.data.unrated_in_person {
         "(t.in_rating = 1 OR t.tournament_type IN ('Обычный', 'Региональный')) AND"
+    } else if cfg.data.w_async > 0.0 {
+        "(t.in_rating = 1 OR t.tournament_type = 'Асинхрон') AND"
     } else {
         "t.in_rating = 1 AND"
     };
@@ -469,8 +471,11 @@ impl<'a> Loader<'a> {
             return Ok(None);
         };
         let in_rating: i64 = row.get::<_, Option<i64>>(C_IN_RATING)?.unwrap_or(0);
-        let train_only = cfg.data.train_unrated && !cfg.data.include_unrated && in_rating == 0;
-        let weight = format.weight(cfg) * if train_only { cfg.data.w_unrated } else { 1.0 };
+        // The official system rates no asynchronous tournament, so a positive
+        // `w_async` reads them for the players alone, at that weight.
+        let unrated_async = format == Format::Async && in_rating == 0 && !cfg.data.include_unrated;
+        let train_only = unrated_async || (cfg.data.train_unrated && !cfg.data.include_unrated && in_rating == 0);
+        let weight = format.weight(cfg) * if train_only && !unrated_async { cfg.data.w_unrated } else { 1.0 };
         if weight <= 0.0 {
             return Ok(None);
         }

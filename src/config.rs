@@ -180,6 +180,10 @@ pub struct S2 {
     /// its last `series_k` in-person results. 0 is off.
     pub kappa_s: f64,
     pub series_k: usize,
+    /// Shares of the gap from the lineup's strength to the team's usual lineup
+    /// and to the team's rating that the forecast takes. 0 is the lineup alone.
+    pub k_usual: f64,
+    pub k_team: f64,
     /// Display points the forecast gains per unit of the lineup's mean past
     /// residual under today's editors. 0 is off. This is the editor effect where
     /// the residual check finds it -- in the outcomes -- rather than where
@@ -355,6 +359,23 @@ pub struct S2 {
     /// Pseudo-games against the team's own forecast that keep a performance
     /// finite for a first or last place.
     pub perf_prior: f64,
+    /// How far the forecast moves from `Q(L)` to the London Elo's pack score
+    /// of the lineup, its players at `pack_a + pack_b · theta`. 0 is off.
+    #[serde(default)]
+    pub pack_w: f64,
+    #[serde(default)]
+    pub pack_a: f64,
+    #[serde(default)]
+    pub pack_b: f64,
+    /// How far the forecast moves to the lineup read at the players' score
+    /// ratings (`player.score_k`), put on the field's scale. 0 is off.
+    #[serde(default)]
+    pub k_score: f64,
+    /// The forecast reads a member below their teammates' mean `k_mates ·
+    /// min(1, sigma^2 / sigma_new^2)` of the way up to it: an unsure player
+    /// at a strong table is read nearer the table. 0 is off.
+    #[serde(default)]
+    pub k_mates: f64,
 }
 
 /// What a config that leaves a key of `[team.s2]` out gets: the rule as it
@@ -362,6 +383,11 @@ pub struct S2 {
 /// which sets every key, so these defaults only reach the older research
 /// configs.
 const S2_DEFAULT: S2 = S2 {
+    pack_w: 0.0,
+    pack_a: 0.0,
+    pack_b: 0.0,
+    k_score: 0.0,
+    k_mates: 0.0,
     d: 1200.0,
     k: 0.4,
     k_q: 0.01,
@@ -379,6 +405,8 @@ const S2_DEFAULT: S2 = S2 {
     phi_spread: 0.0,
     difficulty_forecast: false,
     kappa_s: 0.0,
+    k_usual: 0.0,
+    k_team: 0.0,
     series_k: 5,
     editor_memory: 0.0,
     ed_min_n: 2.0,
@@ -663,6 +691,23 @@ pub struct Question {
     /// member of a lineup of unsettled players does not take all of it.
     #[serde(default)]
     pub share_temp: f64,
+    /// Blend every member's gradient towards the lineup's mean gradient, as the
+    /// London Elo gives each member the same surplus. 0 is off, 1 an even split.
+    #[serde(default)]
+    pub equal_credit: f64,
+    /// The same blend for each member's information.
+    #[serde(default)]
+    pub equal_info: f64,
+    /// The London Elo's slope: a player of strength `z` reads every question
+    /// at discrimination `a / (1 + slope_c · max(z − slope_z0, 0))`, never
+    /// below `a · slope_min`, so a strong player is less sure of an easy
+    /// question and less lost on a hard one. 0 is off.
+    #[serde(default)]
+    pub slope_c: f64,
+    #[serde(default)]
+    pub slope_z0: f64,
+    #[serde(default)]
+    pub slope_min: f64,
     /// A strength per team id, added to every member of that team's lineup in
     /// the likelihood and in the forecast, with this prior sd; it takes a
     /// Kalman step on the team's whole gradient, so a stable team's surplus
@@ -838,6 +883,56 @@ pub struct Player {
     pub new_boost: f64,
     #[serde(default)]
     pub new_boost_games: u32,
+    /// Theta a player gains per weighted tournament played, whatever the
+    /// result: the learning that comes with experience, which the London Elo
+    /// gets from its inflation. `learn_games` makes it fade as
+    /// `learn_games / (learn_games + games)`; 0 keeps it constant.
+    #[serde(default)]
+    pub learn: f64,
+    #[serde(default)]
+    pub learn_games: f64,
+    /// Newcomer cap: while a player has fewer than `new_cap_games` games, one
+    /// tournament moves their theta by at most `new_cap`, so one result far
+    /// above or below the lineup's forecast cannot set a career. 0 is off.
+    #[serde(default)]
+    pub new_cap: f64,
+    #[serde(default)]
+    pub new_cap_games: u32,
+    /// The joint step of `team_joint` for newcomers only: members with fewer
+    /// than `joint_new_games` games share one surprise among themselves, so a
+    /// lineup of six newcomers does not hand each of them the whole of its
+    /// result. Established players keep their separate steps. 0 is off.
+    #[serde(default)]
+    pub joint_new_games: u32,
+    /// Held start: a newcomer's first `hold_games` tournaments do not move
+    /// them. Their evidence, scored at the newcomer prior, is summed and taken
+    /// in one step after the last of them, so no single early result sets
+    /// where the player stands, and two newcomers who share a lineup are read
+    /// at one strength until then. 0 is off.
+    #[serde(default)]
+    pub hold_games: u32,
+    /// Pair covariance, a prototype. Empty is off. "diag" steps each member on
+    /// the expected information of the lineup's questions without the cross
+    /// terms, the control. "full" takes one joint step per lineup on the whole
+    /// information matrix and keeps the covariance of every two players who
+    /// shared a lineup, so partners who always play together stay uncertain
+    /// about which of them is stronger, and a game one of them plays apart
+    /// settles it.
+    #[serde(default)]
+    pub pair_cov: String,
+    /// Pair covariances below this correlation are forgotten.
+    #[serde(default)]
+    pub pair_prune: f64,
+    /// Partner pull: after each tournament, two lineup members who have
+    /// shared at least `pair_pull_games` lineups, each at least
+    /// `pair_pull_share` of their own games, move `pair_pull` of the way to
+    /// their mean; their sum stays. 1 gives such partners one number. 0 is off.
+    #[serde(default)]
+    pub pair_pull: f64,
+    #[serde(default)]
+    pub pair_pull_games: u32,
+    #[serde(default)]
+    pub pair_pull_share: f64,
     /// Star cap: a player whose strength led their lineup by at least
     /// `star_margin` gains at most `star_cap` of theta per year from such
     /// tournaments (a ledger decaying with a one-year time constant). 0 is off.
@@ -878,6 +973,46 @@ pub struct Player {
     /// faster; only the forecast reads it, through `team.s2.k_fast`. 0 is off.
     #[serde(default)]
     pub v_fast: f64,
+    /// The fast estimate's share of equal credit: each member steps on the
+    /// lineup's mean gradient and information, as the London Elo credits a
+    /// team's surprise. 0 is the member's own gradient.
+    #[serde(default)]
+    pub fast_credit: f64,
+    /// Equal credit for the unsure: a player steps on `c` of the lineup's mean
+    /// gradient and information instead of their own, `c = credit_unsure ·
+    /// min(1, var / sigma_new^2)`, so a newcomer at a strong table shares the
+    /// table's surprise. 0 is off.
+    #[serde(default)]
+    pub credit_unsure: f64,
+    /// The score rating, a second strength only the forecast reads: once per
+    /// tournament every member moves by `w (score_k + (v / score_kv)^2)` times
+    /// the lineup's answers minus the answers the fitted questions expected,
+    /// capped at the lineup's uniform shift and at `score_cap`, plus
+    /// `score_infl`; `1/v^2` grows by `w h^2 / score_sv^2`, `h` the member's
+    /// derivative of the expected answers, from `score_v0`. The London Elo's
+    /// update on our scale. 0 is off.
+    #[serde(default)]
+    pub score_k: f64,
+    #[serde(default)]
+    pub score_kv: f64,
+    #[serde(default)]
+    pub score_cap: f64,
+    #[serde(default)]
+    pub score_infl: f64,
+    #[serde(default)]
+    pub score_sv: f64,
+    #[serde(default)]
+    pub score_v0: f64,
+    /// Credit by each member's derivative instead of equally.
+    #[serde(default)]
+    pub score_grad: bool,
+    /// Judge the score rating against questions fitted at the score ratings,
+    /// not at `theta`.
+    #[serde(default)]
+    pub score_own_fit: bool,
+    /// The fast estimate's gain per game, faded by `learn_games` like `learn`.
+    #[serde(default)]
+    pub fast_learn: f64,
     #[serde(default = "kalman")]
     pub update: PUpdate,
     /// `update = "schedule"`: step `eta0 / sqrt(c0 + games)`.
@@ -885,6 +1020,10 @@ pub struct Player {
     pub eta0: f64,
     #[serde(default = "c0")]
     pub c0: f64,
+    /// The weight of an unrated or async result fades as `extra_games / (extra_games + games)`,
+    /// so it teaches a player with little history and leaves an established one alone. 0 is off.
+    #[serde(default)]
+    pub extra_games: f64,
 }
 
 fn tau_phi() -> f64 {

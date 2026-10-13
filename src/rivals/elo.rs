@@ -82,25 +82,25 @@ const PACK_STEP: f64 = 50.0;
 const CHECKPOINT_EVERY: i64 = 20;
 const LOG_EVERY: usize = 1000;
 
-fn weight(f: Format) -> f64 {
+fn weight(f: Format, kn: &Knobs) -> f64 {
     match f {
         Format::InPerson => W_IN_PERSON,
         Format::StrictSync => W_STRICT_SYNC,
-        Format::Sync => W_SYNC,
-        Format::Async => W_ASYNC,
+        Format::Sync => kn.w_sync,
+        Format::Async => kn.w_async,
     }
 }
 
-fn slope(r: f64) -> f64 {
-    (1.0 / (1.0 + SLOPE_PER * (r - SLOPE_FROM).max(0.0))).max(SLOPE_MIN)
+fn slope(r: f64, kn: &Knobs) -> f64 {
+    (1.0 / (1.0 + kn.slope_per * (r - SLOPE_FROM).max(0.0))).max(SLOPE_MIN)
 }
 
-fn rho(elos: &[f64], f: Format) -> f64 {
+fn rho(elos: &[f64], f: Format, kn: &Knobs) -> f64 {
     if f == Format::Async {
         return RHO_ASYNC;
     }
     let mean = elos.iter().sum::<f64>() / elos.len() as f64;
-    (RHO_BASE + RHO_PER * (mean - SLOPE_FROM)).clamp(RHO_BASE, RHO_MAX)
+    (kn.rho_base + kn.rho_per * (mean - SLOPE_FROM)).clamp(kn.rho_base, RHO_MAX.max(kn.rho_base))
 }
 
 /// The tunable part of the update.
@@ -111,6 +111,15 @@ struct Knobs {
     inflation: f64,
     sigma_v: f64,
     lambda: f64,
+    w_sync: f64,
+    w_async: f64,
+    /// Split the surplus by each player's share of the team's derivative, not equally.
+    credit_grad: bool,
+    /// Cap a step at the lineup's uniform shift.
+    cap_shift: bool,
+    slope_per: f64,
+    rho_base: f64,
+    rho_per: f64,
 }
 
 /// A lineup as the hazard model reads it: each player's Elo and slope, and rho.
@@ -129,9 +138,9 @@ struct Take {
 }
 
 impl Lineup {
-    fn new(elo: Vec<f64>, f: Format) -> Lineup {
-        let rho = rho(&elo, f);
-        Lineup { slope: elo.iter().map(|&r| slope(r)).collect(), elo, rho }
+    fn new(elo: Vec<f64>, f: Format, kn: &Knobs) -> Lineup {
+        let rho = rho(&elo, f, kn);
+        Lineup { slope: elo.iter().map(|&r| slope(r, kn)).collect(), elo, rho }
     }
 
     /// `P_team = 1 - exp(-(sum u_i^(1/rho))^rho)`, `u_i = -ln(1 - P_i)`, shifted by `shift` Elo.
@@ -332,9 +341,11 @@ fn rate_team(l: &Lineup, mask: &[u8], qs: &[(f64, f64)], w: f64, vols: &[f64], k
     }
     let r = s_live - e_live;
     let shift = uniform_shift(l, &played, s_live);
-    let deltas = vols.iter().map(|&v| {
-        let raw = w * (kn.alpha + (v / kn.vol_scale).powi(2)) * r;
-        let cap = (w * shift.abs()).min(DELTA_MAX);
+    let hsum: f64 = h.iter().sum();
+    let deltas = vols.iter().zip(&h).map(|(&v, &hi)| {
+        let share = if kn.credit_grad && hsum > 0.0 { n as f64 * hi / hsum } else { 1.0 };
+        let raw = w * (kn.alpha + (v / kn.vol_scale).powi(2)) * r * share;
+        let cap = if kn.cap_shift { (w * shift.abs()).min(DELTA_MAX) } else { DELTA_MAX };
         raw.clamp(-cap, cap) + w * kn.inflation
     }).collect();
     let info = h.iter().map(|&x| w * x * x / (kn.sigma_v * kn.sigma_v)).collect();
@@ -409,6 +420,13 @@ impl Elo {
             inflation: num("--inflation", INFLATION),
             sigma_v: num("--sigma-v", SIGMA_V),
             lambda: num("--lambda", LAMBDA),
+            w_sync: num("--w-sync", W_SYNC),
+            w_async: num("--w-async", W_ASYNC),
+            credit_grad: args.has("--credit-grad"),
+            cap_shift: !args.has("--no-cap"),
+            slope_per: num("--slope-per", SLOPE_PER),
+            rho_base: num("--rho-base", RHO_BASE),
+            rho_per: num("--rho-per", RHO_PER),
         };
         let start = Instant::now();
         let from_day = parse_date(&cfg.data.from).ok_or("bad --from")?;
@@ -447,10 +465,10 @@ impl Rival for Elo {
             v
         }).collect();
         let ls: Vec<Option<Lineup>> = members.iter().map(|ms| {
-            (!ms.is_empty()).then(|| Lineup::new(ms.iter().map(|&p| self.m.elo[p as usize]).collect(), t.format))
+            (!ms.is_empty()).then(|| Lineup::new(ms.iter().map(|&p| self.m.elo[p as usize]).collect(), t.format, &self.kn))
         }).collect();
         let qs = fit_questions(t, &ls, self.kn.lambda);
-        let wt = weight(t.format);
+        let wt = weight(t.format, &self.kn);
         let fits: Vec<Option<TeamFit>> = ls.par_iter().zip(&t.teams).zip(&members).map(|((l, r), ms)| {
             let l = l.as_ref()?;
             let vols: Vec<f64> = ms.iter().map(|&p| self.m.vol[p as usize]).collect();
