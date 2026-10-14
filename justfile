@@ -89,7 +89,9 @@ compare:
 # The variants /method/'s metrics block sets beside the daily outputs: A2 on
 # every tournament, every system on the official rating's tournaments alone
 # with A2's blend, and chgk.gg with every tournament moving its ratings. The
-# blend on every tournament is the view with Elo, out/best. Run after an update.
+# blend on every tournament is the view with Elo, out/best. Elo+tweaks is Elo
+# with A2's start for young newcomers and its in-person correction, alone and
+# blended with A2, on both sets. Run after an update.
 metrics-fit:
     #!/bin/sh
     set -eu
@@ -99,15 +101,28 @@ metrics-fit:
     rated() { sed -e 's/^w_async = .*/w_async = 0.0/' -e 's/^include_unrated = .*/include_unrated = false/'; }
     one() { sed -e "s|^out_path = .*|out_path = \"$1\"|" -e 's/^rows_every = .*/rows_every = 0/'; }
     one $d/all/a2.db < config.toml | sed -e 's/^w_async = .*/w_async = 0.25/' -e 's/^train_unrated = .*/train_unrated = true/' > $d/a2.toml
-    { one $d/rated/blend.db < config.toml; printf '\n[blend]\nelo_db = "%s"\nelo = 0.35\n' $d/rated/elo.db; } > $d/blend_rated.toml
+    { one $d/rated/blendt.db < config.toml; printf '\n[blend]\nelo_db = "%s"\nelo = 0.35\n' $d/rated/elot.db; } > $d/blendt_rated.toml
+    { one $d/all/blendt.db < out/best/config.toml | sed -e "s|^elo_db = .*|elo_db = \"$d/all/elot.db\"|"; } > $d/blendt_all.toml
     rated < config_elo.toml > $d/elo_rated.toml
+    tweaks="--young 150 --ip-new 25"
     one $d/rated/quest.db < config_quest.toml | rated > $d/quest_rated.toml
-    $b/ext_elo --config $d/elo_rated.toml --to $today --out $d/rated/elo.db > $d/elo.log
-    $b/fit --config $d/a2.toml > $d/a2.log & $b/fit --config $d/blend_rated.toml > $d/blend_rated.log & wait
-    $b/ext_fun --as-of $today --rated-only --out $d/rated/fun.db > $d/fun.log 2>&1 &
-    $b/ext_quest --config $d/quest_rated.toml --to $today > $d/quest.log 2>&1 &
-    $b/ext_gg --to $today --rows-every 0 --move-all --out $d/all/gg.db > $d/gg.log 2>&1 &
+    # A rival reads neither config.toml nor A2's output: it reruns only when
+    # its output is older than buff.db, its binary or the rival configs.
+    rival() {
+        out=$1 bin=$2 log=$3; shift 3
+        for dep in buff.db $b/$bin config_*.toml; do
+            [ -e "$out" ] && [ "$out" -nt "$dep" ] || { $b/$bin "$@" > $log 2>&1; return; }
+        done
+    }
+    rival $d/rated/elo.db ext_elo $d/elo.log --config $d/elo_rated.toml --to $today --out $d/rated/elo.db &
+    rival $d/rated/elot.db ext_elo $d/elot_rated.log --config $d/elo_rated.toml --to $today --out $d/rated/elot.db $tweaks &
+    rival $d/all/elot.db ext_elo $d/elot_all.log --to $today --out $d/all/elot.db $tweaks &
+    rival $d/rated/fun.db ext_fun $d/fun.log --as-of $today --rated-only --out $d/rated/fun.db &
+    rival $d/rated/quest.db ext_quest $d/quest.log --config $d/quest_rated.toml --to $today &
+    rival $d/all/gg.db ext_gg $d/gg.log --to $today --rows-every 0 --move-all --out $d/all/gg.db &
+    $b/fit --config $d/a2.toml > $d/a2.log &
     wait
+    $b/fit --config $d/blendt_rated.toml > $d/blendt_rated.log & $b/fit --config $d/blendt_all.toml > $d/blendt_all.log & wait
 
 # /method/'s metrics block, web/metrics.json: the systems on all tournaments
 # and on rated ones alone, weighted and not, each against every other.
@@ -115,10 +130,11 @@ metrics:
     #!/bin/sh
     set -eu
     d=out/metrics
-    run() { set=$1 how=$2; shift 2; uv run tools/rival_metrics.py --json --from 2025-01-01 --to 2026-08-28 $how "$@" | jq -c --arg s "$set" '. + {set: $s}'; }
-    all="A2=$d/all/a2.db A2+Сатыбалдыев=out/best/ratings.db Сатыбалдыев=out/ext/elo.db:x Сироткин=out/ext/fun.db Фаттахов=out/ext/quest.db chgk.gg=$d/all/gg.db"
-    rated="A2=out/ratings.db A2+Сатыбалдыев=$d/rated/blend.db Сатыбалдыев=$d/rated/elo.db:x Сироткин=$d/rated/fun.db Фаттахов=$d/rated/quest.db chgk.gg=out/ext/gg.db"
-    { run all "" $all; run all --unweighted $all; run rated "" $rated; run rated --unweighted $rated; } | jq -s . > web/metrics.json
+    run() { set=$1 how=$2; shift 2; uv run tools/rival_metrics.py --json --from 2025-01-01 --to 2026-08-28 $how "$@" | jq -c --arg s "$set" '. + {set: $s}' | sed 's/A2_1/A2 1/g'; }
+    all="A2_1.4=$d/all/a2.db A2_1.4+elo-chgk.uk+tweaks=$d/all/blendt.db elo-chgk.uk=out/ext/elo.db:x elo-chgk.uk+tweaks=$d/all/elot.db:x chgk.fun=out/ext/fun.db chgk.quest=out/ext/quest.db chgk.gg=$d/all/gg.db"
+    rated="A2_1.4=out/ratings.db A2_1.4+elo-chgk.uk+tweaks=$d/rated/blendt.db elo-chgk.uk=$d/rated/elo.db:x elo-chgk.uk+tweaks=$d/rated/elot.db:x chgk.fun=$d/rated/fun.db chgk.quest=$d/rated/quest.db chgk.gg=out/ext/gg.db"
+    run all "" $all > $d/t1.json & run all --unweighted $all > $d/t2.json & run rated "" $rated > $d/t3.json & run rated --unweighted $rated > $d/t4.json & wait
+    cat $d/t1.json $d/t2.json $d/t3.json $d/t4.json | jq -s . > web/metrics.json
 
 # Where the forecast still loses: the worst fields, the features, the rivals.
 diagnose db="out/ratings.db":

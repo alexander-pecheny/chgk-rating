@@ -28,9 +28,11 @@ YOUNG = ("school", "student", "novice")
 
 
 def load(path, classes, frm, to):
-    """`{tournament: {team: (forecast, place)}}`."""
+    """`{tournament: {team: (forecast, place)}}`; `path:x` reads the `x` column instead, as for `ext_elo`."""
     out = defaultdict(dict)
-    q = "select tournament_id, team_id, forecast, actual_place from team_events where actual_place is not null and date >= ? and date < ?"
+    path, _, col = path.partition(":")
+    assert col in ("", "forecast", "x"), col
+    q = f"select tournament_id, team_id, {col or 'forecast'}, actual_place from team_events where actual_place is not null and date >= ? and date < ?"
     with lab.connect(path) as d:
         for tid, team, f, place in d.execute(q, (frm, to)):
             if tid in classes and f is not None and math.isfinite(f):

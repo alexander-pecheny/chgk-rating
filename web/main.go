@@ -12,9 +12,9 @@ package main
 
 import (
 	"embed"
-	"html"
 	"errors"
 	"flag"
+	"html"
 	"log"
 	"net/http"
 	"strconv"
@@ -141,7 +141,7 @@ var listings = map[string]func(*site, int) (string, []ui.Item, error){
 	"players":     (*site).playerTable,
 	"tournaments": (*site).tournamentTable,
 	"anomaly":     (*site).anomalyTable,
-	"ql":         (*site).qlTable,
+	"ql":          (*site).qlTable,
 }
 
 // entities are the pages of one team, player or tournament.

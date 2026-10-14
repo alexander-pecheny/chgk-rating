@@ -1,7 +1,7 @@
 [model]
 # The version of the rules. Bump it with any change that moves a published
 # number, so two outputs can be compared knowing which rules made each.
-version = "1.3.0"
+version = "1.4.0"
 
 [data]
 db_path = "buff.db"
@@ -135,6 +135,10 @@ new_cap_games = 10
 pair_pull = 0.2
 pair_pull_games = 30
 pair_pull_share = 0.75
+# Only the lower partner moves up. Measured and off (2026-10-14): the partners
+# still tie, one step higher, and Pearson falls 0.0029 +/- 0.0007 on
+# 2018-09-01..2024-12-31 and 0.0034 +/- 0.0011 on 2025-01-01..2026-08-27.
+pair_pull_up = false
 teammate_shrink = 0.000685
 # Share that pull by uncertainty, var / mean var of the lineup. Measured and
 # off on the hand-tuned set: -0.0001 on tune at 0.0025, worse at larger pulls.
@@ -167,7 +171,11 @@ new_boost_games = 0
 # established member (player 101843: 15th -> 110th). Free on the forecast:
 # -0.0001 +/- 0.0015 on 2023-2024 and +0.0010 +/- 0.0021 on 2025-01-01..
 # 2026-08-27; caps 0.03 and 0.07 and margins 0.3 and 0.7 are all within noise.
-star_cap = 0.05
+# 0.1 since 1.4: against no cap every measure is within one SE on both windows
+# (NDCG@3 -0.0003 +/- 0.0027 and -0.0002 +/- 0.0053), while 0.05 costs NDCG@3
+# 0.0065 +/- 0.0050 on 2025-01-01..2026-08-27. Without a cap the leaders of
+# weak lineups top the table (player 21026 over 28751).
+star_cap = 0.1
 star_margin = 0.5
 # Volatility floor of a second, fast estimate of the same strength, read only by
 # the forecast through team.s2.k_fast. Measured and off: recent form is a worse
@@ -287,6 +295,12 @@ sigma_c_loose = 1.5
 # 1100 since 1.1: refit on 2018-09-01..2024-12-31 Pearson +0.0011 +/- 0.0004
 # against 700, and +0.004 NDCG on 2025-01-01..2026-08-27.
 delta = 1100.0
+# Under "best6", a seat short of six is filled at no more than this, so a strong
+# lineup that turns up five loses what a strong sixth player adds. 9000 since
+# 1.4: +0.0043 +/- 0.0028 weighted NDCG@3 on 2018-09-01..2024-12-31 and
+# +0.0022 +/- 0.0065 on 2025-01-01..2026-08-27, and synchronous open fields
+# +0.008 / +0.014 per-field Pearson; 8000, 9500 and 10000 do worse.
+fill_max = 9000.0
 # theta -> the team scale: player_zero + player_scale * (theta + ln 6 + roster_bias).
 player_scale = 2454.8828
 player_zero = 6000.0

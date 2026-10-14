@@ -113,9 +113,6 @@ func stepParts(evs []fieldRow) (split, floor bool) {
 
 func (f fieldView) section() ui.Node {
 	kids := []ui.Item{}
-	if n := unrated(f.evs); n > 0 {
-		kids = append(kids, ui.Hint(ui.Text(S.Tournament.Field.Unrated(itoa(int64(n)), itoa(int64(len(f.evs)))))))
-	}
 	if len(f.evs) == 0 {
 		return section(S.Tournament.Field.Title(), append(kids, ui.Empty(ui.Text(S.Tournament.Field.Empty())))...)
 	}
@@ -126,16 +123,6 @@ func (f fieldView) section() ui.Node {
 	}
 	kids = append(kids, table(f.header(), rows...))
 	return section(S.Tournament.Field.Title(), kids...)
-}
-
-func unrated(evs []fieldRow) int {
-	n := 0
-	for _, v := range evs {
-		if !v.rated {
-			n++
-		}
-	}
-	return n
 }
 
 // switches open the lineups and pick a venue of a merged field.
@@ -243,10 +230,8 @@ func (f fieldView) teamCell(v fieldRow) []ui.Item {
 	if v.playedAs != "" && fold(v.playedAs) != fold(shown) {
 		name = append(name, ui.Text(" "), ui.Muted(ui.Text(S.Tournament.Field.PlayedAs(v.playedAs))))
 	}
-	cell := []ui.Item{ui.PinCol(), line(name...)}
-	if sub := subline(unratedFlag(v.rated)); sub != nil {
-		cell = append(cell, sub)
-	}
+	flag := unratedFlag(v.rated)
+	cell := []ui.Item{ui.PinCol(), line(append(name, space(flag), flag)...)}
 	if roster := f.rosters[[2]int64{v.venue, v.team}]; len(roster) > 0 {
 		cell = append(cell, ui.Rosteropen(), ui.Cellroster(lineup(roster)...))
 	}

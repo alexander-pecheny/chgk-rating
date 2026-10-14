@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"math"
+	"slices"
+	"strings"
 
 	"ratingweb/ui"
 )
@@ -64,7 +66,15 @@ func (s *site) tournamentHead(id int64, t tourHead, venues []venue, ids []int64)
 			teams = *sum
 		}
 	}
-	return []ui.Item{ui.Pagehead(kids...), ui.Stats(tournamentStats(t, teams, venues)...)}, nil
+	rated, seen, err := s.q.ratedTeams(ids)
+	if err != nil {
+		return nil, err
+	}
+	stats := tournamentStats(t, teams, venues)
+	if seen > 0 {
+		stats = append(stats[:1], append([]ui.Item{stat(S.Tournament.Stat.Rated(), itoa(rated))}, stats[1:]...)...)
+	}
+	return []ui.Item{ui.Pagehead(kids...), ui.Stats(stats...)}, nil
 }
 
 // venueLine names every venue of a merged field, this one in bold.
@@ -106,8 +116,7 @@ func forecastStats(t tourHead) []ui.Item {
 		stats = append(stats, stat(S.Tournament.Stat.LlCross(), opt(t.llCf, metricDigits)),
 			stat(S.Tournament.Stat.LlIn(), opt(t.llIn, metricDigits)))
 	}
-	return append(stats, stat(S.Tournament.Stat.RhoForecast(), opt(t.spF, metricDigits)),
-		stat(S.Tournament.Stat.RhoOld(), opt(t.spO, metricDigits)))
+	return stats
 }
 
 // tournamentBody is the question strip, when there is one, and the field.
@@ -138,19 +147,36 @@ func forecastSection(rows []forecastRow) ui.Node {
 		return nil
 	}
 	names := map[string]string{"ours": S.Tournament.Forecast.Ours(), "fun": S.Tournament.Forecast.Fun(), "gg": S.Tournament.Forecast.Gg(), "quest": S.Tournament.Forecast.Quest(), "elo": S.Tournament.Forecast.Elo()}
+	rows = slices.DeleteFunc(rows, func(r forecastRow) bool { return names[r.system] == "" })
+	best := make([]float64, len(metricNames))
+	for j := range best {
+		best[j] = math.Inf(-1)
+		for _, r := range rows {
+			if v := r.values[j]; v != nil {
+				best[j] = math.Max(best[j], round3(*v))
+			}
+		}
+	}
 	var body []ui.Item
 	for _, r := range rows {
-		name := names[r.system]
-		if name == "" {
-			continue
+		cells := []ui.Item{textCell(names[r.system])}
+		for j, v := range r.values {
+			var props []ui.Item
+			if v != nil && round3(*v) == best[j] {
+				props = append(props, ui.Bold())
+			}
+			cells = append(cells, numCell(strings.TrimPrefix(opt(v, metricDigits), "0"), props...))
 		}
-		body = append(body, ui.Trow(textCell(name), numCell(fmt.Sprintf("%.3f", r.ndcg)), numCell(fmt.Sprintf("%.3f", r.ndcg3)), numCell(itoa(r.n))))
+		body = append(body, ui.Trow(cells...))
 	}
 	if len(body) == 0 {
 		return nil
 	}
-	header := []ui.Item{nameCol(S.Tournament.Forecast.ColSystem()), numCol("NDCG"), numCol("NDCG@3"), numCol(S.Tournament.Forecast.ColTeams())}
-	return section(S.Tournament.Forecast.Title(), table(header, body...))
+	header := []ui.Item{nameCol(S.Tournament.Forecast.ColSystem())}
+	for _, h := range metricNames {
+		header = append(header, numCol(h))
+	}
+	return section(S.Tournament.Forecast.Title(), ui.Table(append([]ui.Item{ui.Scroll(), ui.Grid(), ui.Trow(header...)}, body...)...))
 }
 
 // The question strip's bars run from barMin to barMin+barSpan percent tall.
@@ -175,6 +201,5 @@ func questionStrip(qs []question) ui.Node {
 		h := barMin + barSpan*(num(x.b)-lo)/(hi-lo)
 		bars[i] = ui.Qbar(ui.H(fmt.Sprintf("%.0f", h)), ui.Title(S.Tournament.Questions.Bar(itoa(x.n), fmt.Sprintf("%.2f", num(x.b)))))
 	}
-	hint := S.Tournament.Questions.Hint(fmt.Sprintf("%.2f", lo), fmt.Sprintf("%.2f", hi))
-	return section(S.Tournament.Questions.Title(), ui.Qbars(bars...), ui.Hint(ui.Text(hint)))
+	return section(S.Tournament.Questions.Title(), ui.Qbars(bars...))
 }

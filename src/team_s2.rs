@@ -105,6 +105,7 @@ pub fn lineup_strength(rs: &[f64], p: &S2) -> f64 {
             let mut v = rs.to_vec();
             v.sort_by(|a, b| b.total_cmp(a));
             let fill = v[v.len() - 1] - p.delta;
+            let fill = if p.fill_max > 0.0 { fill.min(p.fill_max) } else { fill };
             v.resize(FULL_LINEUP, fill);
             // Weights 6, 5, ... 1 down the sorted lineup.
             let weight = |k: usize| (FULL_LINEUP - k) as f64;

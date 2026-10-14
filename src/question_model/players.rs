@@ -650,9 +650,14 @@ impl Players {
                         continue;
                     }
                     let (ta, tb) = (self.state[a as usize].theta_raw, self.state[b as usize].theta_raw);
-                    let half = p.pair_pull * (tb - ta) / 2.0;
-                    self.state[a as usize].theta_raw += half;
-                    self.state[b as usize].theta_raw -= half;
+                    if p.pair_pull_up {
+                        let low = if ta < tb { a } else { b };
+                        self.state[low as usize].theta_raw += p.pair_pull * (ta - tb).abs();
+                    } else {
+                        let half = p.pair_pull * (tb - ta) / 2.0;
+                        self.state[a as usize].theta_raw += half;
+                        self.state[b as usize].theta_raw -= half;
+                    }
                 }
             }
         }

@@ -403,8 +403,10 @@ func expandTable(c *base.ExpandCtx, p *base.Element) []base.Node {
 		}
 	}
 	classes := []string{"results-table", "rating-table"}
-	if base.Flag(p, "breakdown") {
-		classes = append(classes, "breakdown")
+	for _, f := range []string{"breakdown", "grid"} {
+		if base.Flag(p, f) {
+			classes = append(classes, f)
+		}
 	}
 	table := base.El("table", base.RootAttrs(classes, p), kids...)
 	return one(base.El("div", []base.Attr{base.ClassAttr("results-wrapper")}, table))

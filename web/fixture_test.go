@@ -58,7 +58,7 @@ CREATE TABLE team_rank (rank INTEGER PRIMARY KEY, team_id INTEGER, display REAL,
 CREATE TABLE anomaly (rank INTEGER PRIMARY KEY, player_id INTEGER, k REAL, k_f REAL, k_m REAL,
                       f_gap REAL, f_on INTEGER, f_ip INTEGER, m_gap REAL, m_on INTEGER, m_ip INTEGER);
 CREATE TABLE venue (tournament_id INTEGER PRIMARY KEY, field_id INTEGER);
-CREATE TABLE forecast_ndcg (tournament_id INTEGER, system TEXT, ndcg REAL, ndcg3 REAL, n_teams INTEGER, PRIMARY KEY (tournament_id, system)) WITHOUT ROWID;
+CREATE TABLE forecast_metrics (tournament_id INTEGER, system TEXT, ndcg REAL, ndcg3 REAL, ndcg10 REAL, pearson REAL, pair REAL, pair_top REAL, n_teams INTEGER, PRIMARY KEY (tournament_id, system)) WITHOUT ROWID;
 CREATE TABLE field_score (tournament_id INTEGER, team_id INTEGER, score INTEGER, PRIMARY KEY (tournament_id, team_id)) WITHOUT ROWID;
 CREATE TABLE base_roster (team_id INTEGER, player_id INTEGER, name TEXT, date_added TEXT);
 CREATE TABLE place_hist (kind INTEGER, id INTEGER, places BLOB, PRIMARY KEY (kind, id)) WITHOUT ROWID;

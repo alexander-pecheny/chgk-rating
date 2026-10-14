@@ -76,6 +76,94 @@ pub fn score_field(tid: i64, field: &[(f64, f64)]) -> Option<Scored> {
     })
 }
 
+/// The six measures of /method/ on one field, as `tools/rival_metrics.py`
+/// computes them: NDCG, NDCG@3 and NDCG@10 with relevance
+/// `1/(|position - place| + 1)`, Pearson's r of the forecast rank against the
+/// place, and the pairwise score over every pair and over the best tenth of the
+/// field (at least five teams). `field` is (forecast, higher better; actual
+/// place); `None` under five teams, NaN where a measure is undefined.
+pub fn method_metrics(tid: i64, field: &[(f64, f64)]) -> Option<[f64; 6]> {
+    if field.len() < MIN_FIELD {
+        return None;
+    }
+    let mut ord: Vec<usize> = (0..field.len()).collect();
+    let mut rng = Rng::new(tid as u64);
+    for i in (1..ord.len()).rev() {
+        ord.swap(i, (rng.next_u64() % (i as u64 + 1)) as usize);
+    }
+    ord.sort_by(|&a, &b| field[b].0.total_cmp(&field[a].0));
+    let place = |i: usize| field[i].1;
+    let hits = |k: usize| {
+        let dcg = |o: &[usize]| -> f64 {
+            o.iter().take(k).enumerate().map(|(p, &i)| 1.0 / (((p + 1) as f64 - place(i)).abs() + 1.0) / ((p + 2) as f64).log2()).sum()
+        };
+        let mut ideal = ord.clone();
+        ideal.sort_by(|&a, &b| place(a).total_cmp(&place(b)));
+        dcg(&ord) / dcg(&ideal)
+    };
+    let all: Vec<usize> = (0..field.len()).collect();
+    let mut places: Vec<f64> = all.iter().map(|&i| place(i)).collect();
+    places.sort_by(f64::total_cmp);
+    let cut = places[(field.len() as f64 * TOP_SHARE).ceil().max(MIN_FIELD as f64) as usize - 1];
+    let best: Vec<usize> = all.iter().copied().filter(|&i| place(i) <= cut).collect();
+    let fplace = ranks(&all.iter().map(|&i| -field[i].0).collect::<Vec<_>>());
+    Some([
+        hits(field.len()),
+        hits(TOP),
+        hits(TOP10),
+        pearson(&fplace, &all.iter().map(|&i| place(i)).collect::<Vec<_>>()),
+        pairwise(field, &all),
+        pairwise(field, &best),
+    ])
+}
+
+/// The best tenth of a field the pairwise score reads, and the NDCG cut of /method/.
+const TOP_SHARE: f64 = 0.1;
+const TOP10: usize = 10;
+
+/// 1-based ranks of `v` ascending, ties sharing the mean rank.
+fn ranks(v: &[f64]) -> Vec<f64> {
+    let mut ord: Vec<usize> = (0..v.len()).collect();
+    ord.sort_by(|&a, &b| v[a].total_cmp(&v[b]));
+    let mut r = vec![0.0; v.len()];
+    let mut i = 0;
+    while i < ord.len() {
+        let mut j = i;
+        while j + 1 < ord.len() && v[ord[j + 1]] == v[ord[i]] {
+            j += 1;
+        }
+        for &t in &ord[i..=j] {
+            r[t] = (i + j) as f64 / 2.0 + 1.0;
+        }
+        i = j + 1;
+    }
+    r
+}
+
+fn pearson(x: &[f64], y: &[f64]) -> f64 {
+    let n = x.len() as f64;
+    let (mx, my) = (x.iter().sum::<f64>() / n, y.iter().sum::<f64>() / n);
+    let sxy: f64 = x.iter().zip(y).map(|(a, b)| (a - mx) * (b - my)).sum();
+    let sxx: f64 = x.iter().map(|a| (a - mx).powi(2)).sum();
+    let syy: f64 = y.iter().map(|b| (b - my).powi(2)).sum();
+    if sxx > 0.0 && syy > 0.0 { sxy / (sxx * syy).sqrt() } else { f64::NAN }
+}
+
+/// Share of the maximum over the pairs of `teams`: 1 for a pair ordered as the
+/// result, a tie included, 0.5 when exactly one side ties.
+fn pairwise(field: &[(f64, f64)], teams: &[usize]) -> f64 {
+    let sign = |x: f64| (x > 0.0) as i8 - (x < 0.0) as i8;
+    let (mut got, mut n) = (0.0, 0);
+    for (k, &a) in teams.iter().enumerate() {
+        for &b in &teams[k + 1..] {
+            let (f, r) = (sign(field[a].0 - field[b].0), sign(field[b].1 - field[a].1));
+            got += if f == r { 1.0 } else if f == 0 || r == 0 { 0.5 } else { 0.0 };
+            n += 1;
+        }
+    }
+    if n > 0 { got / n as f64 } else { f64::NAN }
+}
+
 /// Per-tournament NDCG of the `forecast` column over in-person tournaments with
 /// at least five teams. Ties in the forecast are broken by a shuffle seeded from
 /// the tournament id, so the stored finishing order never leaks into the rank.

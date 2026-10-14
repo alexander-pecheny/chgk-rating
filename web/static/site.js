@@ -276,7 +276,7 @@
    the bold column (else the first number after the name) is the value. */
 (function () {
   var phone = window.matchMedia("(max-width: 760px)");
-  var tables = [].slice.call(document.querySelectorAll("table.rating-table"));
+  var tables = [].slice.call(document.querySelectorAll("table.rating-table:not(.grid)"));
 
   function roles(table) {
     var heads = [].slice.call(table.tHead ? table.tHead.rows[0].cells : []);

@@ -120,6 +120,12 @@ struct Knobs {
     slope_per: f64,
     rho_base: f64,
     rho_per: f64,
+    /// A2's `player.mu_young` in Elo: a player whose first game is in a young
+    /// field starts this much below `ELO_NEW`.
+    young: f64,
+    /// A2's `team.s2.k_ip_new` in Elo: at an in-person table the forecast reads
+    /// each player `ip_new / (1 + in-person games)` lower; the update does not.
+    ip_new: f64,
 }
 
 /// A lineup as the hazard model reads it: each player's Elo and slope, and rho.
@@ -305,6 +311,7 @@ struct Model {
     elo: Vec<f64>,
     vol: Vec<f64>,
     games: Vec<u32>,
+    games_ip: Vec<u32>,
     last: Vec<i32>,
 }
 
@@ -429,6 +436,8 @@ impl Elo {
             slope_per: num("--slope-per", SLOPE_PER),
             rho_base: num("--rho-base", RHO_BASE),
             rho_per: num("--rho-per", RHO_PER),
+            young: num("--young", 0.0),
+            ip_new: num("--ip-new", 0.0),
         };
         let start = Instant::now();
         let from_day = parse_date(&cfg.data.from).ok_or("bad --from")?;
@@ -436,7 +445,7 @@ impl Elo {
         let arena: Arena = crate::data::load(&cfg, &cfg.data.from, &cfg.data.to)?;
         let np = arena.n_players();
         println!("loaded {} tournaments, {np} players in {:.1}s", arena.tournaments.len(), start.elapsed().as_secs_f64());
-        let m = Model { elo: vec![ELO_NEW; np], vol: vec![VOL_NEW; np], games: vec![0; np], last: vec![i32::MIN / 2; np] };
+        let m = Model { elo: vec![ELO_NEW; np], vol: vec![VOL_NEW; np], games: vec![0; np], games_ip: vec![0; np], last: vec![i32::MIN / 2; np] };
         Ok(Elo { cfg, arena, m, kn, prev: Changes::new(np), to_day, from_day, start, traced: false })
     }
 }
@@ -466,10 +475,28 @@ impl Rival for Elo {
             v.dedup();
             v
         }).collect();
+        if t.young && self.kn.young != 0.0 {
+            for &p in members.iter().flatten() {
+                if self.m.games[p as usize] == 0 {
+                    self.m.elo[p as usize] = ELO_NEW - self.kn.young;
+                }
+            }
+        }
         let ls: Vec<Option<Lineup>> = members.iter().map(|ms| {
             (!ms.is_empty()).then(|| Lineup::new(ms.iter().map(|&p| self.m.elo[p as usize]).collect(), t.format, &self.kn))
         }).collect();
         let qs = fit_questions(t, &ls, self.kn.lambda);
+        let fresh = t.format == Format::InPerson && self.kn.ip_new != 0.0;
+        let read: Vec<Option<Lineup>> = if fresh {
+            members.iter().map(|ms| {
+                (!ms.is_empty()).then(|| {
+                    let at = |&p: &u32| self.m.elo[p as usize] - self.kn.ip_new / (1.0 + self.m.games_ip[p as usize] as f64);
+                    Lineup::new(ms.iter().map(at).collect(), t.format, &self.kn)
+                })
+            }).collect()
+        } else {
+            Vec::new()
+        };
         let wt = weight(t.format, &self.kn);
         let fits: Vec<Option<TeamFit>> = ls.par_iter().zip(&t.teams).zip(&members).map(|((l, r), ms)| {
             let l = l.as_ref()?;
@@ -495,6 +522,7 @@ impl Rival for Elo {
                 let prec = 1.0 / self.m.vol[p].powi(2) + f.info[j];
                 self.m.vol[p] = prec.max(VOL_FLOOR).powf(-0.5);
                 self.m.games[p] += 1;
+                self.m.games_ip[p] += (t.format == Format::InPerson) as u32;
                 self.m.last[p] = t.day;
                 trace.execute(rusqlite::params![self.arena.player_ids[p], t.day, self.m.elo[p]])?;
                 if t.format == Format::InPerson {
@@ -505,9 +533,13 @@ impl Rival for Elo {
                 }
             }
             let mean = l.elo.iter().sum::<f64>() / l.elo.len() as f64;
+            let (expected, x) = match read.get(k).and_then(Option::as_ref) {
+                Some(lf) => (qs.iter().filter(|q| q.1.is_finite()).map(|&(d, s)| lf.take(d, s, 0.0).p).sum(), lf.pack()),
+                None => (f.expected, l.pack()),
+            };
             evs.push(TeamEvent {
-                forecast: f.expected,
-                x: l.pack(),
+                forecast: expected,
+                x,
                 actual_place: r.position,
                 pred_place: r.pred_pos,
                 mu_before: mean,

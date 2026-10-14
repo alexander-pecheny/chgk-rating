@@ -27,7 +27,7 @@ func mustApp() *base.App {
 		Strings:      sitestrings.Default,
 		VocabOverlay: overlayVocab,
 		ExtendProps: map[string][]base.PropSpec{
-			"table": {{Name: "breakdown", Kind: "bare"}},
+			"table": {{Name: "breakdown", Kind: "bare"}, {Name: "grid", Kind: "bare"}},
 			"trow": {
 				{Name: "prov", Kind: "bare"},
 				{Name: "split", Kind: "bare"},

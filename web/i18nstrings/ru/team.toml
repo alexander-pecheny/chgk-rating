@@ -30,6 +30,7 @@ fade_overlap = 'f(t) = {{.fade}}%, ω = {{.overlap}}%'
 merged = 'место {{.all}}/{{.teams}} (сводное), {{.own}}/{{.here}} (своя площадка)'
 empty_slot = "пустой слот"
 sum = 'Сумма {{.sum}} ÷ {{.divisor}} = очки'
+total = 'Рейтинг — сумма'
 strength = 'Рейтинг = {{.a}} · очки^{{.p}}'
 
 [results]

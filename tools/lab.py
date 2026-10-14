@@ -8,6 +8,7 @@ the script's own directory, `tools/`, there.
 
 import argparse
 import csv
+import functools
 import json
 import math
 import random
@@ -151,11 +152,23 @@ def paired(a, b, keys, w=None, n=BOOT):
     """Weighted mean of `a - b` over `keys` and its paired bootstrap standard
     error, resampling tournaments. `w` as in `wmean`."""
     keys = sorted(keys)
-    rng = random.Random(SEED)
-    point = wdiff(a, b, keys, weigher(w))
-    draws = [wdiff(a, b, [keys[rng.randrange(len(keys))] for _ in keys], weigher(w)) for _ in range(n)]
+    wt = weigher(w)
+    ws = [wt(t) for t in keys]
+    wd = [x * (a[t] - b[t]) for x, t in zip(ws, keys)]
+    point = sum(wd) / sum(ws) if sum(ws) > 0 else NAN
+    draws = []
+    for s in resamples(len(keys), n):
+        den = sum(ws[i] for i in s)
+        draws.append(sum(wd[i] for i in s) / den if den > 0 else NAN)
     m = sum(draws) / len(draws)
     return point, math.sqrt(sum((d - m) ** 2 for d in draws) / len(draws))
+
+
+@functools.cache
+def resamples(k, n):
+    """The bootstrap's `n` draws of `k` positions, the same for every pair."""
+    rng = random.Random(SEED)
+    return tuple(tuple(rng.randrange(k) for _ in range(k)) for _ in range(n))
 
 
 def wdiff(a, b, sample, wt):

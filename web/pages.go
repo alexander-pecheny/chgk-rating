@@ -322,7 +322,7 @@ func tourCols() []ui.Item {
 func tourCells(date string, tid int64, name, typ string, rated bool) []ui.Item {
 	return []ui.Item{
 		textCell(date, ui.NoWrap()),
-		nameCell(tourHref(tid), orUntitled(name), unratedFlag(rated)),
+		ui.Cell(ui.PinCol(), line(link(tourHref(tid), orUntitled(name)), space(unratedFlag(rated)), unratedFlag(rated))),
 		textCell(tourType(typ), ui.Faint()),
 	}
 }

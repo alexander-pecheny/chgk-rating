@@ -35,4 +35,7 @@ func FootRow() base.Attr   { return bare("foot") }
 // Breakdown is the team page's table of the results its rating is the sum of.
 func Breakdown() base.Attr { return bare("breakdown") }
 
+// Grid is a table read across its columns, so a phone keeps it a table, not cards.
+func Grid() base.Attr { return bare("grid") }
+
 func bare(name string) base.Attr { return base.Attr{Name: name, Bare: true} }

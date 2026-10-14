@@ -181,11 +181,18 @@ def main():
 def as_json(a, w, labels, res, used):
     """The table for /method/'s metrics block: each row's values and, against
     every other row, its differences with their paired bootstrap SEs."""
+    done = {}
+
     def vs(label, base):
+        # b against a is a against b with the sign flipped: one bootstrap per pair.
+        if (base, label) in done:
+            d = done[(base, label)]
+            return {"diff": [-x for x in d["diff"]], "se": d["se"]}
         pairs = [lab.paired(res[label][m], res[base][m],
                             [t for t in used if res[label][m].get(t) is not None and res[base][m].get(t) is not None], w)
                  for m in METRICS]
-        return {"diff": [d for d, _ in pairs], "se": [se for _, se in pairs]}
+        done[(label, base)] = {"diff": [d for d, _ in pairs], "se": [se for _, se in pairs]}
+        return done[(label, base)]
     rows = [{"label": label, "value": [lab.wmean(res[label][m], used, w) for m in METRICS],
              "vs": {base: vs(label, base) for base in labels if base != label}} for label in labels]
     return {"from": a.frm, "to": a.to, "weighted": w is not None, "n": len(used), "rows": rows}

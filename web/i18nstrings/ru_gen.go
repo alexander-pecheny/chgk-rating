@@ -263,6 +263,7 @@ var RU = Strings{
 				return fmt.Sprintf("Сумма %s ÷ %s = очки", sum, divisor)
 			},
 			Title:   func() string { return "Из чего складывается рейтинг" },
+			Total:   func() string { return "Рейтинг — сумма" },
 			W:       func() string { return "w" },
 			WFormat: func() string { return "формат" },
 			WLegion: func() string { return "легионеры" },
@@ -310,7 +311,7 @@ var RU = Strings{
 			return fmt.Sprintf("Релиз от %s. В таблице %d %s.", date, n, core.Plural("ru", n, "команда", "команды", "команд"))
 		},
 		LedeQl: func(date string, n int) string {
-			return fmt.Sprintf("Релиз от %s. По Q(L), силе базового состава, как её читает прогноз: %d %s с базовым составом, у которого известны рейтинги хотя бы четырёх игроков.", date, n, core.Plural("ru", n, "команда", "команды", "команд"))
+			return fmt.Sprintf("Релиз от %s. В таблице %d %s.", date, n, core.Plural("ru", n, "команда", "команды", "команд"))
 		},
 		Order: func() string { return "Порядок:" },
 		ProvSplit: func() string {
@@ -344,9 +345,6 @@ var RU = Strings{
 			ToLineupTitle: func() string {
 				return "Подтягивание рейтинга к силе вышедшего состава"
 			},
-			Unrated: func(n string, total string) string {
-				return fmt.Sprintf("Не зачтено результатов: %s из %s. Такая команда получает прогноз, но её рейтинг турнир не двигает — за старым номером вышел состав, ничего этой команде не наигравший.", n, total)
-			},
 			ValueTitle:  func() string { return "Рейтинговый балл команды V за этот турнир" },
 			Venue:       func() string { return "Площадка" },
 			VenueCol:    func() string { return "Площадка" },
@@ -359,7 +357,6 @@ var RU = Strings{
 		},
 		Forecast: TournamentForecastStrings{
 			ColSystem: func() string { return "Система" },
-			ColTeams:  func() string { return "Команд" },
 			Elo:       func() string { return "elo-chgk.uk" },
 			Fun:       func() string { return "rating.chgk.fun" },
 			Gg:        func() string { return "chgk.gg" },
@@ -368,20 +365,16 @@ var RU = Strings{
 			Title:     func() string { return "Качество прогноза" },
 		},
 		Questions: TournamentQuestionsStrings{
-			Bar: func(n string, b string) string { return fmt.Sprintf("Вопрос %s: b = %s", n, b) },
-			Hint: func(lo string, hi string) string {
-				return fmt.Sprintf("Столбик — трудность вопроса b: выше значит сложнее. От %s до %s по этому пакету.", lo, hi)
-			},
+			Bar:   func(n string, b string) string { return fmt.Sprintf("Вопрос %s: b = %s", n, b) },
 			Title: func() string { return "Сложность вопросов" },
 		},
 		Stat: TournamentStatStrings{
-			LlCross:     func() string { return "Log-loss (кросс-фит)" },
-			LlIn:        func() string { return "Log-loss (по выборке)" },
-			Questions:   func() string { return "Вопросов" },
-			RhoForecast: func() string { return "ρ прогноза" },
-			RhoOld:      func() string { return "ρ старой системы" },
-			Teams:       func() string { return "Команд" },
-			Venues:      func() string { return "Площадок" },
+			LlCross:   func() string { return "Log-loss (кросс-фит)" },
+			LlIn:      func() string { return "Log-loss (по выборке)" },
+			Questions: func() string { return "Вопросов" },
+			Rated:     func() string { return "Из них в рейтинг" },
+			Teams:     func() string { return "Команд" },
+			Venues:    func() string { return "Площадок" },
 		},
 		Untitled: func() string { return "Турнир без названия" },
 		Venues: func(n int) string {

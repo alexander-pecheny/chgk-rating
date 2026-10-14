@@ -165,6 +165,12 @@ a.match-tab:visited {
     min-width: 0;
     max-width: 48vw;
   }
+
+  .rating-table.grid th,
+  .rating-table.grid td {
+    padding-inline: var(--space-1);
+    font-size: var(--text-xs);
+  }
 }
 
 /* Provisional rows, older results and lineups are off until the reader asks

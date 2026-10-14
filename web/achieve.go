@@ -19,10 +19,12 @@ func ruleOr(rules map[string]string, key, def string) string {
 	return def
 }
 
-// breakdown is how a team's rating is summed: over how many slots.
+// breakdown is how a team's rating is summed: over how many slots, and
+// whether the sum itself is the rating.
 type breakdown struct {
 	achieved
 	slots string
+	sum   bool
 }
 
 // achieveBreakdown is the rating taken apart: the results it is the sum of,
@@ -33,7 +35,7 @@ func (s *site) achieveBreakdown(id int64, a achieved, rules map[string]string, a
 	if err != nil {
 		return nil, err
 	}
-	b := breakdown{a, ruleOr(rules, "top_x", fmt.Sprintf("%.0f", a.divisor))}
+	b := breakdown{a, ruleOr(rules, "top_x", fmt.Sprintf("%.0f", a.divisor)), ruleOr(rules, "sum", "0") == "1"}
 	rows := make([]ui.Item, 0, len(parts))
 	sum := 0.0
 	for _, p := range parts {
@@ -41,7 +43,7 @@ func (s *site) achieveBreakdown(id int64, a achieved, rules map[string]string, a
 		rows = append(rows, b.partRow(p))
 	}
 	rows = append(append(rows, b.emptySlots(len(parts))...), b.footRow(sum))
-	if row := strengthRow(a.rating, rules); row != nil {
+	if row := strengthRow(a.rating, rules); row != nil && !b.sum {
 		rows = append(rows, row)
 	}
 	t := ui.Table(append([]ui.Item{ui.Scroll(), ui.Breakdown(), ui.Trow(breakdownCols()...)}, rows...)...)
@@ -126,6 +128,9 @@ func (b breakdown) emptySlots(parts int) []ui.Item {
 }
 
 func (b breakdown) footRow(sum float64) ui.Node {
+	if b.sum {
+		return ui.Trow(ui.FootRow(), textCell(S.Team.Breakdown.Total(), ui.Colspan("4")), numCell(disp(sum*b.divisor), ui.Bold()))
+	}
 	text := S.Team.Breakdown.Sum(disp(sum*b.divisor), fmt.Sprintf("%.0f", b.divisor))
 	return ui.Trow(ui.FootRow(), textCell(text, ui.Colspan("4")), numCell(disp(b.rating)))
 }

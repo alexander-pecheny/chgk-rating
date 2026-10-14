@@ -34,8 +34,8 @@ type teamRank struct {
 	name, town                  *string
 	display, sigma, evi, change *float64
 	prov                        bool
-	ql                         *float64
-	qlRank                     *int64
+	ql                          *float64
+	qlRank                      *int64
 }
 
 func (r *teamRank) fields() []any {
@@ -383,8 +383,8 @@ func (st *store) achieveRules() (map[string]string, error) {
 
 // part is one result a team's achievement rating is the sum of.
 type part struct {
-	tid, n, nv, nOwn                                                            int64
-	name, date, format                                                          string
+	tid, n, nv, nOwn                                                                     int64
+	name, date, format                                                                   string
 	placeAll, placeOwn, strength, wfmt, wfield, wreach, wlegion, peak, fade, ov, contrib float64
 }
 
@@ -437,18 +437,18 @@ func (st *store) results(id int64) ([]result, error) {
 // The tournament page.
 
 type tourHead struct {
-	name, date, typ                      *string
-	weight, llIn, llCf, spF, spO, truedl *float64
-	nTeams, nQ, nObs                     *int64
+	name, date, typ            *string
+	weight, llIn, llCf, truedl *float64
+	nTeams, nQ, nObs           *int64
 }
 
 func (r *tourHead) fields() []any {
-	return []any{&r.name, &r.date, &r.typ, &r.weight, &r.nTeams, &r.nQ, &r.nObs, &r.llIn, &r.llCf, &r.spF, &r.spO, &r.truedl}
+	return []any{&r.name, &r.date, &r.typ, &r.weight, &r.nTeams, &r.nQ, &r.nObs, &r.llIn, &r.llCf, &r.truedl}
 }
 
 func (st *store) tournament(id int64) (tourHead, bool, error) {
-	return one[tourHead](st.db, `select name, date, type, weight, n_teams, n_q, n_obs, ll_in, ll_cf, sp_forecast,
-		sp_old, truedl from x.tournament where id = ?`, id)
+	return one[tourHead](st.db, `select name, date, type, weight, n_teams, n_q, n_obs, ll_in, ll_cf,
+		truedl from x.tournament where id = ?`, id)
 }
 
 type venue struct {
@@ -483,6 +483,13 @@ func (st *store) fieldTeams(ids []int64) (*int64, error) {
 	return sum, err
 }
 
+// ratedTeams is how many of the venues' results count towards the rating, and
+// how many results the model saw at all.
+func (st *store) ratedTeams(ids []int64) (rated, seen int64, err error) {
+	err = st.db.QueryRow("select count(*) filter (where coalesce(rated, 1) != 0), count(*) from team_events where tournament_id in ("+idList(ids)+")").Scan(&rated, &seen)
+	return rated, seen, err
+}
+
 type question struct {
 	n int64
 	b *float64
@@ -496,18 +503,20 @@ func (st *store) questions(id int64) ([]question, error) {
 
 // forecastRow is one system's forecast quality on one tournament.
 type forecastRow struct {
-	system      string
-	ndcg, ndcg3 float64
-	n           int64
+	system string
+	values [6]*float64
 }
 
-func (r *forecastRow) fields() []any { return []any{&r.system, &r.ndcg, &r.ndcg3, &r.n} }
+func (r *forecastRow) fields() []any {
+	v := &r.values
+	return []any{&r.system, &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]}
+}
 
 // forecastQuality is every system's NDCG on a tournament of the clean window,
 // ours first and the rest best first.
 func (st *store) forecastQuality(id int64) ([]forecastRow, error) {
-	return all[forecastRow](st.db, `select system, ndcg, ndcg3, n_teams from x.forecast_ndcg where tournament_id = ?
-		order by system != 'ours', ndcg desc`, id)
+	return all[forecastRow](st.db, `select system, ndcg, ndcg3, ndcg10, pearson, pair, pair_top from x.forecast_metrics
+		where tournament_id = ? order by system != 'ours', ndcg desc`, id)
 }
 
 // fieldRow is one team's line in a tournament's field.

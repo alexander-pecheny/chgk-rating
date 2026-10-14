@@ -407,6 +407,11 @@ pub struct S2 {
     /// -0.0006 +/- 0.0011 and -0.0010 +/- 0.0015.
     #[serde(default)]
     pub k_ip_new: f64,
+    /// Under "best6", a seat short of six is filled at no more than this many
+    /// display points, so a strong lineup loses what a strong sixth player
+    /// adds. 0 is off.
+    #[serde(default)]
+    pub fill_max: f64,
 }
 
 /// What a config that leaves a key of `[team.s2]` out gets: the rule as it
@@ -421,6 +426,7 @@ const S2_DEFAULT: S2 = S2 {
     k_mates: 0.0,
     k_youth: 0.0,
     k_ip_new: 0.0,
+    fill_max: 0.0,
     d: 1200.0,
     k: 0.4,
     k_q: 0.01,
@@ -992,6 +998,9 @@ pub struct Player {
     pub pair_pull_games: u32,
     #[serde(default)]
     pub pair_pull_share: f64,
+    /// Only the lower partner moves, towards the higher; the higher keeps its score.
+    #[serde(default)]
+    pub pair_pull_up: bool,
     /// Star cap: a player whose strength led their lineup by at least
     /// `star_margin` gains at most `star_cap` of theta per year from such
     /// tournaments (a ledger decaying with a one-year time constant). 0 is off.

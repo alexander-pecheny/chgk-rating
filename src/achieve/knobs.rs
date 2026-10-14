@@ -114,6 +114,10 @@ pub struct Knobs {
     /// moves because others' did; strength_p = 0 publishes the points.
     pub strength_a: f64,
     pub strength_p: f64,
+    /// The published rating is the sum of the counted results, points times
+    /// top_x, and strength_a and strength_p are not read. With min_slots =
+    /// top_x the divisor is always top_x, so this is the sum exactly.
+    pub sum: bool,
 }
 
 /// The variant on the site: the user's constraints (seven results,
@@ -170,6 +174,7 @@ const DEFAULT: Knobs = Knobs {
     legion: true,
     strength_a: 4520.0,
     strength_p: 0.0956,
+    sum: true,
 };
 
 impl Default for Knobs {
@@ -184,7 +189,7 @@ pub const KNOBS: &[&str] = &[
     "field_mode", "scale", "sum_ref", "sum_gamma", "field_k", "field_zero", "field_ref", "field_gamma", "field_min", "field_pad", "size_pow", "fallback",
     "country_pow", "country_min", "town_pow", "town_min", "country_ref", "town_ref", "geo_cap", "fade", "loss_ip",
     "loss_sync", "full_days", "zero_days", "half_life", "sync_full", "sync_zero", "sync_half_life", "tail_days",
-    "slow_k", "slow_ref", "base_rule", "grace", "active_days", "overlap_k", "overlap_by", "win_bonus", "legion", "strength_a", "strength_p",
+    "slow_k", "slow_ref", "base_rule", "grace", "active_days", "overlap_k", "overlap_by", "win_bonus", "legion", "strength_a", "strength_p", "sum",
 ];
 
 /// `val` as one of `opts`, or the error the lab shows.
@@ -245,6 +250,7 @@ impl Knobs {
             "legion" => (self.legion as u8).to_string(),
             "strength_a" => self.strength_a.to_string(),
             "strength_p" => self.strength_p.to_string(),
+            "sum" => (self.sum as u8).to_string(),
             _ => String::new(),
         }
     }
@@ -317,6 +323,7 @@ impl Knobs {
             "legion" => self.legion = x != 0.0,
             "strength_a" => self.strength_a = x.max(0.0),
             "strength_p" => self.strength_p = x.clamp(0.0, 1.0),
+            "sum" => self.sum = x != 0.0,
             _ => return Err(format!("нет такой ручки: {key}")),
         }
         Ok(())
