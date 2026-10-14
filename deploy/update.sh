@@ -77,23 +77,26 @@ today=$(sqlite3 buff.db "select date(substr(d,1,19), printf('%+d minutes', (case
 log "rivals"
 mkdir -p out/ext
 rival() {
-    name=$1
-    shift
-    k=$(echo "$k_rivals $(hash "$bin/$name") $*" | hash -)
+    name=$1 exe=$2
+    shift 2
+    k=$(echo "$k_rivals $(hash "$bin/$exe") $*" | hash -)
     if fresh "$name" "$k"; then
         return
     fi
     unstamp "$name"
-    if "$bin/$name" "$@" > "out/rivals_$name.log" 2>&1; then
+    if "$bin/$exe" "$@" > "out/rivals_$name.log" 2>&1; then
         stamp "$name" "$k"
     else
         log "rival $name failed, see out/rivals_$name.log; its comparison keeps yesterday's numbers"
     fi
 }
-rival ext_fun --as-of "$today" &
-rival ext_gg --to "$today" --rows-every 0 &
-rival ext_quest --to "$today" &
-rival ext_elo --to "$today" &
+rival ext_fun ext_fun --as-of "$today" &
+rival ext_gg ext_gg --to "$today" --rows-every 0 &
+rival ext_quest ext_quest --to "$today" &
+rival ext_elo ext_elo --to "$today" &
+# Elo with A2's start for young newcomers and its in-person correction, which
+# A2+Elo+tweaks blends.
+rival ext_elot ext_elo --to "$today" --young 150 --ip-new 25 --out out/ext/elot.db &
 
 # The fit also freezes the achievement rating's values on its own pass, which
 # achieve would otherwise replay. Eval reads the fit's own team rows, which
@@ -148,8 +151,8 @@ log "rivals done"
 mkdir -p out/best
 sed -e 's|^out_path = .*|out_path = "out/best/ratings.db"|' -e 's/^w_async = .*/w_async = 0.25/' \
     -e 's/^train_unrated = .*/train_unrated = true/' config.toml > out/best/config.toml
-printf '\n[blend]\nelo_db = "out/ext/elo.db"\nelo = 0.35\nplayers = 0.35\n' >> out/best/config.toml
-k_best=$(echo "$k_pub $(cat out/stamps/ext_elo 2>/dev/null) $(hash out/best/config.toml)" | hash -)
+printf '\n[blend]\nelo_db = "out/ext/elot.db"\nelo = 0.35\nplayers = 0.35\n' >> out/best/config.toml
+k_best=$(echo "$k_pub $(cat out/stamps/ext_elot 2>/dev/null) $(hash out/best/config.toml)" | hash -)
 best() {
     if fresh best "$k_best"; then
         log "best is current"

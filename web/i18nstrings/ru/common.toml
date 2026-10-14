@@ -98,4 +98,4 @@ empty = "Точек для графика пока нет."
 # The switch on /players/ and tournament pages between A2 and the view with Elo.
 [view]
 a2 = "A2"
-best = "А2+Сатыбалдыев+онлайны"
+best = "A2+Elo+tweaks"

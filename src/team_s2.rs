@@ -508,6 +508,7 @@ fn field_tau(v: &[f64], p: &S2) -> f64 {
 
 /// Team state of DESIGN 4.2: a rating, the usual lineup it was earned with, and
 /// the count and date of the rated games behind it.
+#[derive(Clone)]
 pub struct TeamsS2 {
     r: Vec<f64>,
     qbar: Vec<f64>,

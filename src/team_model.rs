@@ -89,6 +89,7 @@ struct Entry {
     z: Option<f64>,
 }
 
+#[derive(Clone)]
 pub struct Teams {
     pub state: Vec<Option<TeamState>>,
 }

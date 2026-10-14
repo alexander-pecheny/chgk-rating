@@ -571,6 +571,13 @@ pub struct Data {
     /// never enter the metric's tournament set.
     #[serde(default)]
     pub train_unrated: bool,
+    /// From this date on, every tournament the settings above leave out or keep
+    /// for the players alone still gets its team events and its metrics row,
+    /// forecast as an ordinary one would be, so every system can be scored on
+    /// the same fields. A tournament left out moves nothing; one kept for the
+    /// players trains them as before. Empty is off.
+    #[serde(default)]
+    pub forecast_from: String,
     /// `include_unrated` for in-person tournaments alone: an unrated in-person
     /// tournament counts as an ordinary one, and its results flagged
     /// `inRating` move their teams.

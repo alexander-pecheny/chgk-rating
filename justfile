@@ -86,25 +86,28 @@ report:
 compare:
     uv run tools/compare_ndcg.py --list
 
-# The variants /method/'s metrics block sets beside the daily outputs: A2 on
-# every tournament, every system on the official rating's tournaments alone
-# with A2's blend, and chgk.gg with every tournament moving its ratings. The
-# blend on every tournament is the view with Elo, out/best. Elo+tweaks is Elo
-# with A2's start for young newcomers and its in-person correction, alone and
-# blended with A2, on both sets. Run after an update.
+# The variants /method/'s metrics block sets beside the daily outputs: every
+# system trained on the official rating's tournaments alone and on all of them,
+# each forecasting every tournament from 2025 on, trained on or not. Trained on
+# all, the rivals are the update's own out/ext dbs, and chgk.gg's official
+# rating, which moves on rated tournaments alone, is the rated one. Run after an
+# update.
 metrics-fit:
     #!/bin/sh
     set -eu
     d=out/metrics b=target/release
     mkdir -p $d/all $d/rated
     today=$(sqlite3 buff.db "select date(substr(max(datetime),1,10), '+1 day') from db_updates")
+    from=2025-01-01
     rated() { sed -e 's/^w_async = .*/w_async = 0.0/' -e 's/^include_unrated = .*/include_unrated = false/'; }
-    one() { sed -e "s|^out_path = .*|out_path = \"$1\"|" -e 's/^rows_every = .*/rows_every = 0/'; }
-    one $d/all/a2.db < config.toml | sed -e 's/^w_async = .*/w_async = 0.25/' -e 's/^train_unrated = .*/train_unrated = true/' > $d/a2.toml
-    { one $d/rated/blendt.db < config.toml; printf '\n[blend]\nelo_db = "%s"\nelo = 0.35\n' $d/rated/elot.db; } > $d/blendt_rated.toml
-    { one $d/all/blendt.db < out/best/config.toml | sed -e "s|^elo_db = .*|elo_db = \"$d/all/elot.db\"|"; } > $d/blendt_all.toml
+    one() { sed -e "s|^out_path = .*|out_path = \"$1\"|" -e 's/^rows_every = .*/rows_every = 0/' -e "/^\[data\]/a forecast_from = \"$from\""; }
+    blend() { printf '\n[blend]\nelo_db = "%s"\nelo = 0.35\nplayers = 0.35\n' $1; }
+    all() { sed -e 's/^w_async = .*/w_async = 0.25/' -e 's/^train_unrated = .*/train_unrated = true/'; }
+    one $d/rated/a2.db < config.toml > $d/a2_rated.toml
+    one $d/all/a2.db < config.toml | all > $d/a2_all.toml
+    { one $d/rated/blendt.db < config.toml; blend $d/rated/elot.db; } > $d/blendt_rated.toml
+    { one $d/all/blendt.db < config.toml | all; blend out/ext/elot.db; } > $d/blendt_all.toml
     rated < config_elo.toml > $d/elo_rated.toml
-    tweaks="--young 150 --ip-new 25"
     one $d/rated/quest.db < config_quest.toml | rated > $d/quest_rated.toml
     # A rival reads neither config.toml nor A2's output: it reruns only when
     # its output is older than buff.db, its binary or the rival configs.
@@ -114,27 +117,43 @@ metrics-fit:
             [ -e "$out" ] && [ "$out" -nt "$dep" ] || { $b/$bin "$@" > $log 2>&1; return; }
         done
     }
-    rival $d/rated/elo.db ext_elo $d/elo.log --config $d/elo_rated.toml --to $today --out $d/rated/elo.db &
-    rival $d/rated/elot.db ext_elo $d/elot_rated.log --config $d/elo_rated.toml --to $today --out $d/rated/elot.db $tweaks &
-    rival $d/all/elot.db ext_elo $d/elot_all.log --to $today --out $d/all/elot.db $tweaks &
-    rival $d/rated/fun.db ext_fun $d/fun.log --as-of $today --rated-only --out $d/rated/fun.db &
-    rival $d/rated/quest.db ext_quest $d/quest.log --config $d/quest_rated.toml --to $today &
+    ff="--forecast-from $from"
+    rival $d/rated/elo.db ext_elo $d/elo.log --config $d/elo_rated.toml --to $today --out $d/rated/elo.db $ff &
+    rival $d/rated/elot.db ext_elo $d/elot.log --config $d/elo_rated.toml --to $today --out $d/rated/elot.db $ff --young 150 --ip-new 25 &
+    rival $d/rated/fun.db ext_fun $d/fun.log --as-of $today --rated-only --out $d/rated/fun.db $ff &
+    rival $d/rated/quest.db ext_quest $d/quest.log --config $d/quest_rated.toml --to $today $ff &
     rival $d/all/gg.db ext_gg $d/gg.log --to $today --rows-every 0 --move-all --out $d/all/gg.db &
-    $b/fit --config $d/a2.toml > $d/a2.log &
+    $b/fit --config $d/a2_rated.toml > $d/a2_rated.log &
+    $b/fit --config $d/a2_all.toml > $d/a2_all.log &
+    $b/fit --config $d/blendt_all.toml > $d/blendt_all.log &
     wait
-    $b/fit --config $d/blendt_rated.toml > $d/blendt_rated.log & $b/fit --config $d/blendt_all.toml > $d/blendt_all.log & wait
+    $b/fit --config $d/blendt_rated.toml > $d/blendt_rated.log
 
-# /method/'s metrics block, web/metrics.json: the systems on all tournaments
-# and on rated ones alone, weighted and not, each against every other.
+# /method/'s metrics block, web/metrics.json: the systems by the tournaments
+# they train on and those they are scored on, each against every other. Only
+# in-person tournaments carry weights.
 metrics:
     #!/bin/sh
     set -eu
     d=out/metrics
-    run() { set=$1 how=$2; shift 2; uv run tools/rival_metrics.py --json --from 2025-01-01 --to 2026-08-28 $how "$@" | jq -c --arg s "$set" '. + {set: $s}' | sed 's/A2_1/A2 1/g'; }
-    all="A2_1.4=$d/all/a2.db A2_1.4+elo-chgk.uk+tweaks=$d/all/blendt.db elo-chgk.uk=out/ext/elo.db:x elo-chgk.uk+tweaks=$d/all/elot.db:x chgk.fun=out/ext/fun.db chgk.quest=out/ext/quest.db chgk.gg=$d/all/gg.db"
-    rated="A2_1.4=out/ratings.db A2_1.4+elo-chgk.uk+tweaks=$d/rated/blendt.db elo-chgk.uk=$d/rated/elo.db:x elo-chgk.uk+tweaks=$d/rated/elot.db:x chgk.fun=$d/rated/fun.db chgk.quest=$d/rated/quest.db chgk.gg=out/ext/gg.db"
-    run all "" $all > $d/t1.json & run all --unweighted $all > $d/t2.json & run rated "" $rated > $d/t3.json & run rated --unweighted $rated > $d/t4.json & wait
-    cat $d/t1.json $d/t2.json $d/t3.json $d/t4.json | jq -s . > web/metrics.json
+    run() {
+        train=$1 set=$2 how=; shift 2
+        [ "$1" = u ] && how=--unweighted
+        shift
+        uv run tools/rival_metrics.py --json --from 2025-01-01 --to 2026-08-28 --set $set $how "$@" | jq -c --arg t "$train" --arg s "$set" '. + {train: $t, set: $s}' | sed 's/A2_1/A2 1/g'
+    }
+    all="A2_1.4=$d/all/a2.db A2+Elo+tweaks=$d/all/blendt.db elo-chgk.uk=out/ext/elo.db:x elo-chgk.uk+tweaks=out/ext/elot.db:x chgk.fun=out/ext/fun.db chgk.quest=out/ext/quest.db chgk.gg=$d/all/gg.db"
+    rated="A2_1.4=$d/rated/a2.db A2+Elo+tweaks=$d/rated/blendt.db elo-chgk.uk=$d/rated/elo.db:x elo-chgk.uk+tweaks=$d/rated/elot.db:x chgk.fun=$d/rated/fun.db chgk.quest=$d/rated/quest.db chgk.gg=out/ext/gg.db"
+    k=0
+    for train in rated all; do
+        eval specs=\$$train
+        for v in "ip-rated w" "ip-rated u" "rated u" "all u"; do
+            k=$((k + 1))
+            run $train $v $specs > $d/t$k.json &
+        done
+    done
+    wait
+    cat $(seq -f "$d/t%g.json" 1 $k) | jq -s . > web/metrics.json
 
 # Where the forecast still loses: the worst fields, the features, the rivals.
 diagnose db="out/ratings.db":

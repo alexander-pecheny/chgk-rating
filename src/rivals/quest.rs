@@ -78,6 +78,7 @@ fn log_loss(y: u8, s: f64) -> f64 {
     }
 }
 
+#[derive(Clone)]
 struct Model {
     theta: Vec<f64>,
     games: Vec<u32>,
@@ -484,7 +485,8 @@ pub struct Quest {
 impl Quest {
     pub fn open(args: &Args) -> Fallible<Quest> {
         let mut cfg = Config::load(&args.or("--config", "config_quest.toml"))?;
-        for (flag, slot) in [("--from", &mut cfg.data.from), ("--to", &mut cfg.data.to), ("--out", &mut cfg.data.out_path)] {
+        let d = &mut cfg.data;
+        for (flag, slot) in [("--from", &mut d.from), ("--to", &mut d.to), ("--out", &mut d.out_path), ("--forecast-from", &mut d.forecast_from)] {
             if let Some(v) = args.get(flag) {
                 *slot = v;
             }
@@ -578,6 +580,12 @@ impl Rival for Quest {
     fn rate(&mut self, w: &Writer, i: usize, _next: &Release) -> Fallible<()> {
         if self.aggregate[i] {
             return Ok(());
+        }
+        if self.arena.tournaments[i].forecast_only {
+            // A copy of the model plays it, so nothing it learns stays.
+            let (t, mut m) = (&self.arena.tournaments[i], self.m.clone());
+            let live: Vec<Vec<u32>> = t.teams.iter().map(|r| m.lineup(&r.members)).collect();
+            return Ok(write_events(w, t, &self.arena, &run_tournament(t, &mut m, &live))?);
         }
         self.maybe_recenter(self.arena.tournaments[i].day);
         let t = &self.arena.tournaments[i];

@@ -19,6 +19,7 @@ const ZSTAT_MIN_GAMES: u32 = 6;
 const SCHEDULE_ESTABLISHED: u32 = 5;
 const SCHEDULE_SIGMA: (f64, f64) = (0.1, 0.5);
 
+#[derive(Clone)]
 pub struct PlayerState {
     pub theta_raw: f64,
     pub var: f64,

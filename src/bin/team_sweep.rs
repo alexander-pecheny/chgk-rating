@@ -450,7 +450,7 @@ fn build_cache(arena: &Arena, cfg: &Config) -> pass::Result<Vec<Cached>> {
     impl Observer for Cache {
         fn morning(&mut self, m: &Morning) -> pass::Result<()> {
             let t = m.t;
-            let rows = m.rows.to_vec();
+            let rows = if t.train_only { Vec::new() } else { m.rows.to_vec() };
             self.0.push(Cached { id: t.id, day: t.day, format: t.format, weight: t.weight, rows });
             Ok(())
         }

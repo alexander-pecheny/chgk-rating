@@ -267,7 +267,7 @@ IN_PERSON = """
 select {cols}
 from team_events e
 join tournament_metrics m on m.tournament_id = e.tournament_id
-where m.type = 'in-person' and m.date >= ? and m.date < ? and e.actual_place > 0
+where {types} m.date >= ? and m.date < ? and e.actual_place > 0
 {where}
 {order}
 """
@@ -277,10 +277,12 @@ from player_events
 """
 
 
-def in_person(db, frm, to, cols, where="", order="e.tournament_id"):
-    """Placed results of in-person tournaments dated in `[frm, to)`: the join
-    every metric is computed over. `where` adds `and ...` clauses."""
-    sql = IN_PERSON.format(cols=cols, where=where, order=f"order by {order}" if order else "")
+def in_person(db, frm, to, cols, where="", order="e.tournament_id", every_type=False):
+    """Placed results of in-person tournaments dated in `[frm, to)`, or of
+    every format with `every_type`: the join every metric is computed over.
+    `where` adds `and ...` clauses."""
+    types = "" if every_type else "m.type = 'in-person' and"
+    sql = IN_PERSON.format(cols=cols, types=types, where=where, order=f"order by {order}" if order else "")
     return sqlite3.connect(db).execute(sql, (frm, to)).fetchall()
 
 

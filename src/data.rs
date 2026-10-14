@@ -77,6 +77,10 @@ pub struct Tournament {
     /// state opens or moves on it, it writes no team event and it never enters
     /// the metric's tournament set.
     pub train_only: bool,
+    /// A tournament the training scope leaves out, loaded under
+    /// `data.forecast_from` for its forecast alone. It is also `train_only`, so
+    /// the team side keeps out of it, and the players do not move on it either.
+    pub forecast_only: bool,
     /// Where the tournament was played, as an index into `Arena.towns`;
     /// `u32::MAX` when the mirror carries none. `tournaments.town_id` is a town
     /// id and `tournament_results.team_current_town` a town name, so the two are
@@ -381,13 +385,26 @@ const HALF: f64 = 0.5;
 
 pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error> {
     let conn = Connection::open_with_flags(&cfg.data.db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    let mut stmt = conn.prepare(&results_sql(cfg))?;
-    let mut rows = stmt.query([from, to])?;
     let mut ld = Loader::new(cfg, crate::age::young_fields(&conn)?);
+    read(&mut ld, &conn, &results_sql(cfg), from, to)?;
+    if !cfg.data.forecast_from.is_empty() {
+        // Read after the rest, so the indices the rest gets do not move.
+        ld.forecast_only = true;
+        read(&mut ld, &conn, &results_where(""), from.max(cfg.data.forecast_from.as_str()), to)?;
+        ld.tournaments.sort_by_key(|t| (t.day, t.id));
+    }
+    Ok(ld.finish(&conn))
+}
+
+/// The results of `sql` into `ld`, skipping the tournaments it already holds.
+fn read(ld: &mut Loader, conn: &Connection, sql: &str, from: &str, to: &str) -> rusqlite::Result<()> {
+    let held: HashSet<i64> = ld.tournaments.iter().map(|t| t.id).collect();
+    let mut stmt = conn.prepare(sql)?;
+    let mut rows = stmt.query([from, to])?;
     let mut skip_id = i64::MIN;
     while let Some(row) = rows.next()? {
         let tid: i64 = row.get(C_ID)?;
-        if tid == skip_id {
+        if tid == skip_id || held.contains(&tid) {
             continue;
         }
         if ld.tournaments.last().map(|t| t.id) != Some(tid) {
@@ -401,7 +418,7 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
         }
         ld.result(row)?;
     }
-    Ok(ld.finish(&conn))
+    Ok(())
 }
 
 /// Every result of the window, the official system's unrated tournaments in
@@ -416,6 +433,10 @@ fn results_sql(cfg: &Config) -> String {
     } else {
         "t.in_rating = 1 AND"
     };
+    results_where(rated)
+}
+
+fn results_where(rated: &str) -> String {
     format!(
         "SELECT t.id, substr(t.date_start,1,10), t.tournament_type, t.editors,
                 r.team_id, r.position, r.questions_total, r.mask, r.team_members, r.rating,
@@ -442,6 +463,8 @@ struct Loader<'a> {
     /// `data.classes`: each tournament's age, prestige and pack difficulty.
     classes: HashMap<i64, [String; 3]>,
     young: HashSet<i64>,
+    /// Reading the tournaments `data.forecast_from` adds.
+    forecast_only: bool,
 }
 
 impl<'a> Loader<'a> {
@@ -458,6 +481,7 @@ impl<'a> Loader<'a> {
             tournaments: Vec::new(),
             classes: classes(&cfg.data.classes),
             young,
+            forecast_only: false,
         }
     }
 
@@ -487,7 +511,7 @@ impl<'a> Loader<'a> {
         let weight = format.weight(cfg)
             * if train_only && !unrated_async { cfg.data.w_unrated } else { 1.0 }
             * class.map_or(1.0, |c| class_weight(c, cfg));
-        if weight <= 0.0 {
+        if weight <= 0.0 && !self.forecast_only {
             return Ok(None);
         }
         let editors = row.get::<_, Option<String>>(C_EDITORS)?.map_or(Vec::new(), |e| parse_ids(&e, &mut self.editors, &self.no_alias));
@@ -497,7 +521,8 @@ impl<'a> Loader<'a> {
         let n_q_declared = declared.map_or(0, |s| s.split(',').filter_map(|x| x.trim().parse::<usize>().ok()).sum());
         let town_name = row.get::<_, Option<i64>>(C_TOWN)?.and_then(|i| self.names.get(&i).cloned());
         let town = self.town(town_name);
-        Ok(Some(Tournament { id, day, format, weight, train_only, town, editors, teams: Vec::new(), n_q: 0, n_q_declared, young }))
+        let (train_only, forecast_only) = (train_only || self.forecast_only, self.forecast_only);
+        Ok(Some(Tournament { id, day, format, weight, train_only, forecast_only, town, editors, teams: Vec::new(), n_q: 0, n_q_declared, young }))
     }
 
     /// One result of the current tournament.

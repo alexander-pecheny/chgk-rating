@@ -10,8 +10,9 @@ import (
 )
 
 // metricsJSON is /method/'s forecast comparison, written by `just metrics`:
-// every system's six measures on all tournaments and on rated ones alone,
-// weighted and not, with each one's paired differences against every other.
+// every system's six measures by the tournaments it trains on and those it is
+// scored on, weighted and not, with each one's paired differences against
+// every other.
 //
 //go:embed metrics.json
 var metricsJSON []byte
@@ -44,6 +45,7 @@ func (r metricRow) against(base string, j int) (float64, float64) {
 }
 
 type metricTable struct {
+	Train    string      `json:"train"`
 	Set      string      `json:"set"`
 	Weighted bool        `json:"weighted"`
 	Rows     []metricRow `json:"rows"`
@@ -56,9 +58,10 @@ const (
 	z95 = 1.96
 )
 
-// metricsBlock is the comparison with its four switches: weighting, the
-// tournaments counted, and the measure and the base of the chart. Every combination is
-// rendered here and styles.css shows the chosen one, so it needs no script.
+// metricsBlock is the comparison with its five switches: the tournaments
+// trained on and scored on, weighting, and the measure and the base of the
+// chart. Every combination is rendered here and styles.css shows the chosen
+// one, so it needs no script. Only in-person tournaments carry weights.
 func metricsBlock() (string, error) {
 	var tables []metricTable
 	if err := json.Unmarshal(metricsJSON, &tables); err != nil {
@@ -66,9 +69,10 @@ func metricsBlock() (string, error) {
 	}
 	var b strings.Builder
 	b.WriteString(`<div class="metrics u-col u-gap-md"><div class="metrics-controls u-row u-wrap u-align-center u-gap-md">`)
+	metricsSelect(&b, "train", S.Method.Metrics.Train(), [][2]string{{"rated", S.Method.Metrics.TrainRated()}, {"all", S.Method.Metrics.TrainAll()}})
+	metricsSelect(&b, "set", S.Method.Metrics.Set(),
+		[][2]string{{"ip-rated", S.Method.Metrics.SetIpRated()}, {"rated", S.Method.Metrics.SetRated()}, {"all", S.Method.Metrics.SetAll()}})
 	fmt.Fprintf(&b, `<label class="checkbox metrics-weighted"><input type="checkbox" checked> %s</label>`, html.EscapeString(S.Method.Metrics.Weighted()))
-	fmt.Fprintf(&b, `<label class="field metrics-set"><select class="input"><option value="rated">%s</option><option value="all">%s</option></select></label>`,
-		html.EscapeString(S.Method.Metrics.Rated()), html.EscapeString(S.Method.Metrics.All()))
 	fmt.Fprintf(&b, `<label class="field metrics-metric"><span>%s</span><select class="input">`, html.EscapeString(S.Method.Metrics.Metric()))
 	for i, n := range metricNames {
 		fmt.Fprintf(&b, `<option value="%d">%s</option>`, i, html.EscapeString(n))
@@ -91,11 +95,19 @@ func metricsBlock() (string, error) {
 		for k, r := range t.Rows {
 			fmt.Fprintf(&caption, `<span class="mb mb-%d">%s</span>`, k, html.EscapeString(S.Method.Metrics.Caption(r.Label)))
 		}
-		fmt.Fprintf(&b, `<div class="metrics-view metrics-%s-%s u-gap-lg">%s<figure class="metrics-chart">%s<figcaption class="hint">%s</figcaption></figure></div>`,
-			t.Set, w, metricsTableHTML(t), metricsChart(t), caption.String())
+		fmt.Fprintf(&b, `<div class="metrics-view metrics-%s-%s-%s u-gap-lg">%s<figure class="metrics-chart">%s<figcaption class="hint">%s</figcaption></figure></div>`,
+			t.Train, t.Set, w, metricsTableHTML(t), metricsChart(t), caption.String())
 	}
 	b.WriteString(`</div>`)
 	return b.String(), nil
+}
+
+func metricsSelect(b *strings.Builder, class, label string, options [][2]string) {
+	fmt.Fprintf(b, `<label class="field metrics-%s"><span>%s</span><select class="input">`, class, html.EscapeString(label))
+	for _, o := range options {
+		fmt.Fprintf(b, `<option value="%s">%s</option>`, o[0], html.EscapeString(o[1]))
+	}
+	b.WriteString(`</select></label>`)
 }
 
 // metricsTableHTML is the table as goldmark would set it, the best of each column bold.

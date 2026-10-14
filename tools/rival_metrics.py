@@ -16,7 +16,9 @@ A spec `label=path:x` orders the field by the `x` column instead of
 reads nothing of the tournament itself.
 
 Every system is scored on the teams all of them forecast, in the tournaments all
-of them cover, with places from the first database. Tournaments are weighted as
+of them cover, with places from the first database. `--set` picks the
+tournaments: the official rating's in-person ones (`ip-rated`, the default),
+all of its ones (`rated`), or every one (`all`). Tournaments are weighted as
 in `tools/ndcg.py`; `--unweighted` is the plain mean. `--old` adds the old
 system's `predictedPosition` as a row of its own, on the teams it forecast.
 
@@ -37,6 +39,7 @@ TOP_MIN = 5
 METRICS = ("ndcg", "ndcg3", "ndcg10", "pearson", "pairwise", "pairwise_top")
 TITLES = ("NDCG", "NDCG@3", "NDCG@10", "Pearson r", "pair", "pair@10%")
 CUTS = {"ndcg": None, "ndcg3": 3, "ndcg10": 10}
+SETS = ("ip-rated", "rated", "all")
 OPTIONS = [
     ("specs", dict(nargs="+", metavar="label=path")),
     ("--unweighted", dict(action="store_true")),
@@ -46,6 +49,7 @@ OPTIONS = [
     ("--from", dict(dest="frm", default=lab.TEST[0])),
     ("--to", dict(default=lab.TEST[1])),
     ("--json", dict(action="store_true", help="print the rows and their paired differences as JSON")),
+    ("--set", dict(choices=SETS, default="ip-rated")),
 ]
 
 
@@ -103,13 +107,14 @@ def score(tid, teams, value, places):
     }
 
 
-def load(spec, frm, to):
-    """`{tournament: {team: (place, forecast)}}` of placed in-person results."""
+def load(spec, frm, to, every_type=False):
+    """`{tournament: {team: (place, forecast)}}` of placed results, in-person
+    unless `every_type`."""
     path, _, col = spec.partition(":")
     col = col or "forecast"
     assert col in COLUMNS, col
     out = {}
-    for tid, team, place, f in lab.in_person(path, frm, to, f"e.tournament_id, e.team_id, e.actual_place, e.{col}"):
+    for tid, team, place, f in lab.in_person(path, frm, to, f"e.tournament_id, e.team_id, e.actual_place, e.{col}", every_type=every_type):
         if f is not None:
             out.setdefault(tid, {})[team] = (place, f)
     return out
@@ -131,9 +136,11 @@ def main():
     a = lab.cli(__doc__, OPTIONS, intermixed=True)
     w = None if a.unweighted else lab.load_weights(a.weights)
     specs = [s.split("=", 1) for s in a.specs]
-    data = {label: load(path, a.frm, a.to) for label, path in specs}
+    data = {label: load(path, a.frm, a.to, a.set != "ip-rated") for label, path in specs}
     first = data[specs[0][0]]
     tids = set.intersection(*(set(d) for d in data.values()))
+    if a.set != "all":
+        tids &= {t for (t,) in sqlite3.connect(lab.BUFF).execute("select id from tournaments where in_rating = 1")}
     old = old_forecasts(tids) if a.old else {}
     labels = [label for label, _ in specs] + ([OLD] if a.old else [])
     res = {label: {m: {} for m in METRICS} for label in labels}
@@ -157,7 +164,7 @@ def main():
         print(json.dumps(as_json(a, w, labels, res, used), ensure_ascii=False))
         return
     how = "unweighted" if w is None else "weighted by " + a.weights
-    print(f"In-person, {a.frm} to {a.to}, {how}, {len(used)} tournaments every system forecasts\n")
+    print(f"{a.set}, {a.frm} to {a.to}, {how}, {len(used)} tournaments every system forecasts\n")
     print("| system | " + " | ".join(TITLES) + " |")
     print("|---|" + "---:|" * len(TITLES))
     for label in labels:

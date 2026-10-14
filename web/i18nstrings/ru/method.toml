@@ -1,8 +1,13 @@
 # /method/'s metrics block: the forecast tables and the chart beside them.
 [metrics]
 weighted = "Взвешенные метрики"
-rated = "рейтинговые турниры"
-all = "все турниры"
+train = "Обучение на турнирах"
+train_rated = "рейтинговых"
+train_all = "всех"
+set = "Метрики по турнирам"
+set_ip_rated = "очным рейтинговым"
+set_rated = "всем рейтинговым"
+set_all = "всем"
 metric = "На графике"
 base = "Относительно"
 system = "рейтинг"

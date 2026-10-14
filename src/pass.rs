@@ -10,7 +10,7 @@ use crate::difficulty::Difficulties;
 use crate::editor_memory::EditorMemory;
 use crate::gauge::{self, Activity};
 use crate::geography::{Geography, PlayerLoad, YouthLoad};
-use crate::question_model::{self as qm, Field, Players, QParams};
+use crate::question_model::{self as qm, Field, PlayerState, Players, QParams};
 use crate::team_event::TeamEvent;
 use crate::team_model::Teams;
 use crate::team_s2::{self, Context, Row, TeamsS2};
@@ -23,6 +23,7 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 /// The team side of the pass. Both engines write the same `team_events` and the
 /// same release rows, so everything downstream reads one schema.
+#[derive(Clone)]
 pub enum Engine {
     Kalman(Teams),
     S2(TeamsS2),
@@ -150,7 +151,7 @@ impl Memories {
 }
 
 /// The in-sample and cross-fitted log-likelihood of a field's questions, as
-/// `(sum, observations)`; the cross-fit is skipped for a train-only tournament.
+/// `(sum, observations)`; the cross-fit is skipped for a field nobody forecasts.
 pub struct FitScores {
     pub in_sample: (f64, u64),
     pub cross: (f64, u64),
@@ -167,6 +168,10 @@ pub struct Morning<'a> {
     pub params: &'a [QParams],
     pub rows: &'a [Row],
     pub events: &'a [TeamEvent],
+    /// Whether `events` hold the field's forecast: every tournament the team
+    /// side reads, and under `data.forecast_from` the ones it keeps out of,
+    /// stepped on a copy of the team states that is then dropped.
+    pub forecast: bool,
     pub scores: Option<FitScores>,
     /// The day of the next release, which is the week this tournament counts in.
     pub next_release: i32,
@@ -252,6 +257,9 @@ pub fn run(arena: &Arena, cfg: &Config, opts: Options, obs: &mut dyn Observer) -
         let places_until = parse_date(&cfg.player.places_until).unwrap_or(i32::MAX);
         let mut handoff = cfg.player.places_handoff_var > 0.0;
         for (n, t) in arena.tournaments.iter().enumerate() {
+            if t.forecast_only && !last {
+                continue;
+            }
             // An unobserved pass exists only for its snapshot, and nothing it
             // does after `warm_until` reaches the next one: it stops there, so
             // each further pass restarts from the one before.
@@ -328,6 +336,8 @@ struct Sweep<'a> {
     zfrom: i32,
     /// `player.places` reads no field on or after this day.
     places_until: i32,
+    /// `data.forecast_from`.
+    forecast_from: i32,
 }
 
 impl<'a> Sweep<'a> {
@@ -349,6 +359,7 @@ impl<'a> Sweep<'a> {
             to_day,
             zfrom: parse_date("2018-01-01").unwrap_or(0),
             places_until: parse_date(&cfg.player.places_until).unwrap_or(i32::MAX),
+            forecast_from: parse_date(&cfg.data.forecast_from).unwrap_or(i32::MAX),
         }
     }
 
@@ -403,12 +414,19 @@ impl<'a> Sweep<'a> {
 
     fn tournament(&mut self, n: usize, t: &Tournament, obs: &mut dyn Observer) -> Result<()> {
         let cfg = self.cfg;
-        let q = self.questions(t);
-        obs.before_step(t, &self.teams);
-        let (rows, events) = if t.train_only {
-            (Vec::new(), Vec::new())
+        let forecast = !t.train_only || t.day >= self.forecast_from;
+        let fresh: Vec<(u32, PlayerState)> = if t.forecast_only {
+            let unseen = t.teams.iter().flat_map(|r| &r.members).filter(|&&i| !self.players.state[i as usize].seen);
+            unseen.map(|&i| (i, self.players.state[i as usize].clone())).collect()
         } else {
-            self.teams.step(t, self.players, &q.params, &self.mem.context(), cfg)
+            Vec::new()
+        };
+        let q = self.questions(t, forecast);
+        obs.before_step(t, &self.teams);
+        let (rows, events) = match (t.train_only, forecast) {
+            (false, _) => self.teams.step(t, self.players, &q.params, &self.mem.context(), cfg),
+            (true, true) => self.teams.clone().step(t, self.players, &q.params, &self.mem.context(), cfg),
+            (true, false) => (Vec::new(), Vec::new()),
         };
         obs.morning(&Morning {
             index: n,
@@ -419,9 +437,17 @@ impl<'a> Sweep<'a> {
             params: &q.params,
             rows: &rows,
             events: &events,
+            forecast,
             scores: q.scores,
             next_release: self.next_rel,
         })?;
+        if t.forecast_only {
+            for (i, s) in fresh {
+                self.players.state[i as usize] = s;
+            }
+            return Ok(());
+        }
+        let events = if t.train_only { Vec::new() } else { events };
         self.learn(t, &q.grads, &q.blocks, &events, &q.params);
         if cfg.player.score_k > 0.0 {
             let own = cfg.player.score_own_fit.then(|| {
@@ -437,14 +463,14 @@ impl<'a> Sweep<'a> {
 
     /// Step 1 of a tournament: its players seeded, its questions fitted, and
     /// what they say about each player.
-    fn questions(&mut self, t: &Tournament) -> Questions {
+    fn questions(&mut self, t: &Tournament, forecast: bool) -> Questions {
         let cfg = self.cfg;
         self.players.seed(t, cfg);
         let field = qm::build_field(t, self.players, &self.mem.chem, cfg);
         // The cross-fit is only scored, never learnt from, so it runs beside
         // the fit that is.
         let scores = self.opts.scores;
-        let (cross, params) = rayon::join(|| scores.then(|| cross_fit(&field, t, cfg)), || qm::fit_all(&field, None, cfg));
+        let (cross, params) = rayon::join(|| scores.then(|| cross_fit(&field, forecast, cfg)), || qm::fit_all(&field, None, cfg));
         let scores = cross.map(|cross| FitScores { in_sample: qm::score(&field, &params, None, cfg), cross });
         let grads = qm::player_grads(&field, &params, cfg);
         let team_grads = qm::team_grads_by_id(&field, &params, cfg);
@@ -554,9 +580,9 @@ struct Questions {
 }
 
 /// The question log-likelihood of each of the two halves of the field,
-/// fitted on the other.
-fn cross_fit(field: &Field, t: &Tournament, cfg: &Config) -> (f64, u64) {
-    if t.train_only {
+/// fitted on the other; skipped for a field nobody forecasts.
+fn cross_fit(field: &Field, forecast: bool, cfg: &Config) -> (f64, u64) {
+    if !forecast {
         return (0.0, 0);
     }
     let half = |h: u8| {

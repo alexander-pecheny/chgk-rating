@@ -3,7 +3,7 @@
 //! `tools/ndcg.py` read it unchanged. `out/ext/fun/report.md` is the method in
 //! prose and the fidelity check against the site's own API.
 use super::{
-    bare_player_event, blank_event, open_read_only, parse_ids, ranks_desc, Args, Changes, Ids,
+    bare_player_event, blank_event, forecast_from, open_read_only, parse_ids, ranks_desc, Args, Changes, Ids,
     PlayerRow, Release, Fallible, Rival, Schedule, TeamRow, WEEK,
 };
 use crate::data::Format;
@@ -42,7 +42,7 @@ const DEFAULT_AS_OF: &str = "2026-09-04";
 const CHECKPOINT_EVERY: i64 = 10;
 /// The system's own scope: everything rating.chgk.fun ingests, which is wider
 /// than `data::load`: no `in_rating` filter, asynchronous tournaments included.
-const SCOPE: &str = "SELECT t.id, t.date_end, t.tournament_type, t.maii_rating, t.questions_by_tour,
+const SCOPE: &str = "SELECT t.id, t.date_end, t.tournament_type, t.maii_rating, t.in_rating, t.questions_by_tour,
             r.team_id, r.position, r.questions_total, r.mask, r.team_members
      FROM tournaments t JOIN tournament_results r ON r.id = t.id
      WHERE t.date_start > '2021-09-01'
@@ -128,6 +128,10 @@ struct Tour {
     day: i32,
     kind: &'static str,
     rated: bool,
+    /// In `--rated-only`'s scope.
+    official: bool,
+    /// Left out of the scope but forecast, under `--forecast-from`.
+    forecast_only: bool,
     n_declared: usize,
     res: Vec<Placing>,
 }
@@ -152,6 +156,8 @@ fn new_tour(row: &rusqlite::Row) -> rusqlite::Result<Tour> {
         end,
         kind: kind.as_deref().and_then(Format::parse).map_or("other", Format::name),
         rated: row.get::<_, Option<i64>>("maii_rating")?.unwrap_or(0) != 0,
+        official: row.get::<_, Option<i64>>("in_rating")? == Some(1) && kind.as_deref().is_some_and(|k| k != "Асинхрон"),
+        forecast_only: false,
         n_declared: declared,
         res: Vec::new(),
     })
@@ -168,15 +174,27 @@ fn new_res(row: &rusqlite::Row, teams: &mut Ids, players: &mut Ids) -> rusqlite:
     })
 }
 
-fn load(db: &str, max_end: &str, rated_only: bool, teams: &mut Ids, players: &mut Ids) -> rusqlite::Result<Vec<Tour>> {
+/// The scope's tournaments; under `rated_only` with `forecast` also the rest of
+/// them from that day on, to be forecast only.
+fn load(db: &str, max_end: &str, rated_only: bool, forecast: Option<i32>, teams: &mut Ids, players: &mut Ids) -> rusqlite::Result<Vec<Tour>> {
     let conn = open_read_only(db)?;
-    let scope = if rated_only { SCOPE.replace("ORDER BY", "AND t.in_rating = 1 AND t.tournament_type != 'Асинхрон'\n     ORDER BY") } else { SCOPE.to_string() };
+    let scope = if rated_only && forecast.is_none() { SCOPE.replace("ORDER BY", "AND t.in_rating = 1 AND t.tournament_type != 'Асинхрон'\n     ORDER BY") } else { SCOPE.to_string() };
     let mut stmt = conn.prepare(&scope)?;
     let mut rows = stmt.query([max_end])?;
-    let mut tours: Vec<Tour> = Vec::new();
+    let (mut tours, mut skip): (Vec<Tour>, i64) = (Vec::new(), i64::MIN);
     while let Some(row) = rows.next()? {
-        if tours.last().map(|t| t.id) != Some(row.get("id")?) {
-            tours.push(new_tour(row)?);
+        let id: i64 = row.get("id")?;
+        if id == skip {
+            continue;
+        }
+        if tours.last().map(|t| t.id) != Some(id) {
+            let mut t = new_tour(row)?;
+            t.forecast_only = rated_only && !t.official;
+            if t.forecast_only && forecast.is_none_or(|d| t.day < d) {
+                skip = id;
+                continue;
+            }
+            tours.push(t);
         }
         let res = new_res(row, teams, players)?;
         tours.last_mut().unwrap().res.push(res);
@@ -543,7 +561,7 @@ impl Fun {
         let max_end = format_date(epoch + WEEK * (actual + LOOKAHEAD_WEEKS) + 1);
         eprintln!("scope: date_end < {max_end}, releases through {}", actual + LOOKAHEAD_WEEKS);
         let (mut teams, mut players) = (Ids::default(), Ids::default());
-        let tours = load(&db, &max_end, args.has("--rated-only"), &mut teams, &mut players)?;
+        let tours = load(&db, &max_end, args.has("--rated-only"), forecast_from(args)?, &mut teams, &mut players)?;
         let seats = base_rosters(&db, &players)?;
         eprintln!(
             "{} tournaments, {} players, {} teams, {} base-roster seats",
@@ -589,7 +607,7 @@ impl Rival for Fun {
         let t = &tours[i];
         let rated = Rated::new(t, &self.st.pr);
         let evs = rated.events();
-        let prows = self.player_events(t, &rated.player_deltas(&self.st.games));
+        let prows = if t.forecast_only { Vec::new() } else { self.player_events(t, &rated.player_deltas(&self.st.games)) };
         rated.write(w, &self.teams.list, &evs, &prows)?;
         self.tours = tours;
         Ok(())

@@ -2,6 +2,7 @@
 //! databases, release-to-release changes and the empty event rows they fill.
 use crate::output::PlayerEvent;
 use crate::team_event::TeamEvent;
+use crate::util::parse_date;
 use rusqlite::{Connection, OpenFlags};
 use std::collections::HashMap;
 
@@ -36,6 +37,11 @@ impl Args {
     pub fn has(&self, name: &str) -> bool {
         self.0.iter().any(|a| a == name)
     }
+}
+
+/// The day `--forecast-from` names, if it is given.
+pub fn forecast_from(args: &Args) -> Result<Option<i32>, String> {
+    args.get("--forecast-from").map(|d| parse_date(&d).ok_or(format!("bad --forecast-from {d}"))).transpose()
 }
 
 pub fn open_read_only(path: &str) -> rusqlite::Result<Connection> {

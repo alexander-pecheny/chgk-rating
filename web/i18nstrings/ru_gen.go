@@ -155,20 +155,25 @@ var RU = Strings{
 		Untitled: func() string { return "без названия" },
 		View: CommonViewStrings{
 			A2:   func() string { return "A2" },
-			Best: func() string { return "А2+Сатыбалдыев+онлайны" },
+			Best: func() string { return "A2+Elo+tweaks" },
 		},
 	},
 	Method: MethodStrings{
 		Metrics: MethodMetricsStrings{
-			All:  func() string { return "все турниры" },
 			Base: func() string { return "Относительно" },
 			Caption: func(ref string) string {
 				return fmt.Sprintf("Разница с %s на тех же турнирах: точка — среднее, отрезок — 95-процентный доверительный интервал.", ref)
 			},
-			Metric:   func() string { return "На графике" },
-			Rated:    func() string { return "рейтинговые турниры" },
-			System:   func() string { return "рейтинг" },
-			Weighted: func() string { return "Взвешенные метрики" },
+			Metric:     func() string { return "На графике" },
+			Set:        func() string { return "Метрики по турнирам" },
+			SetAll:     func() string { return "всем" },
+			SetIpRated: func() string { return "очным рейтинговым" },
+			SetRated:   func() string { return "всем рейтинговым" },
+			System:     func() string { return "рейтинг" },
+			Train:      func() string { return "Обучение на турнирах" },
+			TrainAll:   func() string { return "всех" },
+			TrainRated: func() string { return "рейтинговых" },
+			Weighted:   func() string { return "Взвешенные метрики" },
 		},
 	},
 	Player: PlayerStrings{

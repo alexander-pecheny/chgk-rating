@@ -262,7 +262,7 @@ impl Observer for Fit<'_> {
             f.emit(t, self.arena, m.players, &m.memories.chem, &m.memories.edmem, &pre, m.events, cfg)?;
         }
         self.before = self.lineup_states(m);
-        if t.train_only || t.day < self.publish_from {
+        if !m.forecast || t.day < self.publish_from {
             return Ok(());
         }
         let qs: Vec<(f64, f64, f64)> = m.params.iter().map(|p| (p.b, p.a(), p.m())).collect();

@@ -750,13 +750,22 @@ td:has(.roster-open input:checked) .roster-open span {
   display: none;
 }
 
-.metrics:has(.metrics-weighted input:checked):has(.metrics-set option[value="rated"]:checked) .metrics-rated-w,
-.metrics:has(.metrics-weighted input:checked):has(.metrics-set option[value="all"]:checked) .metrics-all-w,
-.metrics:has(.metrics-weighted input:not(:checked)):has(.metrics-set option[value="rated"]:checked) .metrics-rated-u,
-.metrics:has(.metrics-weighted input:not(:checked)):has(.metrics-set option[value="all"]:checked) .metrics-all-u {
+.metrics:has(.metrics-train option[value="rated"]:checked):has(.metrics-set option[value="ip-rated"]:checked):has(.metrics-weighted input:checked) .metrics-rated-ip-rated-w,
+.metrics:has(.metrics-train option[value="rated"]:checked):has(.metrics-set option[value="ip-rated"]:checked):has(.metrics-weighted input:not(:checked)) .metrics-rated-ip-rated-u,
+.metrics:has(.metrics-train option[value="rated"]:checked):has(.metrics-set option[value="rated"]:checked) .metrics-rated-rated-u,
+.metrics:has(.metrics-train option[value="rated"]:checked):has(.metrics-set option[value="all"]:checked) .metrics-rated-all-u,
+.metrics:has(.metrics-train option[value="all"]:checked):has(.metrics-set option[value="ip-rated"]:checked):has(.metrics-weighted input:checked) .metrics-all-ip-rated-w,
+.metrics:has(.metrics-train option[value="all"]:checked):has(.metrics-set option[value="ip-rated"]:checked):has(.metrics-weighted input:not(:checked)) .metrics-all-ip-rated-u,
+.metrics:has(.metrics-train option[value="all"]:checked):has(.metrics-set option[value="rated"]:checked) .metrics-all-rated-u,
+.metrics:has(.metrics-train option[value="all"]:checked):has(.metrics-set option[value="all"]:checked) .metrics-all-all-u {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
+}
+
+.metrics:has(.metrics-set option:not([value="ip-rated"]):checked) .metrics-weighted {
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 .metrics:has(.metrics-metric option[value="0"]:checked) .m-0,

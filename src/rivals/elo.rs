@@ -417,7 +417,8 @@ pub struct Elo {
 impl Elo {
     pub fn open(args: &Args) -> Fallible<Elo> {
         let mut cfg = Config::load(&args.or("--config", "config_elo.toml"))?;
-        for (flag, slot) in [("--from", &mut cfg.data.from), ("--to", &mut cfg.data.to), ("--out", &mut cfg.data.out_path)] {
+        let d = &mut cfg.data;
+        for (flag, slot) in [("--from", &mut d.from), ("--to", &mut d.to), ("--out", &mut d.out_path), ("--forecast-from", &mut d.forecast_from)] {
             if let Some(v) = args.get(flag) {
                 *slot = v;
             }
@@ -469,28 +470,29 @@ impl Rival for Elo {
 
     fn rate(&mut self, w: &Writer, i: usize, _next: &Release) -> Fallible<()> {
         let t = &self.arena.tournaments[i];
+        let fc = t.forecast_only;
         let members: Vec<Vec<u32>> = t.teams.iter().map(|r| {
             let mut v = r.members.clone();
             v.sort_unstable();
             v.dedup();
             v
         }).collect();
-        if t.young && self.kn.young != 0.0 {
+        let young = t.young && self.kn.young != 0.0;
+        let seeded = |m: &Model, p: usize| if young && m.games[p] == 0 { ELO_NEW - self.kn.young } else { m.elo[p] };
+        if young && !fc {
             for &p in members.iter().flatten() {
-                if self.m.games[p as usize] == 0 {
-                    self.m.elo[p as usize] = ELO_NEW - self.kn.young;
-                }
+                self.m.elo[p as usize] = seeded(&self.m, p as usize);
             }
         }
         let ls: Vec<Option<Lineup>> = members.iter().map(|ms| {
-            (!ms.is_empty()).then(|| Lineup::new(ms.iter().map(|&p| self.m.elo[p as usize]).collect(), t.format, &self.kn))
+            (!ms.is_empty()).then(|| Lineup::new(ms.iter().map(|&p| seeded(&self.m, p as usize)).collect(), t.format, &self.kn))
         }).collect();
         let qs = fit_questions(t, &ls, self.kn.lambda);
         let fresh = t.format == Format::InPerson && self.kn.ip_new != 0.0;
         let read: Vec<Option<Lineup>> = if fresh {
             members.iter().map(|ms| {
                 (!ms.is_empty()).then(|| {
-                    let at = |&p: &u32| self.m.elo[p as usize] - self.kn.ip_new / (1.0 + self.m.games_ip[p as usize] as f64);
+                    let at = |&p: &u32| seeded(&self.m, p as usize) - self.kn.ip_new / (1.0 + self.m.games_ip[p as usize] as f64);
                     Lineup::new(ms.iter().map(at).collect(), t.format, &self.kn)
                 })
             }).collect()
@@ -515,7 +517,7 @@ impl Rival for Elo {
             let r = &t.teams[k];
             let Some(f) = f else { continue };
             let l = ls[k].as_ref().unwrap();
-            for (j, &p) in members[k].iter().enumerate() {
+            for (j, &p) in members[k].iter().enumerate().filter(|_| !fc) {
                 let p = p as usize;
                 let (before, vol_before) = (self.m.elo[p], self.m.vol[p]);
                 self.m.elo[p] += f.deltas[j];
