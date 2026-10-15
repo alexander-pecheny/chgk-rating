@@ -216,7 +216,7 @@ a.match-tab:visited {
   color: var(--success);
 }
 
-.breakdown .how {
+.how {
   margin-top: 2px;
   color: var(--muted);
   font-size: var(--text-xs);
@@ -671,6 +671,11 @@ td:has(.roster-open input:checked) .roster-open span {
 .tex,
 .tex-block {
   position: relative;
+}
+
+/* Prose and formulas between {llm} and {/llm}, which the owner has not yet rewritten. */
+.llm {
+  color: var(--muted);
 }
 
 /* The pieces of a display formula, cut at its \qquad, sit side by side, and

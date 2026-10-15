@@ -12,10 +12,10 @@ use crate::util::Rng;
 use rusqlite::Connection;
 use std::collections::HashMap;
 
-/// The two windows of plan 3: every decision is made on `TUNE`, `TEST` is read
+/// Every decision is made on `TUNE`; `TEST` is the window /method/ reports, read
 /// once per candidate.
-pub const TUNE: (&str, &str) = ("2018-09-01", "2024-08-29");
-pub const TEST: (&str, &str) = ("2024-08-30", "2026-08-27");
+pub const TUNE: (&str, &str) = ("2018-09-01", "2025-01-01");
+pub const TEST: (&str, &str) = ("2025-01-01", "2026-08-28");
 pub const WEIGHTS: &str = "data/tournament_weights.csv";
 
 /// A field is scored from five teams up, and NDCG@3 over its top three.

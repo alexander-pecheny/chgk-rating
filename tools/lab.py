@@ -19,8 +19,8 @@ BUFF = "buff.db"
 WEIGHTS = "data/tournament_weights.csv"
 
 # The windows of src/ndcg.rs: decisions are made on tune, test is read once.
-TUNE = ("2018-09-01", "2024-08-29")
-TEST = ("2024-08-30", "2026-08-27")
+TUNE = ("2018-09-01", "2025-01-01")
+TEST = ("2025-01-01", "2026-08-28")
 WINDOWS = {"tune": TUNE, "test": TEST}
 
 # A field of fewer teams than this is not scored.

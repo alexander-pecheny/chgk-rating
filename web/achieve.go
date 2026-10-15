@@ -67,7 +67,7 @@ func (b breakdown) partRow(p part) ui.Node {
 	if p.nv > 1 {
 		under += " · " + S.Team.Breakdown.Merged(placeOf(p.placeAll), itoa(p.n), placeOf(p.placeOwn), itoa(p.nOwn))
 	}
-	name := ui.Cell(ui.PinCol(), line(link(tourHref(p.tid), orUntitled(p.name))), subline(ui.Text(under)), ui.How(ui.Inline(b.how(p)...)))
+	name := ui.Cell(ui.PinCol(), line(link(tourHref(p.tid), orUntitled(p.name))), subline(ui.Text(under)), ui.How(ui.Inline(valueHow(p.strength, p.placeAll, p.wfmt, p.wfield, p.wreach, p.wlegion)...)))
 	return ui.Trow(
 		name,
 		placeOfN(placeOf(p.placeAll), p.n),
@@ -86,18 +86,18 @@ func leftTitle(p part) string {
 	return S.Team.Breakdown.Fade(pct(p.fade))
 }
 
-// how is how the rating points on the day were made, in one line under the
+// valueHow is how a result's rating points were made, in one line under the
 // name, in the letters of the formula on /method/: every factor, one or not.
 // The points themselves are the next column's.
-func (b breakdown) how(p part) []ui.Item {
+func valueHow(strength, place, wfmt, wfield, wreach, wlegion float64) []ui.Item {
 	terms := [][]ui.Item{
-		{ui.Text("S"), ui.Sup(ui.Text("+")), ui.Text(S.Team.Breakdown.Equals(disp(max(0, p.strength))))},
-		{ui.Text(S.Team.Breakdown.Place(placeOf(p.placeAll)))},
+		{ui.Text(S.Team.Breakdown.Beaten(disp(max(0, strength))))},
+		{ui.Text(S.Team.Breakdown.Place(placeOf(place)))},
 	}
 	for _, w := range []struct {
 		name string
 		v    float64
-	}{{S.Team.Breakdown.WFormat(), p.wfmt}, {S.Team.Breakdown.WTop(), p.wfield}, {S.Team.Breakdown.WTowns(), p.wreach}, {S.Team.Breakdown.WLegion(), p.wlegion}} {
+	}{{S.Team.Breakdown.WFormat(), wfmt}, {S.Team.Breakdown.WTop(), wfield}, {S.Team.Breakdown.WTowns(), wreach}, {S.Team.Breakdown.WLegion(), wlegion}} {
 		terms = append(terms, []ui.Item{ui.Text(S.Team.Breakdown.W()), ui.Sub(ui.Text(w.name)), ui.Text(S.Team.Breakdown.Equals(w2(w.v)))})
 	}
 	var how []ui.Item
@@ -211,8 +211,12 @@ func resultCols() []ui.Item {
 }
 
 func resultRow(e result, cutoff string) ui.Node {
-	row := append(tourCells(str(e.date), e.tid, str(e.name), str(e.typ), counted(e.rated)),
-		resultPlace(e), resultValue(e), countsCell(e.counts), gainCell(e.gain))
+	cells := tourCells(str(e.date), e.tid, str(e.name), str(e.typ), counted(e.rated))
+	if e.strength != nil && e.placeVal != nil && e.wfmt != nil {
+		how := valueHow(*e.strength, *e.placeVal, *e.wfmt, *e.wfield, *e.wreach, *e.wlegion)
+		cells[1] = ui.Cell(ui.PinCol(), line(link(tourHref(e.tid), orUntitled(str(e.name)))), ui.How(ui.Inline(how...)))
+	}
+	row := append(cells, resultPlace(e), numCell(dispOpt(e.peak)), countsCell(e.counts), gainCell(e.gain))
 	switch {
 	case e.counts:
 		row = append(row, ui.CountsRow())
@@ -227,16 +231,6 @@ func resultPlace(e result) ui.Node {
 		return ui.Cell(ui.Num(), ui.NoWrap(), ui.Text(place(e.actual)))
 	}
 	return placeOfN(place(e.actual), *e.nTeams)
-}
-
-// resultValue is what the result was worth, with how on hover.
-func resultValue(e result) ui.Node {
-	value := []ui.Item{ui.Num(), ui.Text(dispOpt(e.peak))}
-	if e.strength == nil || e.w == nil || e.placeVal == nil {
-		return ui.Cell(value...)
-	}
-	t := S.Team.Results.ValueHow(disp(max(0, *e.strength)), placeOf(*e.placeVal), w2(*e.w))
-	return ui.Cell(append(value, ui.Title(t))...)
 }
 
 func countsCell(counts bool) ui.Node {

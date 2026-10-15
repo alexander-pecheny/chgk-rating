@@ -2,7 +2,7 @@
 //! every listed team.
 
 use super::knobs::Knobs;
-use super::lab::{ndcg, Lab};
+use super::lab::{metrics, scored_fields, Lab, Scored};
 use super::value::{fade, overlap, values, Val};
 use std::collections::{BTreeMap, HashMap};
 
@@ -43,9 +43,20 @@ impl Lab {
 }
 
 impl Book<'_> {
-    /// The team metric of the rating on the morning of each result, tune and test.
+    /// The team NDCG of the rating on the morning of each result, tune and test.
     pub fn ndcg(&self) -> (f64, f64) {
-        ndcg(&self.lab.rows, |r| self.rating(r.team, r.day).0)
+        let (tune, test) = self.metrics();
+        (tune[0], test[0])
+    }
+
+    /// The six measures of /method/ for the rating on the morning of each result.
+    pub fn metrics(&self) -> ([f64; 6], [f64; 6]) {
+        metrics(&self.lab.rows, |r| self.rating(r.team, r.day).0)
+    }
+
+    /// Each field's six measures, for paired comparisons.
+    pub fn fields(&self) -> Vec<Scored> {
+        scored_fields(&self.lab.rows, |r| self.rating(r.team, r.day).0)
     }
 
     /// The published number for a rating: the sum of its results, or the strength its points stand for.
@@ -79,7 +90,24 @@ impl Book<'_> {
         let k = &self.k;
         let mut cur = self.current(team, day, if k.freeze { (last + 1).min(day) } else { day });
         cur.sort_by(|a, b| (b.0.base * b.1).total_cmp(&(a.0.base * a.1)));
-        cur.truncate(k.top_x);
+        let need = k.min_ip.min(k.top_x);
+        let mut ip = 0;
+        let reserved: Vec<bool> = cur
+            .iter()
+            .map(|x| {
+                let r = x.0.format == 'i' && ip < need;
+                ip += r as usize;
+                r
+            })
+            .collect();
+        let mut open = k.top_x - need;
+        let mut i = 0;
+        cur.retain(|_| {
+            let keep = reserved[i] || open > 0;
+            open -= (!reserved[i] && keep) as usize;
+            i += 1;
+            keep
+        });
         // A faded result holds only its remaining share of a slot, so an old
         // result near zero never drags the average down by taking a whole one.
         let held: f64 = cur.iter().map(|x| x.1).sum();

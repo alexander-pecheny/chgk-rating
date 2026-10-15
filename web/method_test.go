@@ -50,3 +50,11 @@ func TestPrimes(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestMarkLLM(t *testing.T) {
+	got := markLLM(`<p>a {llm}b</p><div class="tex-block"><svg>{x}</svg></div><p>c{/llm} d <code>{llm}e{/llm}</code></p>`)
+	want := `<p>a <span class="llm">{llm}b</span></p><div class="tex-block llm"><svg>{x}</svg></div><p><span class="llm">c{/llm}</span> d <code><span class="llm">{llm}e{/llm}</span></code></p>`
+	if got != want {
+		t.Errorf("got %s", got)
+	}
+}

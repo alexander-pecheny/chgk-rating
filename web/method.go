@@ -28,8 +28,7 @@ import (
 var methodMD []byte
 
 // The post's own heading goes, since the page's title is the bar's last
-// crumb. The {llm}…{/llm} marks around prose the owner has not yet rewritten
-// stay on the page, as plain text, where readers see them.
+// crumb.
 var postHeading = regexp.MustCompile(`\A# [^\n]*\n`)
 
 func renderMethod() (string, error) {
@@ -62,7 +61,66 @@ func renderMethod() (string, error) {
 	if !bytes.Contains(out.Bytes(), []byte(metricsMark)) {
 		return "", errors.New("method.md has no {{metrics}} line")
 	}
-	return strings.Replace(out.String(), metricsMark, block, 1), nil
+	return strings.Replace(markLLM(out.String()), metricsMark, block, 1), nil
+}
+
+var htmlTag = regexp.MustCompile(`<[^>]*>`)
+
+// markLLM greys out the prose the owner has not yet rewritten, marks and all.
+// A mark may span paragraphs and formulas, so each run of text inside it gets
+// a span of its own and each formula a class; the text of a formula stays.
+func markLLM(page string) string {
+	var b strings.Builder
+	on, skip, src := false, 0, false
+	emit := func(s string) {
+		if s != "" && on {
+			s = `<span class="llm">` + s + `</span>`
+		}
+		b.WriteString(s)
+	}
+	text := func(s string) {
+		for s != "" {
+			if !on {
+				i := strings.Index(s, "{llm}")
+				if i < 0 {
+					emit(s)
+					return
+				}
+				emit(s[:i])
+				on, s = true, s[i:]
+				continue
+			}
+			i := strings.Index(s, "{/llm}")
+			if i < 0 {
+				emit(s)
+				return
+			}
+			emit(s[:i+len("{/llm}")])
+			on, s = false, s[i+len("{/llm}"):]
+		}
+	}
+	last := 0
+	for _, m := range htmlTag.FindAllStringIndex(page, -1) {
+		if skip == 0 && !src {
+			text(page[last:m[0]])
+		} else {
+			b.WriteString(page[last:m[0]])
+		}
+		tag := page[m[0]:m[1]]
+		src = strings.HasPrefix(tag, `<span class="tex-src"`)
+		switch {
+		case strings.HasPrefix(tag, "<svg"), strings.HasPrefix(tag, "<math"):
+			skip++
+		case tag == "</svg>", tag == "</math>":
+			skip--
+		case on && (tag == `<span class="tex">` || tag == `<div class="tex-block">`):
+			tag = strings.Replace(tag, `">`, ` llm">`, 1)
+		}
+		b.WriteString(tag)
+		last = m[1]
+	}
+	text(page[last:])
+	return b.String()
 }
 
 func (s *site) methodPage() (string, []ui.Item) {

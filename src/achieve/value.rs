@@ -29,8 +29,8 @@ pub(super) struct Val {
     pub base: f64,
     pub perf: f64,
     pub by_score: f64,
-    /// The strength the value divides by its place: `by_score`, or the
-    /// place-based strength of a result the fallback valued.
+    /// The strength the value divides by its place: the teams beaten under
+    /// "beaten", else `by_score` or the fallback's place-based strength.
     pub shown: f64,
     pub w: f64,
     pub wfmt: f64,
@@ -50,13 +50,25 @@ fn own_lineup(r: &Res) -> bool {
     r.n_base >= OWN_BASE && r.n - r.n_base <= 2
 }
 
+/// The mean strength of the `beat_k` strongest lineups placed below `r`.
+fn beaten(r: &Res, f: &Field, k: &Knobs) -> f64 {
+    let top: Vec<f64> = f.placed.iter().filter(|x| x.0 > r.place).take(k.beat_k).map(|x| x.1).collect();
+    (top.iter().sum::<f64>() + k.beat_fill * (k.beat_k - top.len()) as f64) / k.beat_k as f64
+}
+
 /// The performance the knobs read, and the score and place numbers behind it.
-fn perf_of(r: &Res, k: &Knobs) -> (f64, f64, f64) {
-    let (s, p) = (r.perf_s + k.shift, r.perf_p);
+fn perf_of(r: &Res, f: &Field, k: &Knobs, fb_from: i32) -> (f64, f64, f64) {
+    let s = r.perf_s + k.shift;
+    let p = if r.place > 0.0 {
+        k.fb_a + k.fb_b * r.perf_p + k.fb_place * r.place.ln() + k.fb_n * (f.n_teams.max(1) as f64).ln()
+    } else {
+        f64::NAN
+    };
+    let fall = k.fallback && (k.fb_until == 0 || r.day < fb_from);
     let v = match k.perf {
-        // The place-based strength sits on the shifted score scale already
-        // (their medians differ by 9 points), so it takes the same divisor.
-        "strength_place" if r.place > 0.0 && k.fallback && !s.is_finite() => p / r.place.powf(k.place_pow),
+        "beaten" if r.place > 0.0 && (s.is_finite() || fall) => (beaten(r, f, k) + k.shift) / r.place.powf(k.place_pow),
+        "beaten" => f64::NAN,
+        "strength_place" if r.place > 0.0 && fall && !s.is_finite() => p / r.place.powf(k.place_pow),
         "strength_place" if r.place > 0.0 => s / r.place.powf(k.place_pow),
         "place" => p,
         "mix" if s.is_finite() && p.is_finite() => k.mix * s + (1.0 - k.mix) * p,
@@ -116,13 +128,14 @@ fn reach(f: &Field, k: &Knobs) -> (f64, usize, usize) {
 /// Per team, every counted result.
 pub(super) fn values(lab: &Lab, k: &Knobs) -> BTreeMap<i64, Vec<Val>> {
     let mut fw: HashMap<i64, (f64, f64)> = HashMap::new();
+    let fb_from = crate::util::parse_date(&format!("{}-01-01", k.fb_until)).unwrap_or(i32::MIN);
     let mut vals: BTreeMap<i64, Vec<Val>> = BTreeMap::new();
     for r in &lab.rows {
         if k.base_rule && !own_lineup(r) {
             continue;
         }
         let Some(f) = lab.fields.get(&r.tid) else { continue };
-        if let Some(v) = value(lab, r, f, k, &mut fw) {
+        if let Some(v) = value(lab, r, f, k, fb_from, &mut fw) {
             vals.entry(r.team).or_default().push(v);
         }
     }
@@ -131,10 +144,16 @@ pub(super) fn values(lab: &Lab, k: &Knobs) -> BTreeMap<i64, Vec<Val>> {
 
 /// One result's value; none when it has no performance or its format is not
 /// counted. `fw` keeps each field's weight once read.
-fn value(lab: &Lab, r: &Res, f: &Field, k: &Knobs, fw: &mut HashMap<i64, (f64, f64)>) -> Option<Val> {
+fn value(lab: &Lab, r: &Res, f: &Field, k: &Knobs, fb_from: i32, fw: &mut HashMap<i64, (f64, f64)>) -> Option<Val> {
     let wfmt = format_weight(r.format, k);
-    let (perf, by_score, by_place) = perf_of(r, k);
-    let shown = if by_score.is_finite() || !k.fallback { by_score } else { by_place };
+    let (perf, by_score, by_place) = perf_of(r, f, k, fb_from);
+    let shown = if k.perf == "beaten" {
+        beaten(r, f, k) + k.shift
+    } else if by_score.is_finite() || !k.fallback {
+        by_score
+    } else {
+        by_place
+    };
     if !perf.is_finite() || wfmt <= 0.0 {
         return None;
     }

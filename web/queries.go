@@ -410,20 +410,22 @@ type result struct {
 	rated                       *int64
 	peak                        *float64
 	nTeams                      *int64
-	gain, strength, w, placeVal *float64
+	gain, strength, placeVal    *float64
+	wfmt, wfield, wreach        *float64
+	wlegion                     *float64
 	counts                      bool
 }
 
 func (r *result) fields() []any {
 	return []any{&r.tid, &r.name, &r.date, &r.actual, &r.rated, &r.typ, &r.peak, &r.nTeams, &r.gain, &r.strength,
-		&r.w, &r.placeVal, &r.counts}
+		&r.placeVal, &r.wfmt, &r.wfield, &r.wreach, &r.wlegion, &r.counts}
 }
 
 // results are every result the team has played, newest first.
 func (st *store) results(id int64) ([]result, error) {
-	sel, join := "null, null, null, null, null, null, 0", ""
+	sel, join := "null, null, null, null, null, null, null, null, null, 0", ""
 	if st.achieve {
-		sel = `a.peak, a.n_teams, a.gain, a.strength, a.w, a.place,
+		sel = `a.peak, a.n_teams, a.gain, a.strength, a.place, a.w_format, a.w_field, a.w_reach, coalesce(a.w_legion, 1),
 			exists(select 1 from achieve_parts p where p.team_id = v.team_id and p.release_id = ` + itoa(st.achieveRel) + `
 				and p.tournament_id = v.tournament_id)`
 		join = "left join achieve_values a on a.tournament_id = v.tournament_id and a.team_id = v.team_id"

@@ -136,8 +136,8 @@ func TestFixturePages(t *testing.T) {
 		// as Бета-2 and its result did not count.
 		{"/tournaments/500/", 200, []string{">9000<", ">9050<", "+50", "+30", "+20", "Бета-2", ">9500<"}},
 		{"/search/?q=%D0%B1", 200, []string{`href="/teams/11/"`, `href="/players/101/"`}},
-		{"/ql/", 200, []string{"Q(L) ↓", ">8800<", `href="/teams/11/"`}},
-		{"/teams/11/", 200, []string{"Q(L)", ">8800<"}},
+		{"/ql/", 200, []string{"Q ↓", ">8800<", `href="/teams/11/"`}},
+		{"/teams/11/", 200, []string{"<dt>Q</dt>", ">8800<"}},
 		{"/teams/10/?release=1", 200, []string{">7500<"}},
 		{"/search/?q=%D0%BA%D1%83%D0%B1", 200, []string{`href="/tournaments/500/"`, "Турниры (1)"}},
 		{"/releases/", 200, []string{"2026-09-03", "Версия модели 1.0"}},

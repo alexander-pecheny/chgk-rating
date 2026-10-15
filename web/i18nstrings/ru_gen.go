@@ -249,6 +249,7 @@ var RU = Strings{
 	},
 	Team: TeamStrings{
 		Breakdown: TeamBreakdownStrings{
+			Beaten:      func(v string) string { return fmt.Sprintf("B = %s", v) },
 			EmptySlot:   func() string { return "пустой слот" },
 			Equals:      func(v string) string { return fmt.Sprintf(" = %s", v) },
 			Fade:        func(fade string) string { return fmt.Sprintf("f(t) = %s%%", fade) },
@@ -288,23 +289,20 @@ var RU = Strings{
 			OlderCount:     func(n string, date string) string { return fmt.Sprintf("ещё %s, до %s", n, date) },
 			OlderToggle:    func() string { return "Показать и старые результаты" },
 			Title:          func(n string) string { return fmt.Sprintf("Все результаты (%s)", n) },
-			ValueHow: func(strength string, place string, w string) string {
-				return fmt.Sprintf("S⁺ = %s, M = %s, w = %s", strength, place, w)
-			},
 		},
 		Roster: func(n string) string { return fmt.Sprintf("Базовый состав (%s)", n) },
 		Stat: TeamStatStrings{
-			Ql:   func() string { return "Q(L)" },
+			Ql:   func() string { return "Q" },
 			Week: func() string { return "За неделю" },
 		},
 	},
 	Teams: TeamsStrings{
-		ByQl:     func() string { return "по Q(L)" },
+		ByQl:     func() string { return "по Q" },
 		ByRating: func() string { return "по рейтингу" },
 		Col: TeamsColStrings{
-			Ql: func() string { return "Q(L)" },
+			Ql: func() string { return "Q" },
 			QlTitle: func() string {
-				return "Сила базового состава по рейтингам его шести сильнейших игроков, как её читает прогноз: Q(L) из «Методики»"
+				return "Сила базового состава по рейтингам его шести сильнейших игроков с весами от 6 до 1: Q из «Методики»"
 			},
 			Results: func() string { return "Результатов" },
 			ResultsTitle: func() string {

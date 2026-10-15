@@ -91,15 +91,25 @@ fn variants(lab: &Lab, dir: &str) -> Result<String, Box<dyn std::error::Error>> 
     std::fs::create_dir_all(&out_dir)?;
     let was = shipped_places();
     let base = Knobs::default().apply(&arg("--base").unwrap_or_default())?;
-    let mut table = String::from("| variant | tune | test | Δ test vs fair |\n|---|---|---|---|\n");
-    let _ = writeln!(table, "| fair rule (shipped) | {:.4} | {:.4} | |", lab.fair.0, lab.fair.1);
+    let mut table = String::from(
+        "Test window; under each variant its difference from the base, ± the standard error of the paired difference over fields.\n\n| variant | NDCG | @3 | @10 | r | pair | pair@10% |\n|---|---|---|---|---|---|---|\n",
+    );
+    let fmt = |m: [f64; 6]| m.map(|x| format!("{x:.4}")).join(" | ");
+    let _ = writeln!(table, "| fair rule (shipped) | {} |", fmt(lab.fair.1));
     let points = [vec![String::new()], args_all("--point")].concat();
+    let mut first: Vec<achieve::Scored> = Vec::new();
     for (pi, spec) in points.iter().enumerate() {
         let k = base.apply(spec)?;
         let b = lab.book(&k);
-        let (tune, test) = b.ndcg();
+        let fields = b.fields();
         let name = if spec.is_empty() { "achievement (base)".to_string() } else { format!("`{spec}`") };
-        let _ = writeln!(table, "| {name} | {tune:.4} | {test:.4} | {:+.4} |", test - lab.fair.1);
+        let _ = writeln!(table, "| {name} | {} |", fmt(achieve::mean(&fields, 1)));
+        if pi == 0 {
+            first = fields;
+        } else {
+            let d = achieve::paired(&first, &fields, 1).map(|(m, se)| format!("{m:+.4} ± {se:.4}"));
+            let _ = writeln!(table, "| | {} |", d.join(" | "));
+        }
         std::fs::write(format!("{out_dir}/top{pi}.md"), top_table(lab, &b, &k, at, top_n, &was))?;
     }
     Ok(table)

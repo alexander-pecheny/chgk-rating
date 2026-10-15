@@ -2,10 +2,9 @@
 //! read as a field, and the team metric the knobs are scored by.
 
 use super::frozen::{load_results, Names, Res, Seasons};
-use crate::ndcg::{TEST, TUNE};
-use crate::team_ndcg;
-use crate::util::parse_date;
-use std::collections::{HashMap, HashSet};
+use crate::ndcg::{method_metrics, TEST, TUNE};
+use crate::util::{avg_ranks, parse_date};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// A field keeps its strongest lineups only, enough for any `field_k`.
 const TOP_KEPT: usize = 50;
@@ -14,6 +13,8 @@ const TOP_KEPT: usize = 50;
 pub(super) struct Field {
     /// The strongest lineups, best first, at most 50.
     pub top_q: Vec<f64>,
+    /// Every placed lineup's (place, strength), strongest first.
+    pub placed: Vec<(f64, f64)>,
     pub n_teams: usize,
     /// The tournaments merged into this field.
     pub n_venues: usize,
@@ -32,6 +33,7 @@ pub(super) struct Field {
 #[derive(Default)]
 struct Gathered {
     q: Vec<f64>,
+    placed: Vec<(f64, f64)>,
     n: usize,
     venues: HashSet<i64>,
     ref20: f64,
@@ -52,6 +54,9 @@ impl Gathered {
         self.ref20 = r.ref20;
         if r.q.is_finite() {
             self.q.push(r.q);
+            if r.place > 0.0 {
+                self.placed.push((r.place, r.q));
+            }
         }
         self.n += 1;
         self.venues.insert(r.venue);
@@ -61,6 +66,7 @@ impl Gathered {
         let sum_all: f64 = self.q.iter().map(|x| x.max(0.0)).sum();
         self.q.sort_by(|a, b| b.total_cmp(a));
         self.q.truncate(TOP_KEPT);
+        self.placed.sort_by(|a, b| b.1.total_cmp(&a.1));
         let counts = |m: HashMap<i64, usize>| {
             let mut v: Vec<usize> = m.into_values().collect();
             v.sort_by(|a, b| b.cmp(a));
@@ -68,6 +74,7 @@ impl Gathered {
         };
         Field {
             top_q: self.q,
+            placed: self.placed,
             n_teams: self.n,
             n_venues: self.venues.len(),
             ref20: self.ref20,
@@ -91,7 +98,7 @@ pub struct Lab {
     /// The last day with a result.
     pub last: i32,
     /// The fair rule's weighted team NDCG, tune and test.
-    pub fair: (f64, f64),
+    pub fair: ([f64; 6], [f64; 6]),
 }
 
 impl Lab {
@@ -111,7 +118,7 @@ impl Lab {
         let fields = by_t.into_iter().map(|(t, g)| (t, g.field())).collect();
         let last = rs.iter().map(|r| r.day).max().unwrap_or(0);
         let rows: Vec<Res> = rs.into_iter().filter(|r| r.rated && r.place > 0.0).collect();
-        let fair = ndcg(&rows, |r| r.fair_mu);
+        let fair = metrics(&rows, |r| r.fair_mu);
         Lab { rows, fields, names, seasons, ql: Vec::new(), last, fair }
     }
 
@@ -121,36 +128,72 @@ impl Lab {
     }
 }
 
-/// The team NDCG of DESIGN 7.3, weighted, over the tune and test windows.
-pub(super) fn ndcg(rows: &[Res], mut score: impl FnMut(&Res) -> f64) -> (f64, f64) {
-    let day = |s: &str| parse_date(s).unwrap();
-    let win = [(day(TUNE.0), day(TUNE.1)), (day(TEST.0), day(TEST.1))];
-    let mut by_t: HashMap<i64, (i32, f64, Vec<&Res>)> = HashMap::new();
-    for r in rows.iter().filter(|r| r.format == 'i' && r.qual) {
-        by_t.entry(r.tid).or_insert((r.day, r.tw, Vec::new())).2.push(r);
-    }
-    let mut acc = [(0.0, 0.0); 2];
-    for (tid, (day, tw, v)) in &by_t {
-        let Some(w) = win.iter().position(|&(a, b)| *day >= a && *day < b) else { continue };
-        if let Some(x) = field_ndcg(*tid, v, &mut score) {
-            acc[w].0 += tw * x;
-            acc[w].1 += tw;
-        }
-    }
-    let m = |a: (f64, f64)| if a.1 > 0.0 { a.0 / a.1 } else { f64::NAN };
-    (m(acc[0]), m(acc[1]))
+/// A lineup counts in the team metric when its strength is within this share
+/// of its base roster's: the team that played is the team the rating rates.
+const OWN_BAND: f64 = 0.05;
+
+/// The six measures of /method/ for the rating `score` reads, weighted over the
+/// in-person fields of the tune and test windows, among the lineups that played
+/// at their base roster's strength, places re-ranked among them.
+pub(super) fn metrics(rows: &[Res], score: impl FnMut(&Res) -> f64) -> ([f64; 6], [f64; 6]) {
+    let f = scored_fields(rows, score);
+    (mean(&f, 0), mean(&f, 1))
 }
 
-/// One field's NDCG over the results `score` reads.
-fn field_ndcg(tid: i64, v: &[&Res], score: &mut impl FnMut(&Res) -> f64) -> Option<f64> {
-    let (mut team, mut mu, mut place) = (Vec::new(), Vec::new(), Vec::new());
-    for r in v {
-        let s = score(r);
-        if s.is_finite() {
-            team.push(r.team);
-            mu.push(s);
-            place.push(r.place);
+/// One field's six measures, its window (0 tune, 1 test) and its weight.
+pub struct Scored {
+    pub tid: i64,
+    pub win: usize,
+    pub tw: f64,
+    pub m: [f64; 6],
+}
+
+pub(super) fn scored_fields(rows: &[Res], mut score: impl FnMut(&Res) -> f64) -> Vec<Scored> {
+    let day = |s: &str| parse_date(s).unwrap();
+    let wins = [(day(TUNE.0), day(TUNE.1)), (day(TEST.0), day(TEST.1))];
+    let own = |r: &Res| r.q_base > 0.0 && (r.q_lineup / r.q_base - 1.0).abs() <= OWN_BAND;
+    let mut by_t: BTreeMap<i64, (i32, f64, Vec<&Res>)> = BTreeMap::new();
+    for r in rows.iter().filter(|r| r.format == 'i' && own(r)) {
+        by_t.entry(r.tid).or_insert((r.day, r.tw, Vec::new())).2.push(r);
+    }
+    let mut out = Vec::new();
+    for (&tid, (day, tw, v)) in &by_t {
+        let Some(win) = wins.iter().position(|&(a, b)| *day >= a && *day < b) else { continue };
+        let scored: Vec<(f64, f64)> = v.iter().map(|r| (score(r), r.place)).filter(|x| x.0.is_finite()).collect();
+        let places = avg_ranks(&scored.iter().map(|x| x.1).collect::<Vec<_>>());
+        let field: Vec<(f64, f64)> = scored.iter().zip(places).map(|(x, p)| (x.0, p)).collect();
+        if let Some(m) = method_metrics(tid, &field) {
+            out.push(Scored { tid, win, tw: *tw, m });
         }
     }
-    team_ndcg::score(tid, &team, &mu, &place, usize::MAX)
+    out
+}
+
+/// The weighted mean of each measure over the fields of window `win`.
+pub fn mean(f: &[Scored], win: usize) -> [f64; 6] {
+    std::array::from_fn(|i| {
+        let (num, den) = f.iter().filter(|x| x.win == win && x.m[i].is_finite()).fold((0.0, 0.0), |a, x| (a.0 + x.tw * x.m[i], a.1 + x.tw));
+        if den > 0.0 { num / den } else { f64::NAN }
+    })
+}
+
+/// `b` less `a` on each measure over the fields both scored in window `win`,
+/// with the standard error of a weighted mean of paired differences.
+pub fn paired(a: &[Scored], b: &[Scored], win: usize) -> [(f64, f64); 6] {
+    let by: HashMap<i64, &Scored> = a.iter().filter(|x| x.win == win).map(|x| (x.tid, x)).collect();
+    std::array::from_fn(|i| {
+        let d: Vec<(f64, f64)> = b
+            .iter()
+            .filter(|x| x.win == win)
+            .filter_map(|x| by.get(&x.tid).map(|y| (x.tw, x.m[i] - y.m[i])))
+            .filter(|x| x.1.is_finite())
+            .collect();
+        let w: f64 = d.iter().map(|x| x.0).sum();
+        if w <= 0.0 {
+            return (f64::NAN, f64::NAN);
+        }
+        let m = d.iter().map(|x| x.0 * x.1).sum::<f64>() / w;
+        let var: f64 = d.iter().map(|x| (x.0 * (x.1 - m)).powi(2)).sum();
+        (m, var.sqrt() / w)
+    })
 }

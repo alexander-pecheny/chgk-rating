@@ -2,20 +2,20 @@
 //! fades, how many count and who is listed.
 
 /// The choices of the knobs that take a word.
-const PERFS: [&str; 4] = ["strength_place", "score", "place", "mix"];
+const PERFS: [&str; 5] = ["strength_place", "score", "place", "mix", "beaten"];
 const FIELD_MODES: [&str; 3] = ["sum", "world", "anchors"];
 const FADES: [&str; 4] = ["none", "linear", "exp", "yearly"];
 const OVERLAP_BY: [&str; 2] = ["strength", "count"];
 /// The bounds `set` holds the counting knobs to.
 const MAX_FIELD_K: usize = 50;
 const MAX_TOP_X: usize = 100;
-/// The default shift of the score-based number onto the lineup scale.
-const SHIFT: f64 = -800.0;
 
 #[derive(Clone, Debug)]
 pub struct Knobs {
     /// "strength_place": the score-based strength over place^place_pow;
-    /// "score", "place" or "mix": `mix` of score and 1 - mix of place.
+    /// "score", "place" or "mix": `mix` of score and 1 - mix of place;
+    /// "beaten": the mean lineup strength of the `beat_k` strongest teams it
+    /// placed above, empty slots at `beat_fill`, plus `shift`, over place^place_pow.
     pub perf: &'static str,
     pub place_pow: f64,
     pub mix: f64,
@@ -42,6 +42,19 @@ pub struct Knobs {
     /// "strength_place": a result with no per-question data, and so no
     /// score-based strength, falls back on its place-based strength.
     pub fallback: bool,
+    /// The place-based strength put on the score scale: fb_a + fb_b p +
+    /// fb_place ln place + fb_n ln teams. Fitted on the synchronous top 30 with
+    /// both numbers; 0, 1, 0, 0 is the raw number, which sat 1200 points high
+    /// mid-table and 1900 on a win.
+    pub fb_a: f64,
+    pub fb_b: f64,
+    pub fb_place: f64,
+    pub fb_n: f64,
+    /// Fall back only on results before this year, when masks are lost for
+    /// good; a later result without one waits for it. 0 falls back always.
+    pub fb_until: i32,
+    pub beat_k: usize,
+    pub beat_fill: f64,
     /// "sum" mode, in person: (the sum of every lineup's strength / sum_ref)
     /// ^ sum_gamma, uncapped, so a field the size of the biggest festivals
     /// weighs about 1 and a bigger or stronger one more.
@@ -85,6 +98,9 @@ pub struct Knobs {
     /// The divisor is the slots held (a faded result holds its faded share),
     /// never below this; 0 divides by `top_x` always.
     pub min_slots: usize,
+    /// This many of the top_x slots go to in-person results only, and a team
+    /// with fewer holds zero in the rest of them; 0 is off.
+    pub min_ip: usize,
     /// The divisor is fixed on the day after the team's last result, and the
     /// same results keep fading under it, so an idle team can only fall.
     pub freeze: bool,
@@ -124,10 +140,11 @@ pub struct Knobs {
 /// synchronous 0.5, strictly synchronous 2/3 as in the official rules, a divisor that never lets an
 /// idle rating grow) and the rest from `achieve --search --fix`.
 const DEFAULT: Knobs = Knobs {
-    perf: "strength_place",
-    place_pow: 0.6,
+    perf: "beaten",
+    place_pow: 0.8,
     mix: 0.5,
-    shift: SHIFT,
+    // Beaten opponents are on the lineup scale already; -800 measured within noise.
+    shift: 0.0,
     w_sync: 0.5,
     w_strict: 2.0 / 3.0,
     w_async: 0.0,
@@ -140,6 +157,13 @@ const DEFAULT: Knobs = Knobs {
     field_pad: false,
     size_pow: 0.5,
     fallback: true,
+    fb_a: -1561.9,
+    fb_b: 1.0513,
+    fb_place: 252.8,
+    fb_n: -201.1,
+    fb_until: 2020,
+    beat_k: 10,
+    beat_fill: 5000.0,
     sum_ref: 1_000_000.0,
     sum_gamma: 0.5,
     scale: 1.0,
@@ -164,6 +188,7 @@ const DEFAULT: Knobs = Knobs {
     slow_k: 0.6,
     top_x: 7,
     min_slots: 7,
+    min_ip: 0,
     freeze: true,
     base_rule: false,
     grace: 60,
@@ -185,8 +210,8 @@ impl Default for Knobs {
 
 /// Every knob by key, in the order the site lists the rules.
 pub const KNOBS: &[&str] = &[
-    "top_x", "min_slots", "freeze", "perf", "place_pow", "mix", "shift", "w_sync", "w_strict", "w_async",
-    "field_mode", "scale", "sum_ref", "sum_gamma", "field_k", "field_zero", "field_ref", "field_gamma", "field_min", "field_pad", "size_pow", "fallback",
+    "top_x", "min_slots", "min_ip", "freeze", "perf", "place_pow", "mix", "shift", "w_sync", "w_strict", "w_async",
+    "field_mode", "scale", "sum_ref", "sum_gamma", "field_k", "field_zero", "field_ref", "field_gamma", "field_min", "field_pad", "size_pow", "fallback", "fb_a", "fb_b", "fb_place", "fb_n", "fb_until", "beat_k", "beat_fill",
     "country_pow", "country_min", "town_pow", "town_min", "country_ref", "town_ref", "geo_cap", "fade", "loss_ip",
     "loss_sync", "full_days", "zero_days", "half_life", "sync_full", "sync_zero", "sync_half_life", "tail_days",
     "slow_k", "slow_ref", "base_rule", "grace", "active_days", "overlap_k", "overlap_by", "win_bonus", "legion", "strength_a", "strength_p", "sum",
@@ -219,6 +244,13 @@ impl Knobs {
             "field_pad" => (self.field_pad as u8).to_string(),
             "size_pow" => self.size_pow.to_string(),
             "fallback" => (self.fallback as u8).to_string(),
+            "fb_a" => self.fb_a.to_string(),
+            "fb_b" => self.fb_b.to_string(),
+            "fb_place" => self.fb_place.to_string(),
+            "fb_n" => self.fb_n.to_string(),
+            "fb_until" => self.fb_until.to_string(),
+            "beat_k" => self.beat_k.to_string(),
+            "beat_fill" => self.beat_fill.to_string(),
             "country_pow" => self.country_pow.to_string(),
             "country_min" => self.country_min.to_string(),
             "town_pow" => self.town_pow.to_string(),
@@ -240,6 +272,7 @@ impl Knobs {
             "slow_k" => self.slow_k.to_string(),
             "top_x" => self.top_x.to_string(),
             "min_slots" => self.min_slots.to_string(),
+            "min_ip" => self.min_ip.to_string(),
             "freeze" => (self.freeze as u8).to_string(),
             "base_rule" => (self.base_rule as u8).to_string(),
             "grace" => self.grace.to_string(),
@@ -293,6 +326,13 @@ impl Knobs {
             "field_min" => self.field_min = x,
             "field_pad" => self.field_pad = x != 0.0,
             "size_pow" => self.size_pow = x,
+            "fb_a" => self.fb_a = x,
+            "fb_b" => self.fb_b = x,
+            "fb_place" => self.fb_place = x,
+            "fb_n" => self.fb_n = x,
+            "fb_until" => self.fb_until = x as i32,
+            "beat_k" => self.beat_k = (x as usize).max(1),
+            "beat_fill" => self.beat_fill = x,
             "fallback" => self.fallback = x != 0.0,
             "country_pow" => self.country_pow = x,
             "country_min" => self.country_min = (x as usize).max(1),
@@ -314,6 +354,7 @@ impl Knobs {
             "slow_k" => self.slow_k = x,
             "top_x" => self.top_x = (x as usize).clamp(1, MAX_TOP_X),
             "min_slots" => self.min_slots = (x as usize).min(MAX_TOP_X),
+            "min_ip" => self.min_ip = (x as usize).min(MAX_TOP_X),
             "freeze" => self.freeze = x != 0.0,
             "base_rule" => self.base_rule = x != 0.0,
             "grace" => self.grace = x as i32,

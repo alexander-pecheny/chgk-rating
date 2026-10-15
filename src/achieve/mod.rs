@@ -30,6 +30,6 @@ mod value;
 pub use book::{Book, Standing};
 pub use freeze::{freeze, player_strengths, save_lists, Freezer};
 pub use knobs::Knobs;
-pub use lab::Lab;
+pub use lab::{mean, paired, Lab, Scored};
 pub use publish::publish;
 pub use search::{search, SearchOpts};
