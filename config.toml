@@ -1,7 +1,7 @@
 [model]
 # The version of the rules. Bump it with any change that moves a published
 # number, so two outputs can be compared knowing which rules made each.
-version = "1.4.0"
+version = "1.5.0"
 
 [data]
 db_path = "buff.db"
@@ -301,6 +301,19 @@ delta = 1100.0
 # +0.0022 +/- 0.0065 on 2025-01-01..2026-08-27, and synchronous open fields
 # +0.008 / +0.014 per-field Pearson; 8000, 9500 and 10000 do worse.
 fill_max = 9000.0
+# The forecast's own lineup since 1.5, at every table: seat weights 0.7^k + 0.05
+# down the sorted lineup and an empty seat at no more than 7500. Q(L) above
+# stays the rating's. The forecast place steers the fair rule, so ratings move
+# too. Against 1.4 on 2025-01-01..2026-08-27: rated sync NDCG +0.0059 +/- 0.0013
+# and Pearson +0.0093, async NDCG +0.0117 +/- 0.0015, weighted in-person NDCG
+# +0.0006 +/- 0.0019 (2018-09..2024: +0.0000, Pearson +0.0019 +/- 0.0007).
+# Decay 0.65 and 0.75 and a cap of 8000 are within noise in person and worse on
+# 2022-2024 sync. Measured and off: only at sync tables it costs in-person
+# NDCG 0.004 through the fair rule.
+fc_seat_decay = 0.7
+fc_seat_floor = 0.05
+fc_fill_max = 7500.0
+fc_seat_sync_only = false
 # theta -> the team scale: player_zero + player_scale * (theta + ln 6 + roster_bias).
 player_scale = 2454.8828
 player_zero = 6000.0

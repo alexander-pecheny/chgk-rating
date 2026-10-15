@@ -142,8 +142,8 @@ metrics:
         shift
         uv run tools/rival_metrics.py --json --from 2025-01-01 --to 2026-08-28 --set $set $how "$@" | jq -c --arg t "$train" --arg s "$set" '. + {train: $t, set: $s}' | sed 's/A2_1/A2 1/g'
     }
-    all="A2_1.4=$d/all/a2.db A2+Elo+tweaks=$d/all/blendt.db elo-chgk.uk=out/ext/elo.db:x elo-chgk.uk+tweaks=out/ext/elot.db:x chgk.fun=out/ext/fun.db chgk.quest=out/ext/quest.db chgk.gg=$d/all/gg.db"
-    rated="A2_1.4=$d/rated/a2.db A2+Elo+tweaks=$d/rated/blendt.db elo-chgk.uk=$d/rated/elo.db:x elo-chgk.uk+tweaks=$d/rated/elot.db:x chgk.fun=$d/rated/fun.db chgk.quest=$d/rated/quest.db chgk.gg=out/ext/gg.db"
+    all="A2_1.5=$d/all/a2.db A2+Elo+tweaks=$d/all/blendt.db elo-chgk.uk=out/ext/elo.db:x elo-chgk.uk+tweaks=out/ext/elot.db:x chgk.fun=out/ext/fun.db chgk.quest=out/ext/quest.db chgk.gg=$d/all/gg.db"
+    rated="A2_1.5=$d/rated/a2.db A2+Elo+tweaks=$d/rated/blendt.db elo-chgk.uk=$d/rated/elo.db:x elo-chgk.uk+tweaks=$d/rated/elot.db:x chgk.fun=$d/rated/fun.db chgk.quest=$d/rated/quest.db chgk.gg=out/ext/gg.db"
     k=0
     for train in rated all; do
         eval specs=\$$train

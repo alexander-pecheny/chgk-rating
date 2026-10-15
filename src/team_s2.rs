@@ -115,6 +115,17 @@ pub fn lineup_strength(rs: &[f64], p: &S2) -> f64 {
     }
 }
 
+/// `fc_seat_decay`: the sorted lineup under geometric weights, short seats
+/// filled as under "best6" but capped at `fc_fill_max`.
+fn fc_seats(rs: &[f64], p: &S2) -> f64 {
+    let mut v = rs.to_vec();
+    v.sort_by(|a, b| b.total_cmp(a));
+    let fill = (v[v.len() - 1] - p.delta).min(p.fc_fill_max);
+    v.resize(FULL_LINEUP.max(v.len()), fill);
+    let w: Vec<f64> = (0..FULL_LINEUP).map(|k| p.fc_seat_decay.powi(k as i32) + p.fc_seat_floor).collect();
+    v.iter().zip(&w).map(|(x, w)| x * w).sum::<f64>() / w.iter().sum::<f64>()
+}
+
 /// The sd of the tempered roster estimate, propagated from the players'
 /// uncertainty: `sqrt(Σ w_i² (scale σ_i)²)` over the softmax weights the roster
 /// estimate puts on the members. A lineup of six moderately uncertain players
@@ -188,6 +199,8 @@ pub struct Row {
     /// the field's own spread is known, and `q` is untouched either way.
     pub q_tight: f64,
     pub q_loose: f64,
+    /// The lineup under `fc_seat_decay`; NaN when it is off.
+    pub q_fc: f64,
     /// The lineup and each member on the display scale at the `sigma_c`
     /// quantile, with no affinity: what the core of the two-part rating reads.
     /// Empty when no lineup was listed.
@@ -393,6 +406,11 @@ impl<'a> Reader<'a> {
             sd: if listed { roster_sd(rs, &seat.sigmas, pt) } else { 0.0 },
             q_tight,
             q_loose,
+            q_fc: if listed && p.fc_seat_decay > 0.0 && (!p.fc_seat_sync_only || matches!(self.t.format, Format::Sync | Format::StrictSync)) {
+                q - lineup_strength(rs, pt) + fc_seats(rs, p)
+            } else {
+                f64::NAN
+            },
         }
     }
 
@@ -944,7 +962,7 @@ impl TeamsS2 {
     #[allow(clippy::too_many_arguments)]
     fn forecast(&self, idx: usize, res: &Row, q: f64, f: f64, format: Format, tight: bool, p: &S2) -> f64 {
         let alt = if tight { res.q_tight } else { res.q_loose };
-        let qf = if p.tight_gap > 0.0 && alt.is_finite() { alt } else { q };
+        let qf = if p.tight_gap > 0.0 && alt.is_finite() { alt } else if res.q_fc.is_finite() { res.q_fc } else { q };
         let fc = if res.e_ans.is_finite() {
             res.e_ans
         } else if q.is_nan() {

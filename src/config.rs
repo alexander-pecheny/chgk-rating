@@ -412,6 +412,19 @@ pub struct S2 {
     /// adds. 0 is off.
     #[serde(default)]
     pub fill_max: f64,
+    /// The forecast reads the lineup's seats under weights `fc_seat_decay^k +
+    /// fc_seat_floor` instead of 6, 5 ... 1, with a seat short of six filled at
+    /// no more than `fc_fill_max`; ratings see it only through the forecast
+    /// place the fair rule reads. 0 keeps the rating's lineup.
+    #[serde(default)]
+    pub fc_seat_decay: f64,
+    #[serde(default)]
+    pub fc_seat_floor: f64,
+    #[serde(default)]
+    pub fc_fill_max: f64,
+    /// The seat rule at synchronous tables only.
+    #[serde(default)]
+    pub fc_seat_sync_only: bool,
 }
 
 /// What a config that leaves a key of `[team.s2]` out gets: the rule as it
@@ -427,6 +440,10 @@ const S2_DEFAULT: S2 = S2 {
     k_youth: 0.0,
     k_ip_new: 0.0,
     fill_max: 0.0,
+    fc_seat_decay: 0.0,
+    fc_seat_floor: 0.0,
+    fc_fill_max: 0.0,
+    fc_seat_sync_only: false,
     d: 1200.0,
     k: 0.4,
     k_q: 0.01,
