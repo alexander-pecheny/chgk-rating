@@ -20,7 +20,7 @@ import (
 	"strconv"
 	"strings"
 
-	"pecheny.me/dopecore/webassets"
+	"code.pecheny.me/pecheny/dopesuite/dopecore/webassets"
 	"pecheny.me/dopeuikit/kit"
 
 	"ratingweb/ui"
