@@ -116,11 +116,17 @@ pub fn lineup_strength(rs: &[f64], p: &S2) -> f64 {
 }
 
 /// `fc_seat_decay`: the sorted lineup under geometric weights, short seats
-/// filled as under "best6" but capped at `fc_fill_max`.
+/// filled from the strongest member, or as under "best6", capped at
+/// `fc_fill_max` when it is positive.
 pub fn fc_seats(rs: &[f64], p: &S2) -> f64 {
     let mut v = rs.to_vec();
     v.sort_by(|a, b| b.total_cmp(a));
-    let fill = (v[v.len() - 1] - p.delta).min(p.fc_fill_max);
+    let fill = if p.fc_fill_top > 0.0 || p.fc_fill_const > 0.0 {
+        p.fc_fill_top * v[0] + p.fc_fill_const
+    } else {
+        v[v.len() - 1] - p.delta
+    };
+    let fill = if p.fc_fill_max > 0.0 { fill.min(p.fc_fill_max) } else { fill };
     v.resize(FULL_LINEUP.max(v.len()), fill);
     let w: Vec<f64> = (0..FULL_LINEUP).map(|k| p.fc_seat_decay.powi(k as i32) + p.fc_seat_floor).collect();
     v.iter().zip(&w).map(|(x, w)| x * w).sum::<f64>() / w.iter().sum::<f64>()

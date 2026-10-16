@@ -422,6 +422,12 @@ pub struct S2 {
     pub fc_seat_floor: f64,
     #[serde(default)]
     pub fc_fill_max: f64,
+    /// An empty seat at `fc_fill_top` times the strongest member plus
+    /// `fc_fill_const` instead of the weakest less `delta`. Both 0 is off.
+    #[serde(default)]
+    pub fc_fill_top: f64,
+    #[serde(default)]
+    pub fc_fill_const: f64,
     /// The seat rule at synchronous tables only.
     #[serde(default)]
     pub fc_seat_sync_only: bool,
@@ -443,6 +449,8 @@ const S2_DEFAULT: S2 = S2 {
     fc_seat_decay: 0.0,
     fc_seat_floor: 0.0,
     fc_fill_max: 0.0,
+    fc_fill_top: 0.0,
+    fc_fill_const: 0.0,
     fc_seat_sync_only: false,
     d: 1200.0,
     k: 0.4,

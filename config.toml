@@ -302,7 +302,7 @@ delta = 1100.0
 # +0.008 / +0.014 per-field Pearson; 8000, 9500 and 10000 do worse.
 fill_max = 9000.0
 # The forecast's own lineup since 1.5, at every table: seat weights 0.7^k + 0.05
-# down the sorted lineup and an empty seat at no more than 7500. Q(L) above
+# down the sorted lineup and empty seats as below. Q(L) above
 # stays the rating's. The forecast place steers the fair rule, so ratings move
 # too. Against 1.4 on 2025-01-01..2026-08-27: rated sync NDCG +0.0059 +/- 0.0013
 # and Pearson +0.0093, async NDCG +0.0117 +/- 0.0015, weighted in-person NDCG
@@ -312,7 +312,16 @@ fill_max = 9000.0
 # NDCG 0.004 through the fair rule.
 fc_seat_decay = 0.7
 fc_seat_floor = 0.05
-fc_fill_max = 7500.0
+# An empty seat is worth 0.4 of the strongest member plus 3000, uncapped, since
+# 1.5: a pair scores about 2:1 by its stronger player, and the weakest less
+# delta read it 1:2. With the seat rule alone swapped in the stored forecasts on
+# 2025-01-01..2026-08-27, sync Pearson +0.0015 +/- 0.0004, pair score of lineups
+# of one to three +0.004, in person within noise; 0.3-0.5 and 4000-5000 do no
+# better on 2018-09..2024, a constant seat costs up to 0.06 Pearson, and
+# fc_fill_max = 7500 binds above a strongest member of 11250.
+fc_fill_top = 0.4
+fc_fill_const = 3000.0
+fc_fill_max = 0.0
 fc_seat_sync_only = false
 # theta -> the team scale: player_zero + player_scale * (theta + ln 6 + roster_bias).
 player_scale = 2454.8828
