@@ -31,6 +31,11 @@ pub struct Blend {
     /// the experienced players' ratings at the release; 0 leaves them A2's.
     #[serde(default)]
     pub players: f64,
+    /// A venue where more than this share of the players have fewer than
+    /// `NEWCOMER_GAMES` in-person games keeps A2's forecast: Elo starts every
+    /// newcomer alike, A2 does not. 0 blends every venue.
+    #[serde(default)]
+    pub newcomer_gate: f64,
 }
 
 /// What the fit writes into `meta` to say which rules made its numbers.
@@ -764,6 +769,16 @@ pub struct Question {
     /// 0 leaves the likelihood alone.
     #[serde(default)]
     pub chem_u: f64,
+    /// A lineup of `n` below six reads at `(6 / n)^size_k` times the summed
+    /// intensity, so a short lineup is not expected to fall as far short as
+    /// the plain noisy-OR says, and its members do not carry the difference in
+    /// their own ratings. 0 is the plain sum.
+    #[serde(default)]
+    pub size_k: f64,
+    /// The same for a lineup of more than six, where the members beyond the
+    /// six at the table add less than the sum says.
+    #[serde(default)]
+    pub size_k_long: f64,
     /// Each member enters the likelihood at `theta + var_boost * var`, `var`
     /// being their uncertainty diffused to the day. Intensity is convex in
     /// `theta`, so a player known only roughly answers, on average, like one
@@ -775,7 +790,7 @@ pub struct Question {
     /// How a lineup's credit for a question is shared among its members: each
     /// takes `λ^(1/share_temp)` of it, normalised, instead of their own share
     /// `λ / u` of the intensity. The team's total gradient and the likelihood
-    /// are untouched. 1 (or 0) is the plain noisy-OR share; larger spreads the
+    /// are untouched. 1 (or 0) is the plain noisy-OR share, below 1 sharpens it; larger spreads the
     /// credit towards an even split, as rating.chgk.fun does, so a constant
     /// member of a lineup of unsettled players does not take all of it.
     #[serde(default)]
@@ -1084,6 +1099,17 @@ pub struct Player {
     /// table's surprise. 0 is off.
     #[serde(default)]
     pub credit_unsure: f64,
+    /// Equal credit for everyone: `credit_all` of the lineup's mean gradient
+    /// and information, on top of `credit_unsure`'s share, as the London Elo
+    /// credits a team's surprise to all its members. 0 is off.
+    #[serde(default)]
+    pub credit_all: f64,
+    /// A player's variance is raised to at least `sigma_floor`² before each
+    /// step, so an established player keeps a minimum gain per tournament, as
+    /// the London Elo's `alpha` does, rather than one that fades with the
+    /// games. 0 is off.
+    #[serde(default)]
+    pub sigma_floor: f64,
     /// The score rating, a second strength only the forecast reads: once per
     /// tournament every member moves by `w (score_k + (v / score_kv)^2)` times
     /// the lineup's answers minus the answers the fitted questions expected,

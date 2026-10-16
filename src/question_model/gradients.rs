@@ -134,7 +134,7 @@ fn team_grads(t: &TeamObs, params: &[QParams], dlt: f64, cfg: &Config) -> Vec<(f
         let d1 = p1 * m * g1;
         let d2 = p2 * (m * g1) * (m * g1) + p1 * m * g2;
         let temp = cfg.question.share_temp;
-        if temp > 1.0 {
+        if temp > 0.0 && temp != 1.0 {
             // The same total `a u` handed out by the tempered shares.
             let total: f64 = lam.iter().sum();
             let w: f64 = lam.iter().map(|l| l.powf(1.0 / temp)).sum();

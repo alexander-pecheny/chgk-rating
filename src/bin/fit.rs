@@ -3,6 +3,7 @@ use chgk_rating::data::{Arena, Format, Tournament};
 use chgk_rating::features::{Features, Pre};
 use chgk_rating::output::{PlayerEvent, PlayerRow, TournamentMetrics, Writer};
 use chgk_rating::pass::{self, Engine, Evening, Morning, Observer, Release};
+use chgk_rating::question_model::Players;
 use chgk_rating::team_event::TeamEvent;
 use chgk_rating::util::{format_date, parse_date, spearman};
 use std::collections::{BTreeMap, HashMap};
@@ -204,6 +205,7 @@ struct Fit<'a> {
     before: Vec<(u32, PlayerEvent)>,
     /// Elo's share of the published forecast and its forecasts by (tournament, team).
     elo: Option<(f64, HashMap<(i64, i64), f64>)>,
+    newcomer_gate: f64,
     /// Elo's share of each published player rating, and every player's Elo
     /// after each of their tournaments, by day, by player index.
     elo_players: Option<(f64, Vec<Vec<(i32, f64)>>)>,
@@ -233,6 +235,7 @@ impl<'a> Fit<'a> {
             before: Vec::new(),
             venue_of: HashMap::new(),
             elo: cfg.blend.as_ref().filter(|b| b.elo > 0.0).map(|b| load_elo(&b.elo_db).map(|x| (b.elo, x))).transpose()?,
+            newcomer_gate: cfg.blend.as_ref().map_or(0.0, |b| b.newcomer_gate),
             elo_players: cfg
                 .blend
                 .as_ref()
@@ -273,7 +276,9 @@ impl Observer for Fit<'_> {
         self.venue_of = t.teams.iter().flat_map(|r| r.members.iter().map(move |&p| (p, r.venue))).collect();
         for (venue, mut events) in by_venue(t, m.events) {
             if let Some((c, elo)) = &self.elo {
-                blend(venue, &mut events, *c, elo, &self.arena.team_ids);
+                if self.newcomer_gate <= 0.0 || newcomer_share(t, venue, m.players) <= self.newcomer_gate {
+                    blend(venue, &mut events, *c, elo, &self.arena.team_ids);
+                }
             }
             self.w.question_params(venue, &qs)?;
             self.w.team_events(venue, &date, &self.arena.team_ids, &events)?;
@@ -585,6 +590,17 @@ fn blend(venue: i64, evs: &mut [TeamEvent], c: f64, elo: &HashMap<(i64, i64), f6
         evs[k].forecast = ma + sa * ((1.0 - c) * za + c * (x - mx) / sx);
     }
     places(evs);
+}
+
+/// Fewer in-person games than this make a player a newcomer to `blend.newcomer_gate`.
+const NEWCOMER_GAMES: u32 = 10;
+
+/// The share of a venue's players with fewer than `NEWCOMER_GAMES` in-person games.
+fn newcomer_share(t: &Tournament, venue: i64, players: &Players) -> f64 {
+    let (new, all) = t.teams.iter().filter(|r| r.venue == venue).flat_map(|r| &r.members).fold((0, 0), |(n, a), &i| {
+        (n + usize::from(players.state[i as usize].games_ip < NEWCOMER_GAMES), a + 1)
+    });
+    if all == 0 { 0.0 } else { new as f64 / all as f64 }
 }
 
 /// A player is read for the scale of a release's blend once this experienced.

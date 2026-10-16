@@ -712,12 +712,13 @@ impl Players {
         let mut ed_grad = vec![0.0; self.free];
         let joint = cfg.player.team_joint || cfg.player.joint_new_games > 0;
         let extra = if joint { self.teammate_precision(t, grads, cfg) } else { HashMap::new() };
-        let team_mean = if cfg.player.fast_credit != 0.0 || cfg.player.credit_unsure != 0.0 { lineup_means(t, grads) } else { HashMap::new() };
+        let team_mean = if cfg.player.fast_credit != 0.0 || cfg.player.credit_unsure != 0.0 || cfg.player.credit_all != 0.0 { lineup_means(t, grads) } else { HashMap::new() };
         for &(i, g, info) in grads {
             let s = &mut self.state[i as usize];
             let (g, info) = match team_mean.get(&i) {
-                Some(&(gm, im)) if cfg.player.credit_unsure != 0.0 => {
-                    let c = cfg.player.credit_unsure * (s.var / (cfg.player.sigma_new * cfg.player.sigma_new)).min(1.0);
+                Some(&(gm, im)) if cfg.player.credit_unsure != 0.0 || cfg.player.credit_all != 0.0 => {
+                    let unsure = cfg.player.credit_unsure * (s.var / (cfg.player.sigma_new * cfg.player.sigma_new)).min(1.0);
+                    let c = (cfg.player.credit_all + unsure).min(1.0);
                     ((1.0 - c) * g + c * gm, (1.0 - c) * info + c * im)
                 }
                 _ => (g, info),
@@ -906,6 +907,7 @@ impl Step {
             return None;
         }
         s.var += drift(s, o.dt, cfg);
+        s.var = s.var.max(p.sigma_floor * p.sigma_floor);
         if p.new_boost > 0.0 && s.games < p.new_boost_games {
             s.var *= 1.0 + p.new_boost * (1.0 - s.games as f64 / p.new_boost_games as f64);
         }

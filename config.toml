@@ -87,6 +87,7 @@ var_boost = 0.0
 # Credit inside a lineup shared as lambda^(1/share_temp) instead of lambda / u.
 # Measured and off: it moves player 101843 from 15th to 33rd at 6 (-0.0008 +/-
 # 0.0019 on 2025-01-01..2026-08-27) and leaves his teammates where they were.
+# Sharper shares, 0.7 and 0.8, are within 0.001 everywhere (2026-10-16).
 share_temp = 0.0
 # A strength per team id, added to its members. Measured and off: -0.008 to
 # -0.010 on 2025-01-01..2026-08-27 at prior sds 0.3 to 1.
@@ -95,6 +96,13 @@ team_effect_tau = 0.0
 # Lineup chemistry inside the likelihood: u -> u * exp(chem_u * T(L)).
 # Measured and off; -0.0018 at 0.05 and -0.031 at 0.2.
 chem_u = 0.0
+# A lineup of n reads at (6/n)^size_k times its summed intensity (size_k_long
+# above six). The plain sum expects a trio to take two questions in 36 fewer
+# than it does and inflates its members' ratings to make up. Candidate for 1.5
+# at 0.3: +0.0011 +/- 0.0005 weighted pair on 2018-09-01..2024-12-31 and
+# +0.0018 +/- 0.0007 on 2025-01-01..2026-08-27.
+size_k = 0.0
+size_k_long = 0.0
 # Whether the editor affinity is a property of every player ("none") or of a
 # strong one ("scale", multiplied by exp(aff_kappa*theta); "gate", only the top
 # aff_gate of the established panel). Measured and off: every variant loses, and
