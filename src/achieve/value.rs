@@ -50,10 +50,27 @@ fn own_lineup(r: &Res) -> bool {
     r.n_base >= OWN_BASE && r.n - r.n_base <= 2
 }
 
+/// The package length `margin_norm` reads a margin against.
+const MARGIN_PACK: f64 = 36.0;
+
 /// The mean strength of the `beat_k` strongest lineups placed below `r`.
 fn beaten(r: &Res, f: &Field, k: &Knobs) -> f64 {
-    let top: Vec<f64> = f.placed.iter().filter(|x| x.0 > r.place).take(k.beat_k).map(|x| x.1).collect();
-    (top.iter().sum::<f64>() + k.beat_fill * (k.beat_k - top.len()) as f64) / k.beat_k as f64
+    let placed = if k.q_fc { &f.placed_fc } else { &f.placed };
+    let margin = |taken: f64| {
+        if !(taken.is_finite() && r.taken.is_finite()) {
+            return 1.0;
+        }
+        let d = (r.taken - taken).max(0.0);
+        let d = if k.margin_norm && r.n_q > 0.0 { d * MARGIN_PACK / r.n_q } else { d };
+        ((1.0 + d) / (1.0 + k.margin_ref)).powf(k.margin_pow) * (1.0 + k.margin_lin * d)
+    };
+    let below: Vec<&(f64, f64, f64)> = placed.iter().filter(|x| x.0 > r.place).take(k.beat_k).collect();
+    let top: Vec<f64> = below.iter().map(|x| x.1 * margin(x.2)).collect();
+    let fill = match below.iter().map(|x| x.1).reduce(f64::min) {
+        Some(worst) if k.beat_worst => worst.min(k.beat_fill),
+        _ => k.beat_fill,
+    };
+    (top.iter().sum::<f64>() + fill * (k.beat_k - top.len()) as f64) / k.beat_k as f64
 }
 
 /// The performance the knobs read, and the score and place numbers behind it.
@@ -89,8 +106,9 @@ fn format_weight(format: char, k: &Knobs) -> f64 {
 
 /// The field weight and the field strength it was read from.
 fn field_weight(f: &Field, k: &Knobs) -> (f64, f64) {
-    let sum: f64 = f.top_q.iter().take(k.field_k).map(|x| x.max(0.0)).sum();
-    let seats = if k.field_pad { k.field_k } else { f.top_q.len().clamp(1, k.field_k) };
+    let top_q = if k.q_fc { &f.top_q_fc } else { &f.top_q };
+    let sum: f64 = top_q.iter().take(k.field_k).map(|x| x.max(0.0)).sum();
+    let seats = if k.field_pad { k.field_k } else { top_q.len().clamp(1, k.field_k) };
     let s = sum / seats.max(1) as f64;
     let size = if k.field_pad { 1.0 } else { (seats as f64 / k.field_k as f64).powf(k.size_pow) };
     if k.field_gamma == 0.0 {
@@ -160,7 +178,8 @@ fn value(lab: &Lab, r: &Res, f: &Field, k: &Knobs, fb_from: i32, fw: &mut HashMa
     let (wf, fs) = *fw.entry(r.tid).or_insert_with(|| field_weight(f, k));
     let (geo, _, n_towns) = reach(f, k);
     let w = wfmt * wf * geo;
-    let legion = if k.legion && r.q_base > 0.0 && r.q_lineup > r.q_base { r.q_base / r.q_lineup } else { 1.0 };
+    let (ql, qb) = if k.q_fc { (r.q_lineup_fc, r.q_base_fc) } else { (r.q_lineup, r.q_base) };
+    let legion = if k.legion && qb > 0.0 && ql > qb { qb / ql } else { 1.0 };
     let base = w * legion * (perf.max(0.0) + if r.place == 1.0 { k.win_bonus } else { 0.0 });
     Some(Val {
         day: r.day,

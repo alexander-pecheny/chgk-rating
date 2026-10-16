@@ -43,6 +43,10 @@ pub struct Res {
     /// either has fewer than four known players.
     pub q_lineup: f64,
     pub q_base: f64,
+    /// The same three strengths under the forecast's seat weights.
+    pub q_fc: f64,
+    pub q_lineup_fc: f64,
+    pub q_base_fc: f64,
     /// The team's town and country on the day, -1 where unknown.
     pub town: i64,
     pub country: i64,
@@ -58,11 +62,12 @@ const TOWN: usize = 19;
 const COUNTRY: usize = 20;
 const Q_LINEUP: usize = 21;
 const Q_BASE: usize = 22;
+const Q_FC: usize = 23;
 const UNKNOWN: i64 = -1;
 /// A `names.tsv` line: kind, id, name.
 const NAME_FIELDS: usize = 3;
 
-const HEADER: &str = "tid\tday\tformat\tteam\tplace\trated\tn\tn_base\tq\tperf_s\tperf_p\ttaken\tn_q\tfair_mu\tvenue\tvplace\tqual\ttw\tref20\ttown\tcountry\tq_lineup\tq_base";
+const HEADER: &str = "tid\tday\tformat\tteam\tplace\trated\tn\tn_base\tq\tperf_s\tperf_p\ttaken\tn_q\tfair_mu\tvenue\tvplace\tqual\ttw\tref20\ttown\tcountry\tq_lineup\tq_base\tq_fc\tq_lineup_fc\tq_base_fc";
 
 pub fn save_results(rs: &[Res], path: &str) -> std::io::Result<()> {
     let mut s = String::from(HEADER);
@@ -70,9 +75,10 @@ pub fn save_results(rs: &[Res], path: &str) -> std::io::Result<()> {
     for r in rs {
         let _ = writeln!(
             s,
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}\t{}\t{}\t{:.1}\t{}\t{}\t{}\t{}\t{:.0}\t{}\t{}\t{:.1}\t{:.1}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}\t{}\t{}\t{:.1}\t{}\t{}\t{}\t{}\t{:.0}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}\t{:.1}\t{:.1}",
             r.tid, show_day(r.day), r.format, r.team, r.place, r.rated as u8, r.n, r.n_base, r.q, r.perf_s, r.perf_p,
-            r.taken, r.n_q, r.fair_mu, r.venue, r.vplace, r.qual as u8, r.tw, r.ref20, r.town, r.country, r.q_lineup, r.q_base
+            r.taken, r.n_q, r.fair_mu, r.venue, r.vplace, r.qual as u8, r.tw, r.ref20, r.town, r.country, r.q_lineup, r.q_base,
+            r.q_fc, r.q_lineup_fc, r.q_base_fc
         );
     }
     std::fs::write(path, s)
@@ -114,6 +120,9 @@ fn parse_res(l: &str) -> Option<Res> {
         country: int(COUNTRY, UNKNOWN),
         q_lineup: v.get(Q_LINEUP).map_or(f64::NAN, |x| f(x)),
         q_base: v.get(Q_BASE).map_or(f64::NAN, |x| f(x)),
+        q_fc: v.get(Q_FC).map_or(f64::NAN, |x| f(x)),
+        q_lineup_fc: v.get(Q_FC + 1).map_or(f64::NAN, |x| f(x)),
+        q_base_fc: v.get(Q_FC + 2).map_or(f64::NAN, |x| f(x)),
     })
 }
 

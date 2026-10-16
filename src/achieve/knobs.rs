@@ -55,6 +55,19 @@ pub struct Knobs {
     pub fb_until: i32,
     pub beat_k: usize,
     pub beat_fill: f64,
+    /// Empty slots at the weakest lineup beaten, if below `beat_fill`.
+    pub beat_worst: bool,
+    /// Each beaten lineup times (1 + d)^margin_pow (1 + margin_lin d), d the
+    /// questions it finished behind.
+    pub margin_pow: f64,
+    pub margin_lin: f64,
+    /// Count d per 36 questions of the package, when set.
+    pub margin_norm: bool,
+    /// The margin worth 1: the factor is read over ((1 + d) / (1 + margin_ref)),
+    /// so the ratings stay on the scale the fade's slow_ref assumes.
+    pub margin_ref: f64,
+    /// Read lineups under the forecast's seat weights, not chgk.gg's 6..1.
+    pub q_fc: bool,
     /// "sum" mode, in person: (the sum of every lineup's strength / sum_ref)
     /// ^ sum_gamma, uncapped, so a field the size of the biggest festivals
     /// weighs about 1 and a bigger or stronger one more.
@@ -164,6 +177,19 @@ const DEFAULT: Knobs = Knobs {
     fb_until: 2020,
     beat_k: 10,
     beat_fill: 5000.0,
+    // Both on since 1.5: r +0.0010 +/- 0.0005 on 2018-09-01..2024-12-31 and
+    // +0.0014 +/- 0.0006 on 2025-01-01..2026-08-27, NDCG@3 -0.0027 +/- 0.0015
+    // and +0.0005 +/- 0.0012.
+    beat_worst: true,
+    // Measured and off: (1 + d)^0.7 gains r 0.0097 +/- 0.0024 on tune only by
+    // raising every value sevenfold, which slows the fade and shrinks the fill;
+    // at margin_ref 15, on today's scale, test NDCG -0.011 +/- 0.005 and r
+    // -0.014 +/- 0.003. margin_lin and margin_norm do no better.
+    margin_pow: 0.0,
+    margin_lin: 0.0,
+    margin_norm: false,
+    margin_ref: 0.0,
+    q_fc: true,
     sum_ref: 1_000_000.0,
     sum_gamma: 0.5,
     scale: 1.0,
@@ -211,7 +237,7 @@ impl Default for Knobs {
 /// Every knob by key, in the order the site lists the rules.
 pub const KNOBS: &[&str] = &[
     "top_x", "min_slots", "min_ip", "freeze", "perf", "place_pow", "mix", "shift", "w_sync", "w_strict", "w_async",
-    "field_mode", "scale", "sum_ref", "sum_gamma", "field_k", "field_zero", "field_ref", "field_gamma", "field_min", "field_pad", "size_pow", "fallback", "fb_a", "fb_b", "fb_place", "fb_n", "fb_until", "beat_k", "beat_fill",
+    "field_mode", "scale", "sum_ref", "sum_gamma", "field_k", "field_zero", "field_ref", "field_gamma", "field_min", "field_pad", "size_pow", "fallback", "fb_a", "fb_b", "fb_place", "fb_n", "fb_until", "beat_k", "beat_fill", "beat_worst", "margin_pow", "margin_lin", "margin_norm", "margin_ref", "q_fc",
     "country_pow", "country_min", "town_pow", "town_min", "country_ref", "town_ref", "geo_cap", "fade", "loss_ip",
     "loss_sync", "full_days", "zero_days", "half_life", "sync_full", "sync_zero", "sync_half_life", "tail_days",
     "slow_k", "slow_ref", "base_rule", "grace", "active_days", "overlap_k", "overlap_by", "win_bonus", "legion", "strength_a", "strength_p", "sum",
@@ -251,6 +277,12 @@ impl Knobs {
             "fb_until" => self.fb_until.to_string(),
             "beat_k" => self.beat_k.to_string(),
             "beat_fill" => self.beat_fill.to_string(),
+            "beat_worst" => (self.beat_worst as u8).to_string(),
+            "margin_pow" => self.margin_pow.to_string(),
+            "margin_lin" => self.margin_lin.to_string(),
+            "margin_norm" => (self.margin_norm as u8).to_string(),
+            "margin_ref" => self.margin_ref.to_string(),
+            "q_fc" => (self.q_fc as u8).to_string(),
             "country_pow" => self.country_pow.to_string(),
             "country_min" => self.country_min.to_string(),
             "town_pow" => self.town_pow.to_string(),
@@ -333,6 +365,12 @@ impl Knobs {
             "fb_until" => self.fb_until = x as i32,
             "beat_k" => self.beat_k = (x as usize).max(1),
             "beat_fill" => self.beat_fill = x,
+            "beat_worst" => self.beat_worst = x != 0.0,
+            "margin_pow" => self.margin_pow = x,
+            "margin_lin" => self.margin_lin = x,
+            "margin_norm" => self.margin_norm = x != 0.0,
+            "margin_ref" => self.margin_ref = x.max(0.0),
+            "q_fc" => self.q_fc = x != 0.0,
             "fallback" => self.fallback = x != 0.0,
             "country_pow" => self.country_pow = x,
             "country_min" => self.country_min = (x as usize).max(1),

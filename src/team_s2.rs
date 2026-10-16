@@ -117,7 +117,7 @@ pub fn lineup_strength(rs: &[f64], p: &S2) -> f64 {
 
 /// `fc_seat_decay`: the sorted lineup under geometric weights, short seats
 /// filled as under "best6" but capped at `fc_fill_max`.
-fn fc_seats(rs: &[f64], p: &S2) -> f64 {
+pub fn fc_seats(rs: &[f64], p: &S2) -> f64 {
     let mut v = rs.to_vec();
     v.sort_by(|a, b| b.total_cmp(a));
     let fill = (v[v.len() - 1] - p.delta).min(p.fc_fill_max);

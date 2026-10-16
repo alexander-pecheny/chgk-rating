@@ -13,8 +13,11 @@ const TOP_KEPT: usize = 50;
 pub(super) struct Field {
     /// The strongest lineups, best first, at most 50.
     pub top_q: Vec<f64>,
-    /// Every placed lineup's (place, strength), strongest first.
-    pub placed: Vec<(f64, f64)>,
+    /// Every placed lineup's (place, strength, questions taken), strongest first.
+    pub placed: Vec<(f64, f64, f64)>,
+    /// The same two under the forecast's seat weights.
+    pub top_q_fc: Vec<f64>,
+    pub placed_fc: Vec<(f64, f64, f64)>,
     pub n_teams: usize,
     /// The tournaments merged into this field.
     pub n_venues: usize,
@@ -33,7 +36,9 @@ pub(super) struct Field {
 #[derive(Default)]
 struct Gathered {
     q: Vec<f64>,
-    placed: Vec<(f64, f64)>,
+    placed: Vec<(f64, f64, f64)>,
+    q_fc: Vec<f64>,
+    placed_fc: Vec<(f64, f64, f64)>,
     n: usize,
     venues: HashSet<i64>,
     ref20: f64,
@@ -52,10 +57,12 @@ impl Gathered {
             *self.towns.entry(r.town).or_default() += 1;
         }
         self.ref20 = r.ref20;
-        if r.q.is_finite() {
-            self.q.push(r.q);
-            if r.place > 0.0 {
-                self.placed.push((r.place, r.q));
+        for (q, top, placed) in [(r.q, &mut self.q, &mut self.placed), (r.q_fc, &mut self.q_fc, &mut self.placed_fc)] {
+            if q.is_finite() {
+                top.push(q);
+                if r.place > 0.0 {
+                    placed.push((r.place, q, r.taken));
+                }
             }
         }
         self.n += 1;
@@ -64,9 +71,11 @@ impl Gathered {
 
     fn field(mut self) -> Field {
         let sum_all: f64 = self.q.iter().map(|x| x.max(0.0)).sum();
-        self.q.sort_by(|a, b| b.total_cmp(a));
-        self.q.truncate(TOP_KEPT);
-        self.placed.sort_by(|a, b| b.1.total_cmp(&a.1));
+        for (top, placed) in [(&mut self.q, &mut self.placed), (&mut self.q_fc, &mut self.placed_fc)] {
+            top.sort_by(|a, b| b.total_cmp(a));
+            top.truncate(TOP_KEPT);
+            placed.sort_by(|a, b| b.1.total_cmp(&a.1));
+        }
         let counts = |m: HashMap<i64, usize>| {
             let mut v: Vec<usize> = m.into_values().collect();
             v.sort_by(|a, b| b.cmp(a));
@@ -75,6 +84,8 @@ impl Gathered {
         Field {
             top_q: self.q,
             placed: self.placed,
+            top_q_fc: self.q_fc,
+            placed_fc: self.placed_fc,
             n_teams: self.n,
             n_venues: self.venues.len(),
             ref20: self.ref20,

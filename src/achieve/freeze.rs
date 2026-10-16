@@ -8,7 +8,7 @@ use crate::data::{Arena, Format, Tournament, BASE_ROSTERS, CORRECT, SKIP};
 use crate::pass::{self, Evening, Morning, Observer, Release};
 use crate::question_model as qm;
 use crate::team_ndcg as metric;
-use crate::team_s2::{lineup_strength, player_rating};
+use crate::team_s2::{fc_seats, lineup_strength, player_rating};
 use crate::util::parse_date;
 use rayon::prelude::*;
 use rusqlite::Connection;
@@ -111,8 +111,8 @@ fn ref20(rosters: &[Vec<u32>], players: &qm::Players, day: i32, ip: bool, cfg: &
 /// A base roster's Q(L), the lineup strength of /method/ (chgk.gg's ТРБ):
 /// its six strongest known players, each at their rating less `sigma_c` of
 /// their uncertainty, in-person strength when `ip`, on the players' scale.
-/// None with fewer than four known.
-fn roster_q(r: &[u32], players: &qm::Players, day: i32, ip: bool, cfg: &Config) -> Option<f64> {
+/// None with fewer than four known. `fc` reads the seats as the forecast does.
+fn roster_q(r: &[u32], players: &qm::Players, day: i32, ip: bool, fc: bool, cfg: &Config) -> Option<f64> {
     let p = &cfg.team.s2;
     let rating = |i: usize| {
         let th = players.theta(i) + if ip { players.phi(i) } else { 0.0 };
@@ -124,13 +124,13 @@ fn roster_q(r: &[u32], players: &qm::Players, day: i32, ip: bool, cfg: &Config) 
     }
     rs.sort_by(|a, b| b.total_cmp(a));
     rs.truncate(LINEUP);
-    Some(lineup_strength(&rs, p))
+    Some(if fc { fc_seats(&rs, p) } else { lineup_strength(&rs, p) })
 }
 
 /// The same strength on the published team scale, where the field weights
 /// read it.
 fn roster_strength(r: &[u32], players: &qm::Players, day: i32, ip: bool, cfg: &Config) -> Option<f64> {
-    roster_q(r, players, day, ip, cfg).map(|q| (cfg.display.a_team + cfg.display.b_team * q).max(0.0))
+    roster_q(r, players, day, ip, false, cfg).map(|q| (cfg.display.a_team + cfg.display.b_team * q).max(0.0))
 }
 
 /// The observer that freezes every result's values as the player pass goes:
@@ -196,7 +196,7 @@ impl Observer for Freezer<'_> {
         teams.dedup();
         for t in teams {
             let Some(roster) = b.rosters.get(&(t, s)).or_else(|| b.rosters.get(&(t, s - 1))) else { continue };
-            if let Some(q) = roster_q(roster, r.players, r.day, false, b.cfg) {
+            if let Some(q) = roster_q(roster, r.players, r.day, false, true, b.cfg) {
                 b.ql.push((r.day, t, q));
             }
         }
@@ -277,6 +277,7 @@ struct Day<'a> {
     t: &'a Tournament,
     mu: HashMap<u32, f64>,
     q: HashMap<u32, f64>,
+    q_fc: HashMap<u32, f64>,
     field: PlaceField,
     ref20: f64,
     c: f64,
@@ -294,6 +295,7 @@ impl Observer for Build<'_> {
             mu: m.events.iter().map(|e| (e.team, e.mu_before)).collect(),
             field: PlaceField::new(m.t, &q),
             q,
+            q_fc: m.rows.iter().map(|r| (r.team, r.q_fc)).collect(),
             ref20: if m.t.format == Format::InPerson { ref_ip } else { ref_sync },
             c: std::f64::consts::LN_10 / self.cfg.team.s2.d,
         };
@@ -321,7 +323,7 @@ impl Build<'_> {
         let team = self.arena.team_ids[r.team as usize];
         let geo = self.town_geo.get(r.town as usize);
         let ip = t.format == Format::InPerson;
-        let q_of = |lineup: &[u32]| roster_q(lineup, m.players, t.day, ip, self.cfg).map_or(f64::NAN, |q| self.disp(q));
+        let q_of = |lineup: &[u32], fc: bool| roster_q(lineup, m.players, t.day, ip, fc, self.cfg).map_or(f64::NAN, |q| self.disp(q));
         let base = self.seasons.season_of(t.day).and_then(|s| self.rosters.get(&(team, s)).or_else(|| self.rosters.get(&(team, s - 1))));
         Res {
             tid: t.id,
@@ -345,8 +347,11 @@ impl Build<'_> {
             ref20: d.ref20,
             town: geo.map_or(UNKNOWN, |g| g.0),
             country: geo.map_or(UNKNOWN, |g| g.1),
-            q_lineup: q_of(&r.members),
-            q_base: base.map_or(f64::NAN, |b| q_of(b)),
+            q_lineup: q_of(&r.members, false),
+            q_base: base.map_or(f64::NAN, |b| q_of(b, false)),
+            q_fc: self.disp(d.q_fc.get(&r.team).copied().unwrap_or(f64::NAN)),
+            q_lineup_fc: q_of(&r.members, true),
+            q_base_fc: base.map_or(f64::NAN, |b| q_of(b, true)),
         }
     }
 }
