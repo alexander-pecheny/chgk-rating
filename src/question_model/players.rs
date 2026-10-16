@@ -719,7 +719,8 @@ impl Players {
                 Some(&(gm, im)) if cfg.player.credit_unsure != 0.0 || cfg.player.credit_all != 0.0 => {
                     let unsure = cfg.player.credit_unsure * (s.var / (cfg.player.sigma_new * cfg.player.sigma_new)).min(1.0);
                     let c = (cfg.player.credit_all + unsure).min(1.0);
-                    ((1.0 - c) * g + c * gm, (1.0 - c) * info + c * im)
+                    let ci = if cfg.player.credit_own_info { 0.0 } else { c };
+                    ((1.0 - c) * g + c * gm, (1.0 - ci) * info + ci * im)
                 }
                 _ => (g, info),
             };

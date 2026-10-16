@@ -120,13 +120,19 @@ pub fn build_field(t: &Tournament, players: &Players, chem: &Chemistry, cfg: &Co
 /// The lineup size `question.size_k` measures against.
 const FULL_SEATS: f64 = 6.0;
 
+/// `question.size_k`: the strength every member of a lineup of `n` gains, in
+/// the units of discrimination `a`.
+pub fn size_shift(n: usize, a: f64, cfg: &Config) -> f64 {
+    let n = n as f64;
+    let k = if n > FULL_SEATS { cfg.question.size_k_long } else { cfg.question.size_k };
+    if k != 0.0 && n > 0.0 { k * (FULL_SEATS / n).ln() / a } else { 0.0 }
+}
+
 fn lineup(tr: &TeamResult, players: &Players, vbar: &[f64], chem: &Chemistry, a_fix: f64, day: i32, cfg: &Config) -> Vec<f64> {
     let bonus = if cfg.question.chem_u != 0.0 { cfg.question.chem_u * chem.t(&tr.members) / a_fix } else { 0.0 };
     let k = cfg.question.var_boost;
     let spread = |i: usize| if k != 0.0 { k * a_fix * players.sigma_at(i, day, cfg).powi(2) } else { 0.0 };
-    let n = tr.members.len() as f64;
-    let k = if n > FULL_SEATS { cfg.question.size_k_long } else { cfg.question.size_k };
-    let short = if k != 0.0 && n > 0.0 { k * (FULL_SEATS / n).ln() / a_fix } else { 0.0 };
+    let short = size_shift(tr.members.len(), a_fix, cfg);
     let bonus = bonus + short + players.team_effect(tr.team);
     tr.members.iter().map(|&i| players.theta(i as usize) + players.affinity(i as usize, vbar) + bonus + spread(i as usize)).collect()
 }

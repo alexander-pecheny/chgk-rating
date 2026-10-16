@@ -13,7 +13,28 @@ pub(super) fn clamped_exp(x: f64, cfg: &Config) -> f64 {
 /// `k` is each member's slope, `question.slope_c`: a strong player's chance
 /// falls off more slowly with the difficulty.
 pub(super) fn intensity(z: &[f64], k: &[f64], a: f64, b: f64, cfg: &Config) -> f64 {
-    z.iter().zip(k).map(|(&zi, &ki)| clamped_exp(a * ki * (zi - b), cfg)).sum()
+    let x: Vec<f64> = z.iter().zip(k).map(|(&zi, &ki)| log_intensity(a * ki * (zi - b), cfg)).collect();
+    combine(&x, cfg.question.norm_p).0
+}
+
+/// A member's log-intensity, clamped as `clamped_exp` clamps its argument.
+pub(super) fn log_intensity(x: f64, cfg: &Config) -> f64 {
+    x.clamp(cfg.numeric.exp_lo, cfg.numeric.exp_hi)
+}
+
+/// `question.norm_p`: a lineup's intensity from its members' log-intensities
+/// `x`, the power mean `(Σ e^{p x})^{1/p}`, and each member's weight
+/// `e^{p x_i} / Σ e^{p x}` in it. `p` of 1 (or 0) is the plain sum, where the
+/// weight is the member's share of the intensity.
+pub(super) fn combine(x: &[f64], p: f64) -> (f64, Vec<f64>) {
+    let p = if p > 0.0 { p } else { 1.0 };
+    let top = x.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    if !top.is_finite() {
+        return (0.0, vec![0.0; x.len()]);
+    }
+    let e: Vec<f64> = x.iter().map(|&xi| (p * (xi - top)).exp()).collect();
+    let sum: f64 = e.iter().sum();
+    ((top + sum.ln() / p).exp(), e.iter().map(|v| v / sum).collect())
 }
 
 /// The slope a player of strength `z` reads questions at, 1 when `slope_c` is off.
@@ -79,28 +100,32 @@ pub(super) struct Deriv {
     pub h: [f64; 6],
 }
 
-/// Sums over the lineup of `λ_i` times `1, k_i, k_i², d_i, d_i², k_i d_i`,
-/// `d_i = k_i (z_i − b)`, all saturated by the same `u_scale`.
-fn moments(z: &[f64], k: &[f64], p: &QParams, cfg: &Config) -> [f64; 6] {
+/// The lineup's intensity `u` and its derivatives in `b` and `ln a`:
+/// `u, u_b, u_l, u_bb, u_bl, u_ll`, all saturated by the same `u_scale`. With
+/// `x_i = a k_i (z_i − b)` and the weights `w` of `combine`, `ln u` moves by
+/// the weighted mean of each `∂x_i` and curves by `p` times their weighted
+/// variance plus the weighted mean of each `∂²x_i`.
+fn u_derivs(z: &[f64], k: &[f64], p: &QParams, cfg: &Config) -> [f64; 6] {
     let a = p.a();
-    let mut m = [0.0; 6];
-    for (&zi, &ki) in z.iter().zip(k) {
-        let d = ki * (zi - p.b);
-        let l = clamped_exp(a * d, cfg);
-        for (acc, x) in m.iter_mut().zip([1.0, ki, ki * ki, d, d * d, ki * d]) {
-            *acc += x * l;
-        }
-    }
-    let s = u_scale(m[0], cfg);
-    m.map(|x| x * s)
+    let pw = if cfg.question.norm_p > 0.0 { cfg.question.norm_p } else { 1.0 };
+    let d: Vec<f64> = z.iter().zip(k).map(|(&zi, &ki)| ki * (zi - p.b)).collect();
+    let x: Vec<f64> = d.iter().map(|&di| log_intensity(a * di, cfg)).collect();
+    let (u0, w) = combine(&x, pw);
+    let mean = |f: &dyn Fn(usize) -> f64| w.iter().enumerate().map(|(i, wi)| wi * f(i)).sum::<f64>();
+    let (k1, d1) = (mean(&|i| k[i]), mean(&|i| d[i]));
+    let (k2, d2, kd) = (mean(&|i| k[i] * k[i]), mean(&|i| d[i] * d[i]), mean(&|i| k[i] * d[i]));
+    let (lb, ll) = (-a * k1, a * d1);
+    let lbb = pw * a * a * (k2 - k1 * k1);
+    let lbl = -a * k1 + pw * a * a * (k1 * d1 - kd);
+    let lll = a * d1 + pw * a * a * (d2 - d1 * d1);
+    let u = u0 * u_scale(u0, cfg);
+    [u, u * lb, u * ll, u * (lbb + lb * lb), u * (lbl + lb * ll), u * (lll + ll * ll)]
 }
 
 pub(super) fn team_deriv(z: &[f64], k: &[f64], y: u8, p: &QParams, cfg: &Config) -> Deriv {
-    let (a, m) = (p.a(), p.m());
-    let [u, uk, ukk, u1, u2, ukd] = moments(z, k, p, cfg);
+    let m = p.m();
+    let [u, u_b, u_l, u_bb, u_bl, u_ll] = u_derivs(z, k, p, cfg);
     let (g0, g1, g2) = step_derivs(u);
-    let (u_b, u_l) = (-a * uk, a * u1);
-    let (u_bb, u_bl, u_ll) = (a * a * ukk, -a * uk - a * a * ukd, a * (u1 + a * u2));
     let (h_b, h_l, h_m) = (m * g1 * u_b, m * g1 * u_l, m * g0);
     let h_bb = m * (g2 * u_b * u_b + g1 * u_bb);
     let h_bl = m * (g2 * u_b * u_l + g1 * u_bl);

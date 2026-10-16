@@ -84,7 +84,7 @@ const LOG_EVERY: usize = 1000;
 
 fn weight(f: Format, kn: &Knobs) -> f64 {
     match f {
-        Format::InPerson => W_IN_PERSON,
+        Format::InPerson => kn.w_in_person,
         Format::StrictSync => W_STRICT_SYNC,
         Format::Sync => kn.w_sync,
         Format::Async => kn.w_async,
@@ -111,6 +111,7 @@ struct Knobs {
     inflation: f64,
     sigma_v: f64,
     lambda: f64,
+    w_in_person: f64,
     w_sync: f64,
     w_async: f64,
     /// Split the surplus by each player's share of the team's derivative, not equally.
@@ -430,6 +431,7 @@ impl Elo {
             inflation: num("--inflation", INFLATION),
             sigma_v: num("--sigma-v", SIGMA_V),
             lambda: num("--lambda", LAMBDA),
+            w_in_person: num("--w-in-person", W_IN_PERSON),
             w_sync: num("--w-sync", W_SYNC),
             w_async: num("--w-async", W_ASYNC),
             credit_grad: args.has("--credit-grad"),

@@ -779,6 +779,18 @@ pub struct Question {
     /// six at the table add less than the sum says.
     #[serde(default)]
     pub size_k_long: f64,
+    /// Each question's share of a player's step is weighed by
+    /// `(4 P (1 − P))^ls_gamma`, `P` the lineup's chance of taking it: 1 counts
+    /// every question by its surplus alone, as the London Elo does, where the
+    /// likelihood (0) makes the most of a take nobody expected.
+    #[serde(default)]
+    pub ls_gamma: f64,
+    /// A lineup's intensity is the power mean `(Σ λ_i^norm_p)^(1/norm_p)` of
+    /// its members' rather than their sum: above 1 its strongest members carry
+    /// more of it and each further member adds less, as the London Elo's
+    /// `rho = 1 / norm_p` has it. 0 or 1 is the plain sum of the noisy-OR.
+    #[serde(default)]
+    pub norm_p: f64,
     /// Each member enters the likelihood at `theta + var_boost * var`, `var`
     /// being their uncertainty diffused to the day. Intensity is convex in
     /// `theta`, so a player known only roughly answers, on average, like one
@@ -1104,6 +1116,11 @@ pub struct Player {
     /// credits a team's surprise to all its members. 0 is off.
     #[serde(default)]
     pub credit_all: f64,
+    /// `credit_all` shares only the gradient; each member keeps their own
+    /// information, so the step's size stays the member's own, as in the London
+    /// Elo, where everyone moves by the same surplus at their own volatility.
+    #[serde(default)]
+    pub credit_own_info: bool,
     /// A player's variance is raised to at least `sigma_floor`² before each
     /// step, so an established player keeps a minimum gain per tournament, as
     /// the London Elo's `alpha` does, rather than one that fades with the

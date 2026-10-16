@@ -98,11 +98,11 @@ team_effect_tau = 0.0
 chem_u = 0.0
 # A lineup of n reads at (6/n)^size_k times its summed intensity (size_k_long
 # above six). The plain sum expects a trio to take two questions in 36 fewer
-# than it does and inflates its members' ratings to make up. Candidate for 1.5
-# at 0.3: +0.0011 +/- 0.0005 weighted pair on 2018-09-01..2024-12-31 and
+# than it does and inflates its members' ratings to make up. 0.3 gains
+# +0.0011 +/- 0.0005 weighted pair on 2018-09-01..2024-12-31 and
 # +0.0018 +/- 0.0007 on 2025-01-01..2026-08-27.
-size_k = 0.0
-size_k_long = 0.0
+size_k = 0.3
+size_k_long = 0.3
 # Whether the editor affinity is a property of every player ("none") or of a
 # strong one ("scale", multiplied by exp(aff_kappa*theta); "gate", only the top
 # aff_gate of the established panel). Measured and off: every variant loses, and
@@ -190,8 +190,9 @@ star_margin = 0.5
 # predictor than the long-run estimate at every setting tried.
 v_fast = 0.0
 # Extra diffusion of theta per year of absence beyond the first, so a player
-# back after years away is no longer held to their last season.
-tau_gap = 0.2
+# back after years away is no longer held to their last season. Off since 1.5:
+# 0.2 cost about 0.0003 weighted pair on both windows.
+tau_gap = 0.0
 # A player's gain per game fades with the games played: learn * G / (G + games).
 learn = 0.004
 learn_games = 100

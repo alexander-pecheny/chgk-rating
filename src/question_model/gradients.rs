@@ -1,7 +1,7 @@
 //! What one tournament says about each player: the gradient and observed
 //! Fisher information of its log-likelihood in every `theta_i`.
 
-use super::likelihood::{clamped_exp, phi, step_derivs, u_scale};
+use super::likelihood::{clamped_exp, combine, intensity, log_intensity, phi, step_derivs, u_scale};
 use super::{Field, QParams, TeamObs};
 use crate::config::{Config, QGradient};
 use crate::data::{CORRECT, SKIP};
@@ -17,6 +17,8 @@ const SCORE_MARGIN: f64 = 0.01;
 const SHIFT_ITERS: usize = 8;
 const SHIFT_TOL: f64 = 1e-6;
 const MIN_SLOPE: f64 = 1e-12;
+/// The smallest `4 P (1 - P)` that `question.ls_gamma` weighs a question by.
+const LS_FLOOR: f64 = 1e-6;
 const MAX_SHIFT: f64 = 4.0;
 /// The Bernoulli variance a question's expected information is divided by
 /// never falls below this, so a sure question adds a bounded amount.
@@ -121,18 +123,25 @@ pub fn lineup_fisher(field: &Field, params: &[QParams], cfg: &Config) -> Vec<(Ve
 fn team_grads(t: &TeamObs, params: &[QParams], dlt: f64, cfg: &Config) -> Vec<(f64, f64)> {
     let mut acc = vec![(0.0, 0.0); t.z.len()];
     let mut lam = Vec::with_capacity(t.z.len());
+    let pw = if cfg.question.norm_p > 0.0 { cfg.question.norm_p } else { 1.0 };
     for (q, &y) in t.mask.iter().enumerate().filter(|(_, &y)| y != SKIP) {
         let p = &params[q];
         let (a, m) = (p.a(), p.m());
-        lam.clear();
-        lam.extend(t.z.iter().zip(&t.k).map(|(&zi, &ki)| clamped_exp(a * ki * (zi - p.b - dlt), cfg)));
-        let u: f64 = lam.iter().sum();
+        let x: Vec<f64> = t.z.iter().zip(&t.k).map(|(&zi, &ki)| log_intensity(a * ki * (zi - p.b - dlt), cfg)).collect();
+        let (u, w) = combine(&x, pw);
         let s = u_scale(u, cfg);
-        lam.iter_mut().for_each(|l| *l *= s);
+        lam.clear();
+        lam.extend(w.iter().map(|wi| wi * u * s));
         let (g0, g1, g2) = step_derivs(u * s);
         let (p1, p2) = phi(m * g0, y);
-        let d1 = p1 * m * g1;
-        let d2 = p2 * (m * g1) * (m * g1) + p1 * m * g2;
+        let lsw = if cfg.question.ls_gamma > 0.0 {
+            let pt = (m * g0).exp();
+            (4.0 * pt * (1.0 - pt)).max(LS_FLOOR).powf(cfg.question.ls_gamma)
+        } else {
+            1.0
+        };
+        let d1 = lsw * p1 * m * g1;
+        let d2 = lsw * (p2 * (m * g1) * (m * g1) + p1 * m * g2);
         let temp = cfg.question.share_temp;
         if temp > 0.0 && temp != 1.0 {
             // The same total `a u` handed out by the tempered shares.
@@ -145,10 +154,14 @@ fn team_grads(t: &TeamObs, params: &[QParams], dlt: f64, cfg: &Config) -> Vec<(f
             }
             continue;
         }
+        // `lam` is each member's share of the saturated intensity, `u w_i`;
+        // the power mean adds `p` times the variance of its weight.
         for (k, &l) in lam.iter().enumerate() {
-            let uz = a * t.k[k] * l;
+            let ak = a * t.k[k];
+            let uz = ak * l;
+            let uzz = ak * uz * (1.0 + (pw - 1.0) * (1.0 - w[k]));
             acc[k].0 += d1 * uz;
-            acc[k].1 -= d2 * uz * uz + d1 * a * t.k[k] * uz;
+            acc[k].1 -= d2 * uz * uz + d1 * uzz;
         }
     }
     acc
@@ -156,8 +169,7 @@ fn team_grads(t: &TeamObs, params: &[QParams], dlt: f64, cfg: &Config) -> Vec<(f
 
 /// The chance a lineup takes one question, at the difficulty shifted by `d`.
 fn p_take(z: &[f64], k: &[f64], p: &QParams, d: f64, cfg: &Config) -> f64 {
-    let a = p.a();
-    let mut u: f64 = z.iter().zip(k).map(|(&zi, &ki)| clamped_exp(a * ki * (zi - p.b - d), cfg)).sum();
+    let mut u = intensity(z, k, p.a(), p.b + d, cfg);
     u *= u_scale(u, cfg);
     (-(-u).exp_m1()).powf(p.m())
 }
@@ -240,12 +252,12 @@ fn expected_and_slope(t: &TeamObs, params: &[QParams], d: f64, cfg: &Config) -> 
     for (q, _) in t.mask.iter().enumerate().filter(|(_, &y)| y != SKIP) {
         let p = &params[q];
         let (a, m) = (p.a(), p.m());
-        let lam: Vec<f64> = t.z.iter().zip(&t.k).map(|(&zi, &ki)| clamped_exp(a * ki * (zi - p.b - d), cfg)).collect();
-        let u: f64 = lam.iter().sum();
+        let x: Vec<f64> = t.z.iter().zip(&t.k).map(|(&zi, &ki)| log_intensity(a * ki * (zi - p.b - d), cfg)).collect();
+        let (u, w) = combine(&x, cfg.question.norm_p);
         let s = -(-u).exp_m1();
         f += s.powf(m);
-        // d/dd of (1 - e^-u)^m with du/dd = -a Σ k λ.
-        df -= m * s.powf(m - 1.0) * (-u).exp() * a * lam.iter().zip(&t.k).map(|(l, k)| l * k).sum::<f64>();
+        // d/dd of (1 - e^-u)^m with du/dd = -a u Σ w k.
+        df -= m * s.powf(m - 1.0) * (-u).exp() * a * u * w.iter().zip(&t.k).map(|(wi, k)| wi * k).sum::<f64>();
     }
     (f, df)
 }
