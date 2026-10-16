@@ -58,6 +58,8 @@ const SIGMA_V: f64 = 4.5;
 /// No player moves further than this in one tournament; the site's pages show
 /// newcomers stopped at exactly -100.
 const DELTA_MAX: f64 = 100.0;
+/// `--exp-hazard` clamps its exponent here.
+const EXP_MAX: f64 = 30.0;
 /// Search ranges and iteration counts of the numerics.
 const DIFF_LO: f64 = -3000.0;
 const DIFF_HI: f64 = 8000.0;
@@ -124,6 +126,8 @@ struct Knobs {
     /// A2's `player.mu_young` in Elo: a player whose first game is in a young
     /// field starts this much below `ELO_NEW`.
     young: f64,
+    /// A2's hazard: a player's `u_i` is `e^z`, not `softplus(z)`.
+    exp_hazard: bool,
     /// A2's `team.s2.k_ip_new` in Elo: at an in-person table the forecast reads
     /// each player `ip_new / (1 + in-person games)` lower; the update does not.
     ip_new: f64,
@@ -134,6 +138,7 @@ struct Lineup {
     elo: Vec<f64>,
     slope: Vec<f64>,
     rho: f64,
+    exp_hazard: bool,
 }
 
 /// One question for one lineup: the team probability, and the pieces the
@@ -147,7 +152,17 @@ struct Take {
 impl Lineup {
     fn new(elo: Vec<f64>, f: Format, kn: &Knobs) -> Lineup {
         let rho = rho(&elo, f, kn);
-        Lineup { slope: elo.iter().map(|&r| slope(r, kn)).collect(), elo, rho }
+        Lineup { slope: elo.iter().map(|&r| slope(r, kn)).collect(), elo, rho, exp_hazard: kn.exp_hazard }
+    }
+
+    /// A player's hazard `u` at `z` and its derivative `du/dz`.
+    fn hazard(&self, z: f64) -> (f64, f64) {
+        if self.exp_hazard {
+            let u = z.min(EXP_MAX).exp();
+            (u, u)
+        } else {
+            softplus_sigmoid(z)
+        }
     }
 
     /// `P_team = 1 - exp(-(sum u_i^(1/rho))^rho)`, `u_i = -ln(1 - P_i)`, shifted by `shift` Elo.
@@ -155,7 +170,7 @@ impl Lineup {
         let (inv, mut sm, mut dsm) = (1.0 / self.rho, 0.0, 0.0);
         for (&r, &k) in self.elo.iter().zip(&self.slope) {
             // u_i = -ln(1 - P_i) = softplus(k s (r - d)), computed stably.
-            let (u, p) = softplus_sigmoid(k * s * (r + shift - d));
+            let (u, p) = self.hazard(k * s * (r + shift - d));
             let ui = u.max(P_EPS).powf(inv);
             sm += ui;
             // d u / d d = -k s P_i, and d u^(1/rho) = (1/rho) u^(1/rho - 1) du.
@@ -176,7 +191,7 @@ impl Lineup {
     /// d P_team / d Elo_i for every player, slopes held fixed.
     fn grad(&self, d: f64, s: f64, out: &mut [f64]) -> f64 {
         let inv = 1.0 / self.rho;
-        let ups: Vec<(f64, f64)> = self.elo.iter().zip(&self.slope).map(|(&r, &k)| softplus_sigmoid(k * s * (r - d))).collect();
+        let ups: Vec<(f64, f64)> = self.elo.iter().zip(&self.slope).map(|(&r, &k)| self.hazard(k * s * (r - d))).collect();
         let sm: f64 = ups.iter().map(|&(u, _)| u.max(P_EPS).powf(inv)).sum();
         let (h, outer) = (sm.powf(self.rho), sm.powf(self.rho - 1.0));
         let e = (-h).exp();
@@ -440,6 +455,7 @@ impl Elo {
             rho_base: num("--rho-base", RHO_BASE),
             rho_per: num("--rho-per", RHO_PER),
             young: num("--young", 0.0),
+            exp_hazard: args.has("--exp-hazard"),
             ip_new: num("--ip-new", 0.0),
         };
         let start = Instant::now();
