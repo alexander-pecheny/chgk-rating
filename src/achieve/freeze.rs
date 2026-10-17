@@ -29,7 +29,9 @@ const EXP_CAP: f64 = 30.0;
 const THETA_BRACKET: (f64, f64) = (-20.0, 20.0);
 const THETA_STEPS: usize = 60;
 /// A base roster is read when this many of its players are known, over its six
-/// strongest; the reference strength is the season's 20 strongest rosters.
+/// strongest; the reference strength is the season's 20 strongest rosters. The
+/// legionnaire factor reads any roster with one known player, filling the
+/// empty seats, so a short base roster cannot dodge it.
 const MIN_ROSTER: usize = 4;
 const LINEUP: usize = 6;
 const REF_ROSTERS: usize = 20;
@@ -111,15 +113,15 @@ fn ref20(rosters: &[Vec<u32>], players: &qm::Players, day: i32, ip: bool, cfg: &
 /// A base roster's Q(L), the lineup strength of /method/ (chgk.gg's ТРБ):
 /// its six strongest known players, each at their rating less `sigma_c` of
 /// their uncertainty, in-person strength when `ip`, on the players' scale.
-/// None with fewer than four known. `fc` reads the seats as the forecast does.
-fn roster_q(r: &[u32], players: &qm::Players, day: i32, ip: bool, fc: bool, cfg: &Config) -> Option<f64> {
+/// None with fewer than `min` known. `fc` reads the seats as the forecast does.
+fn roster_q(r: &[u32], players: &qm::Players, day: i32, ip: bool, fc: bool, min: usize, cfg: &Config) -> Option<f64> {
     let p = &cfg.team.s2;
     let rating = |i: usize| {
         let th = players.theta(i) + if ip { players.phi(i) } else { 0.0 };
         player_rating(th - p.sigma_c * players.sigma_at(i, day, cfg), cfg)
     };
     let mut rs: Vec<f64> = r.iter().map(|&i| i as usize).filter(|&i| players.state[i].seen).map(rating).collect();
-    if rs.len() < MIN_ROSTER {
+    if rs.len() < min.max(1) {
         return None;
     }
     rs.sort_by(|a, b| b.total_cmp(a));
@@ -130,7 +132,7 @@ fn roster_q(r: &[u32], players: &qm::Players, day: i32, ip: bool, fc: bool, cfg:
 /// The same strength on the published team scale, where the field weights
 /// read it.
 fn roster_strength(r: &[u32], players: &qm::Players, day: i32, ip: bool, cfg: &Config) -> Option<f64> {
-    roster_q(r, players, day, ip, false, cfg).map(|q| (cfg.display.a_team + cfg.display.b_team * q).max(0.0))
+    roster_q(r, players, day, ip, false, MIN_ROSTER, cfg).map(|q| (cfg.display.a_team + cfg.display.b_team * q).max(0.0))
 }
 
 /// The observer that freezes every result's values as the player pass goes:
@@ -196,7 +198,7 @@ impl Observer for Freezer<'_> {
         teams.dedup();
         for t in teams {
             let Some(roster) = b.rosters.get(&(t, s)).or_else(|| b.rosters.get(&(t, s - 1))) else { continue };
-            if let Some(q) = roster_q(roster, r.players, r.day, false, true, b.cfg) {
+            if let Some(q) = roster_q(roster, r.players, r.day, false, true, MIN_ROSTER, b.cfg) {
                 b.ql.push((r.day, t, q));
             }
         }
@@ -323,7 +325,7 @@ impl Build<'_> {
         let team = self.arena.team_ids[r.team as usize];
         let geo = self.town_geo.get(r.town as usize);
         let ip = t.format == Format::InPerson;
-        let q_of = |lineup: &[u32], fc: bool| roster_q(lineup, m.players, t.day, ip, fc, self.cfg).map_or(f64::NAN, |q| self.disp(q));
+        let q_of = |lineup: &[u32], fc: bool| roster_q(lineup, m.players, t.day, ip, fc, 1, self.cfg).map_or(f64::NAN, |q| self.disp(q));
         let base = self.seasons.season_of(t.day).and_then(|s| self.rosters.get(&(team, s)).or_else(|| self.rosters.get(&(team, s - 1))));
         Res {
             tid: t.id,

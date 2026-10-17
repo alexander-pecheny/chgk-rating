@@ -57,6 +57,9 @@ pub struct Knobs {
     pub beat_fill: f64,
     /// Empty slots at the weakest lineup beaten, if below `beat_fill`.
     pub beat_worst: bool,
+    /// Empty slots at the weakest lineup of the field, if below `beat_fill`,
+    /// before `beat_worst`: a team placed higher never scores less.
+    pub beat_field: bool,
     /// Each beaten lineup times (1 + d)^margin_pow (1 + margin_lin d), d the
     /// questions it finished behind.
     pub margin_pow: f64,
@@ -181,6 +184,11 @@ const DEFAULT: Knobs = Knobs {
     // +0.0014 +/- 0.0006 on 2025-01-01..2026-08-27, NDCG@3 -0.0027 +/- 0.0015
     // and +0.0005 +/- 0.0012.
     beat_worst: true,
+    // On since 1.5: under beat_worst a team that also beat a weak neighbour
+    // filled lower and could score below a team it beat, in 768 of 1149 fields
+    // since 2025. NDCG +0.0003 +/- 0.0002 on 2018-09-01..2024-12-31 and
+    // +0.0007 +/- 0.0004 on 2025-01-01..2026-08-27, r +0.0004 and +0.0007.
+    beat_field: true,
     // Measured and off: (1 + d)^0.7 gains r 0.0097 +/- 0.0024 on tune only by
     // raising every value sevenfold, which slows the fade and shrinks the fill;
     // at margin_ref 15, on today's scale, test NDCG -0.011 +/- 0.005 and r
@@ -237,7 +245,7 @@ impl Default for Knobs {
 /// Every knob by key, in the order the site lists the rules.
 pub const KNOBS: &[&str] = &[
     "top_x", "min_slots", "min_ip", "freeze", "perf", "place_pow", "mix", "shift", "w_sync", "w_strict", "w_async",
-    "field_mode", "scale", "sum_ref", "sum_gamma", "field_k", "field_zero", "field_ref", "field_gamma", "field_min", "field_pad", "size_pow", "fallback", "fb_a", "fb_b", "fb_place", "fb_n", "fb_until", "beat_k", "beat_fill", "beat_worst", "margin_pow", "margin_lin", "margin_norm", "margin_ref", "q_fc",
+    "field_mode", "scale", "sum_ref", "sum_gamma", "field_k", "field_zero", "field_ref", "field_gamma", "field_min", "field_pad", "size_pow", "fallback", "fb_a", "fb_b", "fb_place", "fb_n", "fb_until", "beat_k", "beat_fill", "beat_worst", "beat_field", "margin_pow", "margin_lin", "margin_norm", "margin_ref", "q_fc",
     "country_pow", "country_min", "town_pow", "town_min", "country_ref", "town_ref", "geo_cap", "fade", "loss_ip",
     "loss_sync", "full_days", "zero_days", "half_life", "sync_full", "sync_zero", "sync_half_life", "tail_days",
     "slow_k", "slow_ref", "base_rule", "grace", "active_days", "overlap_k", "overlap_by", "win_bonus", "legion", "strength_a", "strength_p", "sum",
@@ -278,6 +286,7 @@ impl Knobs {
             "beat_k" => self.beat_k.to_string(),
             "beat_fill" => self.beat_fill.to_string(),
             "beat_worst" => (self.beat_worst as u8).to_string(),
+            "beat_field" => (self.beat_field as u8).to_string(),
             "margin_pow" => self.margin_pow.to_string(),
             "margin_lin" => self.margin_lin.to_string(),
             "margin_norm" => (self.margin_norm as u8).to_string(),
@@ -366,6 +375,7 @@ impl Knobs {
             "beat_k" => self.beat_k = (x as usize).max(1),
             "beat_fill" => self.beat_fill = x,
             "beat_worst" => self.beat_worst = x != 0.0,
+            "beat_field" => self.beat_field = x != 0.0,
             "margin_pow" => self.margin_pow = x,
             "margin_lin" => self.margin_lin = x,
             "margin_norm" => self.margin_norm = x != 0.0,

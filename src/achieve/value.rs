@@ -66,8 +66,9 @@ fn beaten(r: &Res, f: &Field, k: &Knobs) -> f64 {
     };
     let below: Vec<&(f64, f64, f64)> = placed.iter().filter(|x| x.0 > r.place).take(k.beat_k).collect();
     let top: Vec<f64> = below.iter().map(|x| x.1 * margin(x.2)).collect();
-    let fill = match below.iter().map(|x| x.1).reduce(f64::min) {
-        Some(worst) if k.beat_worst => worst.min(k.beat_fill),
+    let fill = match (placed.last(), below.iter().map(|x| x.1).reduce(f64::min)) {
+        (Some(weakest), _) if k.beat_field => weakest.1.min(k.beat_fill),
+        (_, Some(worst)) if k.beat_worst => worst.min(k.beat_fill),
         _ => k.beat_fill,
     };
     (top.iter().sum::<f64>() + fill * (k.beat_k - top.len()) as f64) / k.beat_k as f64
