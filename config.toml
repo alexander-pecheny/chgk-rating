@@ -103,6 +103,11 @@ chem_u = 0.0
 # +0.0018 +/- 0.0007 on 2025-01-01..2026-08-27.
 size_k = 0.3
 size_k_long = 0.3
+# size_k_ip, the same at in-person tables for every size, is measured and
+# unset: 0, 0.15 and 0.45 against 0.3 move weighted in-person pair by -0.0008,
+# -0.0006 and -0.0001 on 2025-01-01..2026-08-27 (0 and 0.15 beyond noise), and
+# synchronous size_k 0.45 or size_k_long 0.6 move nothing beyond noise, although
+# per-size residuals of the question model point the other way.
 # Whether the editor affinity is a property of every player ("none") or of a
 # strong one ("scale", multiplied by exp(aff_kappa*theta); "gate", only the top
 # aff_gate of the established panel). Measured and off: every variant loses, and

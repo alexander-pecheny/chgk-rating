@@ -810,6 +810,10 @@ pub struct Question {
     /// six at the table add less than the sum says.
     #[serde(default)]
     pub size_k_long: f64,
+    /// `size_k` at an in-person table, for every lineup size; absent reads the
+    /// two above.
+    #[serde(default)]
+    pub size_k_ip: Option<f64>,
     /// Each question's share of a player's step is weighed by
     /// `(4 P (1 − P))^ls_gamma`, `P` the lineup's chance of taking it: 1 counts
     /// every question by its surplus alone, as the London Elo does, where the

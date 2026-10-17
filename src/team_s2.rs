@@ -526,7 +526,7 @@ impl<'a> Reader<'a> {
                     players.theta(i) + players.affinity(i, &self.vbar) - pess
                 })
                 .collect();
-            let short = crate::question_model::size_shift(res.members.len(), a, cfg);
+            let short = crate::question_model::size_shift(res.members.len(), t.format, cfg);
             let z: Vec<f64> = z.iter().map(|x| x + short).collect();
             let mut sum = 0.0;
             for &b in bs {

@@ -97,7 +97,7 @@ pub fn build_field(t: &Tournament, players: &Players, chem: &Chemistry, cfg: &Co
     let mut rng = Rng::new(cfg.numeric.crossfit_seed ^ (t.id as u64));
     let best = t.teams.iter().map(|r| r.position).filter(|&p| p > 0.0).fold(f64::INFINITY, f64::min);
     let obs = |tr: &TeamResult| {
-        let z = lineup(tr, players, &vbar, chem, a_fix, t.day, cfg);
+        let z = lineup(tr, players, &vbar, chem, t, cfg);
         TeamObs {
         k: z.iter().map(|&zi| slope(zi, cfg)).collect(),
         z,
@@ -121,18 +121,24 @@ pub fn build_field(t: &Tournament, players: &Players, chem: &Chemistry, cfg: &Co
 const FULL_SEATS: f64 = 6.0;
 
 /// `question.size_k`: the strength every member of a lineup of `n` gains, in
-/// the units of discrimination `a`.
-pub fn size_shift(n: usize, a: f64, cfg: &Config) -> f64 {
+/// the units of the format's discrimination.
+pub fn size_shift(n: usize, f: Format, cfg: &Config) -> f64 {
+    let q = &cfg.question;
     let n = n as f64;
-    let k = if n > FULL_SEATS { cfg.question.size_k_long } else { cfg.question.size_k };
-    if k != 0.0 && n > 0.0 { k * (FULL_SEATS / n).ln() / a } else { 0.0 }
+    let k = match q.size_k_ip {
+        Some(k) if f == Format::InPerson => k,
+        _ if n > FULL_SEATS => q.size_k_long,
+        _ => q.size_k,
+    };
+    if k != 0.0 && n > 0.0 { k * (FULL_SEATS / n).ln() / a_of(f, cfg) } else { 0.0 }
 }
 
-fn lineup(tr: &TeamResult, players: &Players, vbar: &[f64], chem: &Chemistry, a_fix: f64, day: i32, cfg: &Config) -> Vec<f64> {
+fn lineup(tr: &TeamResult, players: &Players, vbar: &[f64], chem: &Chemistry, t: &Tournament, cfg: &Config) -> Vec<f64> {
+    let (a_fix, day) = (a_of(t.format, cfg), t.day);
     let bonus = if cfg.question.chem_u != 0.0 { cfg.question.chem_u * chem.t(&tr.members) / a_fix } else { 0.0 };
     let k = cfg.question.var_boost;
     let spread = |i: usize| if k != 0.0 { k * a_fix * players.sigma_at(i, day, cfg).powi(2) } else { 0.0 };
-    let short = size_shift(tr.members.len(), a_fix, cfg);
+    let short = size_shift(tr.members.len(), t.format, cfg);
     let bonus = bonus + short + players.team_effect(tr.team);
     tr.members.iter().map(|&i| players.theta(i as usize) + players.affinity(i as usize, vbar) + bonus + spread(i as usize)).collect()
 }
