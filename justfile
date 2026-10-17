@@ -7,9 +7,11 @@ repo := justfile_directory()
 default:
     @just --list
 
-# Build the model binaries and the site server.
+# Build the model binaries into bin/, which deploy/update.sh reads, and the site server.
 build: web
     cargo build --release
+    mkdir -p bin
+    find target/release -maxdepth 1 -type f -perm -u+x -exec install -m 755 -t bin {} +
 
 # Build the Go site server into web/serve.
 web:
@@ -50,8 +52,7 @@ deploy-dry: build
 prod := env_var_or_default("PROD", "/home/pecheny/new_chgk_rating")
 ship:
     git -C {{prod}} merge --ff-only $(git rev-parse --abbrev-ref HEAD)
-    cargo build --release --manifest-path {{prod}}/Cargo.toml
-    cd {{prod}}/web && go build -o serve .
+    cd {{prod}} && just build
 
 # It builds, fits into out/ from production's buff.db when out/ has no index
 # yet or `refit` is given, and (re)starts the instance through ~/.local/bin/a2-dev.

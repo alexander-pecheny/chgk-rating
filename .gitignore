@@ -10,6 +10,7 @@ fonts
 
 # build artifacts
 target/
+/bin/
 __pycache__/
 catboost_info/
 

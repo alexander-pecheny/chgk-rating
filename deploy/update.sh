@@ -58,7 +58,8 @@ fresh() { [ "${FORCE:-}" != "1" ] && [ "$(cat "out/stamps/$1" 2>/dev/null)" = "$
 unstamp() { mkdir -p out/stamps; : > "out/stamps/$1"; }
 stamp() { echo "$2" > "out/stamps/$1"; }
 
-bin=target/release
+# `just build` copies the binaries here, so clearing target/ cannot stop the cron.
+bin=bin
 k_buff=$(hash buff.db)
 k_data=$(hash config*.toml $(find -L data -type f | sort))
 k_fit=$(echo "$k_buff $k_data $(hash $bin/fit)" | hash -)
