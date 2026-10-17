@@ -1,7 +1,7 @@
 [model]
 # The version of the rules. Bump it with any change that moves a published
 # number, so two outputs can be compared knowing which rules made each.
-version = "1.5.0"
+version = "1.5.1"
 
 [data]
 db_path = "buff.db"
@@ -257,10 +257,12 @@ margin_intercept = 0.0
 
 # Model S2, the shipped engine. Everything above this line belongs to "kalman".
 [team.s2]
+# Points here are on the player scale since 1.5.1. Values quoted from before it
+# are on the old team scale, where a lineup of R points read 0.575 R + 6503.
 # D is the maximum-likelihood scale of the pairwise outcomes. K is tuned on the
 # in-person forecast Spearman, 2018-09-01 to 2024-08-29; k_r and k_q on the
 # weighted team NDCG of DESIGN 7.3 over the same window.
-D = 1200.0
+D = 2087.0
 # Retuned to 0.8 for the fair rule of DESIGN 4.3 (no pull), on the weighted team
 # NDCG of the tune window; 0.4 was the optimum with the pull.
 K = 0.8
@@ -303,13 +305,13 @@ sigma_c_loose = 1.5
 # Display points below the weakest member that fill each seat short of six.
 # 1100 since 1.1: refit on 2018-09-01..2024-12-31 Pearson +0.0011 +/- 0.0004
 # against 700, and +0.004 NDCG on 2025-01-01..2026-08-27.
-delta = 1100.0
+delta = 1913.0
 # Under "best6", a seat short of six is filled at no more than this, so a strong
 # lineup that turns up five loses what a strong sixth player adds. 9000 since
 # 1.4: +0.0043 +/- 0.0028 weighted NDCG@3 on 2018-09-01..2024-12-31 and
 # +0.0022 +/- 0.0065 on 2025-01-01..2026-08-27, and synchronous open fields
 # +0.008 / +0.014 per-field Pearson; 8000, 9500 and 10000 do worse.
-fill_max = 9000.0
+fill_max = 4343.0
 # The forecast's own lineup since 1.5, at every table: seat weights 0.7^k + 0.05
 # down the sorted lineup and empty seats as below. Q(L) above
 # stays the rating's. The forecast place steers the fair rule, so ratings move
@@ -329,12 +331,14 @@ fc_seat_floor = 0.05
 # better on 2018-09..2024, a constant seat costs up to 0.06 Pearson, and
 # fc_fill_max = 7500 binds above a strongest member of 11250.
 fc_fill_top = 0.4
-fc_fill_const = 3000.0
+fc_fill_const = -1570.0
 fc_fill_max = 0.0
+# A member weaker than an empty seat counts as one since 1.5.1, so adding a
+# player never lowers the forecast. Weighted in-person NDCG +0.0004 +/- 0.0005
+# on 2018-09-01..2024-12-31 and -0.0000 +/- 0.0006 on 2025-01-01..2026-08-27;
+# no slice moves beyond noise.
+fc_fill_floor = true
 fc_seat_sync_only = false
-# theta -> the team scale: player_zero + player_scale * (theta + ln 6 + roster_bias).
-player_scale = 2454.8828
-player_zero = 6000.0
 # The pull of DESIGN 4.3 step 3: per rated game the rating takes this much of the
 # gap to what the lineup that turned up is worth. Tuned on the weighted team NDCG,
 # 2018-09-01 to 2024-08-29; see out/team_ndcg/report.md. 0 is the rule it replaced.
@@ -370,9 +374,9 @@ ref_core = true
 # chgk.gg rule: that share of the way from its strength to the internal rating
 # that publishes as 0.
 start_frac = 0.2
-# A fixed constant near -a_team / b_team (3868 at the map below), so the start
-# is 80% on the published scale to within half a percent.
-start_zero = 4171.7
+# A fixed constant near the published zero of the old team scale (3868 there),
+# so the start is 80% on that scale to within half a percent.
+start_zero = -4054.0
 
 # The editor memory of DESIGN 4.8. For every pair of a player and an editor the
 # engine keeps the mean of (forecast place - actual place) / n over the in-person
@@ -381,7 +385,7 @@ start_zero = 4171.7
 # in-person table only and by the forecast only: no rating, no usual lineup, no
 # player strength and no question difficulty sees it, and every synchronous
 # forecast is what it was without it.
-editor_memory = 1380.0
+editor_memory = 2400.0
 # Display points per unit of the lineup's mean 1 / (1 + in-person games), at an
 # in-person table and on the forecast alone: players new to the table play below
 # the strength their synchronous games earned. On top of mu_young, young
@@ -390,7 +394,7 @@ editor_memory = 1380.0
 # +0.0004 +/- 0.0003 on 2018-09-01..2024-12-31 and +0.0011 +/- 0.0004 on
 # 2025-01-01..2026-08-27, unweighted +0.0020 and +0.0029, strong fields abroad
 # +0.0004 and +0.0011. 0.1, 0.3, -1000 and the g0 scaling below do worse.
-k_ip_new = -800.0
+k_ip_new = -1390.0
 # Each game not played in person counts as this much of one that was, so a
 # strong player who rarely gets to an in-person table is not taken for a novice.
 ip_new_sync = 0.2
@@ -466,12 +470,13 @@ n0 = 0.0
 theta_ref = 0.2368
 
 [display]
-# Fitted by `calibrate --display` so that the 50th and 1000th teams and players
-# of the 2019 releases match the old system; under engine = "kalman" the team
-# map was -209.5770 + 2454.8828 mu, and under the pull -7383.8881 + 1.2421 mu.
-# Refitted for the fair rule on 2026-09-27; the player map is unchanged.
-a_team = -4115.3755
-b_team = 1.0640
+# One scale for players and lineups since 1.5.1: a player map fitted by
+# `calibrate --display` so that the 50th and 1000th players of the 2019
+# releases match the old system, and lineups on the same map, so six players
+# rated R make a lineup of R. Before 1.5.1 lineups published as
+# -4115.3755 + 1.0640 r on a team scale of their own.
+a_team = 0.0
+b_team = 1.0
 a_player = 5738.6039
 b_player = 4269.2612
 provisional_sigma = 0.3

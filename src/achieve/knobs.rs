@@ -21,6 +21,12 @@ pub struct Knobs {
     pub mix: f64,
     /// Added to the score-based number to put it on the lineup scale.
     pub shift: f64,
+    /// The lineup strength worth nothing: "beaten" counts B above it, the
+    /// field weight reads no lineup below it and the legionnaire factor is a
+    /// ratio of strengths above it.
+    pub q_zero: f64,
+    /// Points of value per point of B above `q_zero`.
+    pub q_unit: f64,
     pub w_sync: f64,
     pub w_strict: f64,
     pub w_async: f64,
@@ -161,25 +167,29 @@ const DEFAULT: Knobs = Knobs {
     mix: 0.5,
     // Beaten opponents are on the lineup scale already; -800 measured within noise.
     shift: 0.0,
+    // The published zero and unit of the lineup scale before 1.5.1, kept when
+    // lineups moved to the player scale, so every value stays what it was.
+    q_zero: -4583.0,
+    q_unit: 0.6118,
     w_sync: 0.5,
     w_strict: 2.0 / 3.0,
     w_async: 0.0,
     field_mode: "anchors",
     field_k: 20,
-    field_zero: 5000.0,
-    field_ref: 10000.0,
+    field_zero: 3590.0,
+    field_ref: 11762.0,
     field_gamma: 1.0,
     field_min: 0.0,
     field_pad: false,
     size_pow: 0.5,
     fallback: true,
-    fb_a: -1561.9,
+    fb_a: -2317.8,
     fb_b: 1.0513,
-    fb_place: 252.8,
-    fb_n: -201.1,
+    fb_place: 413.2,
+    fb_n: -328.7,
     fb_until: 2020,
     beat_k: 10,
-    beat_fill: 5000.0,
+    beat_fill: 3590.0,
     // Both on since 1.5: r +0.0010 +/- 0.0005 on 2018-09-01..2024-12-31 and
     // +0.0014 +/- 0.0006 on 2025-01-01..2026-08-27, NDCG@3 -0.0027 +/- 0.0015
     // and +0.0005 +/- 0.0012.
@@ -244,7 +254,7 @@ impl Default for Knobs {
 
 /// Every knob by key, in the order the site lists the rules.
 pub const KNOBS: &[&str] = &[
-    "top_x", "min_slots", "min_ip", "freeze", "perf", "place_pow", "mix", "shift", "w_sync", "w_strict", "w_async",
+    "top_x", "min_slots", "min_ip", "freeze", "perf", "place_pow", "mix", "shift", "q_zero", "q_unit", "w_sync", "w_strict", "w_async",
     "field_mode", "scale", "sum_ref", "sum_gamma", "field_k", "field_zero", "field_ref", "field_gamma", "field_min", "field_pad", "size_pow", "fallback", "fb_a", "fb_b", "fb_place", "fb_n", "fb_until", "beat_k", "beat_fill", "beat_worst", "beat_field", "margin_pow", "margin_lin", "margin_norm", "margin_ref", "q_fc",
     "country_pow", "country_min", "town_pow", "town_min", "country_ref", "town_ref", "geo_cap", "fade", "loss_ip",
     "loss_sync", "full_days", "zero_days", "half_life", "sync_full", "sync_zero", "sync_half_life", "tail_days",
@@ -267,6 +277,8 @@ impl Knobs {
             "sum_gamma" => self.sum_gamma.to_string(),
             "mix" => self.mix.to_string(),
             "shift" => self.shift.to_string(),
+            "q_zero" => self.q_zero.to_string(),
+            "q_unit" => self.q_unit.to_string(),
             "w_sync" => self.w_sync.to_string(),
             "w_strict" => self.w_strict.to_string(),
             "w_async" => self.w_async.to_string(),
@@ -354,6 +366,8 @@ impl Knobs {
             "sum_gamma" => self.sum_gamma = x,
             "mix" => self.mix = x.clamp(0.0, 1.0),
             "shift" => self.shift = x,
+            "q_zero" => self.q_zero = x,
+            "q_unit" => self.q_unit = x,
             "w_sync" => {
                 self.w_sync = x;
                 self.w_strict = x;

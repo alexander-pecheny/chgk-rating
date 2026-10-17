@@ -84,7 +84,7 @@ fn perf_of(r: &Res, f: &Field, k: &Knobs, fb_from: i32) -> (f64, f64, f64) {
     };
     let fall = k.fallback && (k.fb_until == 0 || r.day < fb_from);
     let v = match k.perf {
-        "beaten" if r.place > 0.0 && (s.is_finite() || fall) => (beaten(r, f, k) + k.shift) / r.place.powf(k.place_pow),
+        "beaten" if r.place > 0.0 && (s.is_finite() || fall) => k.q_unit * (beaten(r, f, k) + k.shift - k.q_zero) / r.place.powf(k.place_pow),
         "beaten" => f64::NAN,
         "strength_place" if r.place > 0.0 && fall && !s.is_finite() => p / r.place.powf(k.place_pow),
         "strength_place" if r.place > 0.0 => s / r.place.powf(k.place_pow),
@@ -108,7 +108,7 @@ fn format_weight(format: char, k: &Knobs) -> f64 {
 /// The field weight and the field strength it was read from.
 fn field_weight(f: &Field, k: &Knobs) -> (f64, f64) {
     let top_q = if k.q_fc { &f.top_q_fc } else { &f.top_q };
-    let sum: f64 = top_q.iter().take(k.field_k).map(|x| x.max(0.0)).sum();
+    let sum: f64 = top_q.iter().take(k.field_k).map(|x| x.max(k.q_zero)).sum();
     let seats = if k.field_pad { k.field_k } else { top_q.len().clamp(1, k.field_k) };
     let s = sum / seats.max(1) as f64;
     let size = if k.field_pad { 1.0 } else { (seats as f64 / k.field_k as f64).powf(k.size_pow) };
@@ -180,7 +180,7 @@ fn value(lab: &Lab, r: &Res, f: &Field, k: &Knobs, fb_from: i32, fw: &mut HashMa
     let (geo, _, n_towns) = reach(f, k);
     let w = wfmt * wf * geo;
     let (ql, qb) = if k.q_fc { (r.q_lineup_fc, r.q_base_fc) } else { (r.q_lineup, r.q_base) };
-    let legion = if k.legion && qb > 0.0 && ql > qb { qb / ql } else { 1.0 };
+    let legion = if k.legion && qb > k.q_zero && ql > qb { (qb - k.q_zero) / (ql - k.q_zero) } else { 1.0 };
     let base = w * legion * (perf.max(0.0) + if r.place == 1.0 { k.win_bonus } else { 0.0 });
     Some(Val {
         day: r.day,

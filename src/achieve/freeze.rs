@@ -132,7 +132,7 @@ fn roster_q(r: &[u32], players: &qm::Players, day: i32, ip: bool, fc: bool, min:
 /// The same strength on the published team scale, where the field weights
 /// read it.
 fn roster_strength(r: &[u32], players: &qm::Players, day: i32, ip: bool, cfg: &Config) -> Option<f64> {
-    roster_q(r, players, day, ip, false, MIN_ROSTER, cfg).map(|q| (cfg.display.a_team + cfg.display.b_team * q).max(0.0))
+    roster_q(r, players, day, ip, false, MIN_ROSTER, cfg).map(|q| cfg.display.a_team + cfg.display.b_team * q)
 }
 
 /// The observer that freezes every result's values as the player pass goes:
@@ -263,12 +263,11 @@ impl Build<'_> {
 
     /// The score performance on the lineup scale, and the questions behind it.
     fn perf_s(&self, r: &crate::data::TeamResult, m: &Morning) -> (f64, f64, f64) {
-        let s2 = &self.cfg.team.s2;
         let (th, taken, n_q) = score_perf(&r.mask, m.params);
         if !th.is_finite() {
             return (f64::NAN, taken, n_q);
         }
-        (s2.player_zero + s2.player_scale * (th + SEATS.ln() + self.cfg.team.roster_bias), taken, n_q)
+        (player_rating(th, self.cfg), taken, n_q)
     }
 }
 

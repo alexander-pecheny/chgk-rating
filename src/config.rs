@@ -278,7 +278,11 @@ pub struct S2 {
     pub tight_gap: f64,
     pub sigma_c_tight: f64,
     pub sigma_c_loose: f64,
+    /// The player display map of `[display]`, copied here on load: lineups and
+    /// every point below are on the scale players are published on.
+    #[serde(skip)]
     pub player_scale: f64,
+    #[serde(skip)]
     pub player_zero: f64,
     /// Questions of score gap worth a whole win; 0 is the win/lose rule.
     pub margin_g: f64,
@@ -450,6 +454,10 @@ pub struct S2 {
     pub fc_fill_top: f64,
     #[serde(default)]
     pub fc_fill_const: f64,
+    /// A member weaker than an empty seat counts as one, so a lineup never
+    /// loses strength by adding a player.
+    #[serde(default)]
+    pub fc_fill_floor: bool,
     /// The seat rule at synchronous tables only.
     #[serde(default)]
     pub fc_seat_sync_only: bool,
@@ -478,6 +486,7 @@ const S2_DEFAULT: S2 = S2 {
     fc_fill_max: 0.0,
     fc_fill_top: 0.0,
     fc_fill_const: 0.0,
+    fc_fill_floor: false,
     fc_seat_sync_only: false,
     d: 1200.0,
     k: 0.4,
@@ -518,8 +527,8 @@ const S2_DEFAULT: S2 = S2 {
     tight_gap: 0.0,
     sigma_c_tight: 1.5,
     sigma_c_loose: 1.5,
-    player_scale: 2454.8828,
-    player_zero: 6000.0,
+    player_scale: 4269.2612,
+    player_zero: 5738.6039,
     margin_g: 0.0,
     margin_shape: MarginShape::Linear,
     k_r: 0.0,
@@ -1351,6 +1360,8 @@ impl Config {
     pub fn load(path: &str) -> Result<Config, String> {
         let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
         let mut cfg: Config = toml::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
+        cfg.team.s2.player_zero = cfg.display.a_player;
+        cfg.team.s2.player_scale = cfg.display.b_player;
         if cfg.data.to == "today" {
             cfg.data.to = crate::util::data_day(&cfg.data.db_path).unwrap_or_else(|| {
                 eprintln!("note: {} has no db_updates stamp; the window ends today", cfg.data.db_path);

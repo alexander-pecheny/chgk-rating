@@ -70,16 +70,15 @@ pub fn sigma(games: f64) -> f64 {
     }
 }
 
-/// A player's strength on the team display scale: six equal players of that
-/// rating are a lineup of that same rating.
+/// A player's published strength, the scale lineups are read on: six equal
+/// players of that rating are a lineup of that same rating.
 pub fn player_rating(theta: f64, cfg: &Config) -> f64 {
     let s2 = &cfg.team.s2;
-    s2.player_zero + s2.player_scale * (theta + 6f64.ln() + cfg.team.roster_bias)
+    s2.player_zero + s2.player_scale * theta
 }
 
-/// The roster estimate of DESIGN 4.1 in display units. `ln sum exp(theta)` maps
-/// to `scale * (ln sum exp(r/scale) - ln 6)` under `player_rating`, so the
-/// bias and the zero cancel and only the slope is needed.
+/// The roster estimate of DESIGN 4.1 in display units: `ln sum exp(theta) - ln 6`
+/// under `player_rating`, so the zero cancels and only the slope is needed.
 pub fn roster(rs: &[f64], scale: f64) -> f64 {
     let mx = rs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let sum: f64 = rs.iter().map(|&x| ((x - mx) / scale).exp()).sum();
@@ -117,7 +116,8 @@ pub fn lineup_strength(rs: &[f64], p: &S2) -> f64 {
 
 /// `fc_seat_decay`: the sorted lineup under geometric weights, short seats
 /// filled from the strongest member, or as under "best6", capped at
-/// `fc_fill_max` when it is positive.
+/// `fc_fill_max` when it is positive. `fc_fill_floor` reads a member weaker
+/// than an empty seat as one.
 pub fn fc_seats(rs: &[f64], p: &S2) -> f64 {
     let mut v = rs.to_vec();
     v.sort_by(|a, b| b.total_cmp(a));
@@ -127,6 +127,9 @@ pub fn fc_seats(rs: &[f64], p: &S2) -> f64 {
         v[v.len() - 1] - p.delta
     };
     let fill = if p.fc_fill_max > 0.0 { fill.min(p.fc_fill_max) } else { fill };
+    if p.fc_fill_floor {
+        v.iter_mut().for_each(|x| *x = x.max(fill));
+    }
     v.resize(FULL_LINEUP.max(v.len()), fill);
     let w: Vec<f64> = (0..FULL_LINEUP).map(|k| p.fc_seat_decay.powi(k as i32) + p.fc_seat_floor).collect();
     v.iter().zip(&w).map(|(x, w)| x * w).sum::<f64>() / w.iter().sum::<f64>()
