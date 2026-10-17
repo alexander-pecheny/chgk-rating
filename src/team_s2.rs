@@ -7,7 +7,7 @@ use crate::data::{Format, TeamResult, Tournament};
 use crate::difficulty::Difficulties;
 use crate::editor_memory::EditorMemory;
 use crate::geography::{Geography, PlayerLoad, YouthLoad};
-use crate::question_model::Players;
+use crate::question_model::{PlayerState, Players};
 use crate::team_event::TeamEvent;
 use crate::util::{avg_ranks, Rng};
 
@@ -219,10 +219,16 @@ pub struct Row {
 /// Everything the team rules of a tournament read off the player states, which
 /// is one number per result. `team_sweep` computes these once and replays them.
 pub fn rows_of(t: &Tournament, players: &Players, ctx: &Context, cfg: &Config) -> Vec<Row> {
-    let reader = Reader::new(t, players, ctx, cfg);
+    let mut reader = Reader::new(t, players, ctx, cfg);
     let p = reader.p;
     let seats: Vec<Seats> = t.teams.iter().map(|res| reader.seats(res)).collect();
     let lineups: Vec<Vec<f64>> = seats.iter().map(|s| reader.at(s, p.sigma_c)).collect();
+    if p.strong_top > 0.0 {
+        let mut v: Vec<f64> = lineups.iter().filter(|rs| !rs.is_empty()).map(|rs| lineup_strength(rs, p)).collect();
+        v.sort_by(|a, b| b.total_cmp(a));
+        let top = &v[..v.len().min(10)];
+        reader.strong = !top.is_empty() && top.iter().sum::<f64>() / top.len() as f64 >= p.strong_top;
+    }
     // The temperature may depend on how far apart this field's lineups are.
     let mut pt = p.clone();
     if p.tau_spread != 0.0 {
@@ -279,6 +285,13 @@ fn pack_score(members: &[u32], players: &Players, p: &S2) -> f64 {
 
 /// Moves each listed lineup's forecast `w` of the way to its pack score, put
 /// on the field's own scale of `q` by matching the mean and the sd.
+/// A player's freshness at the in-person table, the unit of `k_ip_new`.
+fn fresh(s: &PlayerState, p: &S2) -> f64 {
+    let (g, ip) = (s.games as f64, s.games_ip as f64);
+    let f = 1.0 / (1.0 + ip + p.ip_new_sync * (g - ip));
+    if p.ip_new_g0 > 0.0 { f * p.ip_new_g0 / (p.ip_new_g0 + g) } else { f }
+}
+
 fn pack_forecast(rows: &mut [Row], h: &[f64], w: f64) {
     let pairs: Vec<(f64, f64)> = rows.iter().zip(h).filter(|(r, h)| r.q.is_finite() && h.is_finite()).map(|(r, &h)| (r.q, h)).collect();
     if pairs.len() < 2 {
@@ -311,13 +324,15 @@ struct Reader<'a> {
     /// the forecast alone. That is the one setting of the memory that reaches
     /// the rating, and it is off by default.
     ed_phi: bool,
+    /// The field is at least `strong_top`, read off its lineups before play.
+    strong: bool,
 }
 
 impl<'a> Reader<'a> {
     fn new(t: &'a Tournament, players: &'a Players, ctx: &'a Context<'a>, cfg: &'a Config) -> Reader<'a> {
         let p = &cfg.team.s2;
         let ed_phi = p.ed_phi != 0.0 && ctx.edmem.on() && t.format == Format::InPerson;
-        Reader { t, players, ctx, cfg, p, vbar: players.editor_mean(t), ed_phi }
+        Reader { t, players, ctx, cfg, p, vbar: players.editor_mean(t), ed_phi, strong: false }
     }
 
     /// Each seat of a lineup on the `theta` scale, its members' uncertainties
@@ -431,6 +446,7 @@ impl<'a> Reader<'a> {
         let mut b = if ctx.edmem.on() && p.ed_phi == 0.0 && in_person {
             let th: Vec<f64> = res.members.iter().map(|&i| self.players.theta(i as usize)).collect();
             p.editor_memory
+                * if self.strong { p.ed_strong } else { 1.0 }
                 * ctx.edmem.bonus(&res.members, res.team, &t.editors, &th, self.players.ed_gate_theta, t.day)
         } else {
             0.0
@@ -450,8 +466,9 @@ impl<'a> Reader<'a> {
             b += p.load_7 * l7 + p.load_30 * l30;
         }
         if in_person && p.k_ip_new != 0.0 && !res.members.is_empty() {
-            let fresh: f64 = res.members.iter().map(|&i| 1.0 / (1.0 + self.players.state[i as usize].games_ip as f64)).sum();
-            b += p.k_ip_new * fresh / res.members.len() as f64;
+            let fresh: f64 = res.members.iter().map(|&i| fresh(&self.players.state[i as usize], p)).sum();
+            let k = if self.strong { p.k_ip_new * p.ip_new_strong } else { p.k_ip_new };
+            b += k * fresh / res.members.len() as f64;
         }
         if listed && ctx.youth.on() {
             b += p.k_youth * ctx.youth.share(&res.members, t.day);

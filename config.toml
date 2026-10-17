@@ -386,7 +386,24 @@ editor_memory = 1380.0
 # in-person table and on the forecast alone: players new to the table play below
 # the strength their synchronous games earned. On top of mu_young, young
 # in-person fields +0.025 / +0.016 per-field Pearson; open fields unmoved.
-k_ip_new = -600.0
+# -800 with ip_new_sync = 0.2 since 1.5, against -600 and 0: weighted pair
+# +0.0004 +/- 0.0003 on 2018-09-01..2024-12-31 and +0.0011 +/- 0.0004 on
+# 2025-01-01..2026-08-27, unweighted +0.0020 and +0.0029, strong fields abroad
+# +0.0004 and +0.0011. 0.1, 0.3, -1000 and the g0 scaling below do worse.
+k_ip_new = -800.0
+# Each game not played in person counts as this much of one that was, so a
+# strong player who rarely gets to an in-person table is not taken for a novice.
+ip_new_sync = 0.2
+# Measured and off: freshness times g0 / (g0 + all games) at g0 of 10 and 30
+# costs strong fields abroad up to 0.0012 weighted pair.
+ip_new_g0 = 0.0
+# Measured and off: in fields whose top ten lineups average strong_top or more,
+# k_ip_new times ip_new_strong and editor_memory times ed_strong. At 11000 and
+# 0, the editor memory gains strong fields abroad 0.0009 / 0.0005 weighted pair
+# and costs their NDCG@3 0.013 on 2025-01-01..2026-08-27; the penalty is noise.
+strong_top = 0.0
+ip_new_strong = 1.0
+ed_strong = 1.0
 # Past results a (player, editor) pair needs before it counts.
 ed_min_n = 2.85
 # Only players in the top ed_gate of the established panel carry a memory: the

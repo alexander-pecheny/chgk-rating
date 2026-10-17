@@ -412,6 +412,23 @@ pub struct S2 {
     /// -0.0006 +/- 0.0011 and -0.0010 +/- 0.0015.
     #[serde(default)]
     pub k_ip_new: f64,
+    /// Under `k_ip_new`, each game not played in person counts as this much of
+    /// one that was, so a player who only lacks in-person tables is less fresh.
+    #[serde(default)]
+    pub ip_new_sync: f64,
+    /// Under `k_ip_new`, a player's freshness is scaled by `g0 / (g0 + games)`,
+    /// so the penalty falls on players new to the game. 0 is off.
+    #[serde(default)]
+    pub ip_new_g0: f64,
+    /// A field whose ten strongest lineups average at least this many display
+    /// points is strong: there `k_ip_new` is multiplied by `ip_new_strong` and
+    /// `editor_memory` by `ed_strong`. 0 is off.
+    #[serde(default)]
+    pub strong_top: f64,
+    #[serde(default = "one")]
+    pub ip_new_strong: f64,
+    #[serde(default = "one")]
+    pub ed_strong: f64,
     /// Under "best6", a seat short of six is filled at no more than this many
     /// display points, so a strong lineup loses what a strong sixth player
     /// adds. 0 is off.
@@ -450,6 +467,11 @@ const S2_DEFAULT: S2 = S2 {
     k_mates: 0.0,
     k_youth: 0.0,
     k_ip_new: 0.0,
+    ip_new_sync: 0.0,
+    ip_new_g0: 0.0,
+    strong_top: 0.0,
+    ip_new_strong: 1.0,
+    ed_strong: 1.0,
     fill_max: 0.0,
     fc_seat_decay: 0.0,
     fc_seat_floor: 0.0,
