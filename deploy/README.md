@@ -6,6 +6,11 @@ the unit file. At start-up the server runs `typst` to draw the formulas on
 /method/, and finds it through `/usr/local/bin/typst`, a link to
 `~/.local/bin/typst`, since a unit's PATH leaves out `~/.local/bin`.
 
+The site's data stays out of the home directory, on the /mnt volume:
+`out` and `buff.db` in the production checkout are links to `/srv/a2/out`
+and `/srv/a2/buff.db`, and `/srv/a2` links to
+`/mnt/HC_Volume_106816389/srv/a2`. Every path below reads through them.
+
 ## The daily update
 
 Cron runs `deploy/update.sh` at 06:30 UTC every day. `deploy/crontab` holds the

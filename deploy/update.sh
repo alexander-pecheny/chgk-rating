@@ -36,12 +36,14 @@ else
     # Yesterday's copy is the basis rsync compares against, so only the pages
     # that changed cross the network: about 10 MB of the 1 GB, in seconds. The
     # copy is made beside it, so a failed sync never touches the good buff.db.
-    [ -f "$REPO/buff.db" ] && cp "$REPO/buff.db" "$REPO/buff.db.tmp"
-    if rsync -a --inplace --no-whole-file "$BUFF_SOURCE" "$REPO/buff.db.tmp"; then
-        mv -f "$REPO/buff.db.tmp" "$REPO/buff.db"
+    # Production's buff.db is a link into /srv/a2; the mv must not replace it.
+    buff=$(readlink -f "$REPO/buff.db")
+    [ -f "$buff" ] && cp "$buff" "$buff.tmp"
+    if rsync -a --inplace --no-whole-file "$BUFF_SOURCE" "$buff.tmp"; then
+        mv -f "$buff.tmp" "$buff"
         log "sync done"
     else
-        rm -f "$REPO/buff.db.tmp"
+        rm -f "$buff.tmp"
         log "sync failed; the old buff.db stays and the run stops here"
         exit 1
     fi

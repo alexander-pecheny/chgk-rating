@@ -4,6 +4,7 @@ rating.db
 *.db
 rsync.log
 out/
+/out
 data/external
 /fonts/
 fonts
