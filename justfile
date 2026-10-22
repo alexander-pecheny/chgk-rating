@@ -1,6 +1,6 @@
 # Everything that is done by hand, in one place. `just` with no recipe lists them.
-# The live site is a2.pecheny.me, served by the chgk-rating unit out of
-# /home/pecheny/new_chgk_rating; see deploy/README.md.
+# The live site is a2.pecheny.me, served by the chgk-rating unit out of the
+# service folder /srv/a2, which `just install` fills; see deploy/README.md.
 
 repo := justfile_directory()
 
@@ -35,33 +35,41 @@ ui:
 test-web:
     cd web && go vet ./... && go test ./...
 
+srv := "/srv/a2"
+
+# Copy this checkout's binaries, configs, data and update script into the service folder.
+install: build
+    install -m 755 -t {{srv}}/bin bin/* web/serve deploy/update.sh
+    install -m 644 -t {{srv}} config*.toml
+    install -m 644 -t {{srv}}/data data/*.csv
+
 # Publish this checkout to a2.pecheny.me (about five minutes).
-deploy: build
-    deploy/update.sh
+deploy: install
+    {{srv}}/bin/update.sh
 
 # The same, but keep the buff.db that is already here.
-deploy-here: build
-    SKIP_SYNC=1 deploy/update.sh
+deploy-here: install
+    SKIP_SYNC=1 {{srv}}/bin/update.sh
 
 # A rehearsal: fit and evaluate in this directory, touch no service.
 deploy-dry: build
     SKIP_SYNC=1 SKIP_RESTART=1 REPO="{{repo}}" deploy/update.sh
 
-# Fast-forward main in the production checkout to this branch, build there, publish.
-# From a worktree; `just ship` then `just deploy`.
+# Fast-forward main in the main checkout to this branch and install from there.
+# From a worktree; `just ship` then `just deploy` there.
 prod := env_var_or_default("PROD", "/home/pecheny/new_chgk_rating")
 ship:
     git -C {{prod}} merge --ff-only $(git rev-parse --abbrev-ref HEAD)
-    cd {{prod}} && just build
+    cd {{prod}} && just install
 
-# It builds, fits into out/ from production's buff.db when out/ has no index
+# It builds, fits into out/ from the service's buff.db when out/ has no index
 # yet or `refit` is given, and (re)starts the instance through ~/.local/bin/a2-dev.
 # Serve this worktree at https://<name>.a2-dev.pecheny.me.
 dev name refit="":
     #!/bin/sh
     set -eu
-    [ -e buff.db ] || ln -s {{prod}}/buff.db buff.db
-    [ -e data/external ] || ln -s {{prod}}/data/external data/external
+    [ -e buff.db ] || ln -s {{srv}}/buff.db buff.db
+    [ -e data/external ] || ln -s {{srv}}/data/external data/external
     just build
     if [ -n "{{refit}}" ] || [ ! -e out/web.db ]; then
         SKIP_SYNC=1 SKIP_RESTART=1 REPO="{{repo}}" deploy/update.sh
@@ -70,7 +78,7 @@ dev name refit="":
 
 # The last lines of the daily log, and whether the site is up.
 status:
-    @tail -n 12 out/update.log 2>/dev/null || echo "no out/update.log yet"
+    @tail -n 12 {{srv}}/out/update.log 2>/dev/null || echo "no update.log yet"
     @systemctl is-active chgk-rating || true
     @curl -sf -o /dev/null -w 'site %{http_code} in %{time_total}s\n' http://127.0.0.1:9684/ || echo "site did not answer"
 

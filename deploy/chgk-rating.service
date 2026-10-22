@@ -1,12 +1,13 @@
 [Unit]
 Description=chgk rating site (a2.pecheny.me)
 After=network.target
+RequiresMountsFor=/srv/a2
 
 [Service]
 User=pecheny
 Group=pecheny
-WorkingDirectory=/home/pecheny/new_chgk_rating
-ExecStart=/home/pecheny/new_chgk_rating/web/serve --addr 127.0.0.1:9684
+WorkingDirectory=/srv/a2
+ExecStart=/srv/a2/bin/serve --addr 127.0.0.1:9684
 Restart=on-failure
 RestartSec=2
 

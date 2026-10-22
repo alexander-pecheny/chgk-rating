@@ -1,1 +1,1 @@
-30 6 * * * /home/pecheny/new_chgk_rating/deploy/update.sh >> /home/pecheny/new_chgk_rating/out/update.log 2>&1
+30 6 * * * /srv/a2/bin/update.sh >> /srv/a2/out/update.log 2>&1

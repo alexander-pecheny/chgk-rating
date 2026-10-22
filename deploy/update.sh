@@ -4,8 +4,8 @@
 # See deploy/README.md.
 set -eu
 
-# The checkout this script lives in, unless REPO says otherwise.
-REPO=${REPO:-$(cd "$(dirname "$0")/.." && pwd)}
+# The service folder `just install` fills, unless REPO says otherwise.
+REPO=${REPO:-/srv/a2}
 # Where the mirror is rebuilt nightly; any rsync source works.
 BUFF_SOURCE=${BUFF_SOURCE:-vps2day-ee:/home/ap/buff/buff.db}
 cd "$REPO"
@@ -36,14 +36,12 @@ else
     # Yesterday's copy is the basis rsync compares against, so only the pages
     # that changed cross the network: about 10 MB of the 1 GB, in seconds. The
     # copy is made beside it, so a failed sync never touches the good buff.db.
-    # Production's buff.db is a link into /srv/a2; the mv must not replace it.
-    buff=$(readlink -f "$REPO/buff.db")
-    [ -f "$buff" ] && cp "$buff" "$buff.tmp"
-    if rsync -a --inplace --no-whole-file "$BUFF_SOURCE" "$buff.tmp"; then
-        mv -f "$buff.tmp" "$buff"
+    [ -f "$REPO/buff.db" ] && cp "$REPO/buff.db" "$REPO/buff.db.tmp"
+    if rsync -a --inplace --no-whole-file "$BUFF_SOURCE" "$REPO/buff.db.tmp"; then
+        mv -f "$REPO/buff.db.tmp" "$REPO/buff.db"
         log "sync done"
     else
-        rm -f "$buff.tmp"
+        rm -f "$REPO/buff.db.tmp"
         log "sync failed; the old buff.db stays and the run stops here"
         exit 1
     fi

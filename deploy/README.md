@@ -6,19 +6,20 @@ the unit file. At start-up the server runs `typst` to draw the formulas on
 /method/, and finds it through `/usr/local/bin/typst`, a link to
 `~/.local/bin/typst`, since a unit's PATH leaves out `~/.local/bin`.
 
-The site's data stays out of the home directory, on the /mnt volume:
-`out` and `buff.db` in the production checkout are links to `/srv/a2/out`
-and `/srv/a2/buff.db`, and `/srv/a2` links to
-`/mnt/HC_Volume_106816389/srv/a2`. Every path below reads through them.
+The service runs out of `/srv/a2` and needs no checkout. The folder holds
+`bin/` (the model binaries, `serve` and `update.sh`), the configs, `data/`,
+`buff.db` and `out/`. `just install` builds a checkout and copies its part in;
+`buff.db`, `data/external` and `out/` are the service's own. `/srv/a2` is a
+bind mount of `/mnt/HC_Volume_106816389/srv/a2`, set in `/etc/fstab`, because
+the root disk is too small for `out/`.
 
 ## The daily update
 
-Cron runs `deploy/update.sh` at 06:30 UTC every day. `deploy/crontab` holds the
+Cron runs `/srv/a2/bin/update.sh` at 06:30 UTC every day. `deploy/crontab` holds the
 line. The script brings `buff.db` over from `vps2day-ee` (it is rebuilt there
 at 01:05 UTC and the graph at 04:50 UTC), runs `fit`, `eval`, `achieve`, the
 three rivals and `webindex`, restarts the service and waits for the site to
-answer. It runs the binaries in `bin/`, which `just build` copies out of
-`target/release`, so a cleared or missing `target/` does not stop it. The window takes everything dated up to the UTC day of `buff.db`'s last
+answer. It runs the binaries in `/srv/a2/bin/`, so no checkout is needed for it. The window takes everything dated up to the UTC day of `buff.db`'s last
 complete update, as its `db_updates` table stamps it, so each run picks up the
 tournaments added since yesterday, and the same `buff.db` gives the same
 numbers on any day.
@@ -36,7 +37,7 @@ that changed cross the network: about 10 MB of the 1 GB, in five seconds.
 Everything the site needs is in `buff.db`, team names included — the mirror
 takes them from the rating site's own team listing every night.
 
-The log is `out/update.log`, one line per step with a UTC timestamp, and the
+The log is `/srv/a2/out/update.log`, one line per step with a UTC timestamp, and the
 last line of a run gives the size of `buff.db`, the date of the last release and
 how long the run took. `out/fit.log` and `out/eval.md` hold the full output of
 the two binaries. A failed step leaves the service running on the old numbers.
@@ -44,7 +45,7 @@ the two binaries. A failed step leaves the service running on the old numbers.
 ## By hand
 
 ```
-/home/pecheny/new_chgk_rating/deploy/update.sh
+/srv/a2/bin/update.sh
 SKIP_SYNC=1 SKIP_RESTART=1 REPO=$PWD deploy/update.sh   # a dry run elsewhere
 ```
 
@@ -56,7 +57,7 @@ checkout. Runs cannot overlap:
 ## Previews
 
 `just dev <name>` in a worktree serves it at `https://<name>.a2-dev.pecheny.me`.
-It links production's `buff.db` and `data/external` into the worktree, builds,
+It links the service's `buff.db` and `data/external` into the worktree, builds,
 fits into the worktree's own `out/` if it has no index yet (`just dev <name>
 refit` reruns the stages whose inputs changed), and starts the instance with `~/.local/bin/a2-dev`. Each
 instance is an `a2-dev@<name>` unit running the worktree's `web/serve` on its
