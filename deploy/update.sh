@@ -101,7 +101,10 @@ rival ext_elot ext_elo --to "$today" --young 150 --ip-new 25 --out out/ext/elot.
 
 # The fit also freezes the achievement rating's values on its own pass, which
 # achieve would otherwise replay. Eval reads the fit's own team rows, which
-# the publish below replaces, so a stale eval refits as well.
+# the publish below replaces, so a stale eval refits as well. Both work on a
+# copy that is renamed in once published, because the running site cannot roll
+# back a journal that a crash leaves beside the file it reads.
+staged=out/ratings.db.new
 if fresh fit "$k_fit" && fresh eval "$k_eval"; then
     log "fit and eval are current"
 else
@@ -109,7 +112,7 @@ else
     unstamp fit
     unstamp eval
     unstamp publish
-    if ! $bin/fit --achieve out/achieve > out/fit.log 2>&1; then
+    if ! $bin/fit --achieve out/achieve --out "$staged" > out/fit.log 2>&1; then
         log "fit failed, see out/fit.log; the site keeps the old numbers"
         tail -n 20 out/fit.log
         exit 1
@@ -118,7 +121,7 @@ else
     log "fit done: $(tail -n 1 out/fit.log)"
 
     log "eval"
-    if ! $bin/eval > out/eval.md 2>&1; then
+    if ! $bin/eval --db "$staged" > out/eval.md 2>&1; then
         log "eval failed, see out/eval.md; the site keeps the old numbers"
         tail -n 20 out/eval.md
         exit 1
@@ -134,11 +137,13 @@ if fresh publish "$k_pub"; then
 else
     log "achieve"
     unstamp publish
-    if ! $bin/achieve --publish out/ratings.db > out/achieve.log 2>&1; then
+    [ -f "$staged" ] || cp out/ratings.db "$staged"
+    if ! $bin/achieve --publish "$staged" > out/achieve.log 2>&1; then
         log "achieve publish failed, see out/achieve.log"
         tail -n 20 out/achieve.log
         exit 1
     fi
+    mv -f "$staged" out/ratings.db
     stamp publish "$k_pub"
     log "achieve done: $(tail -n 1 out/achieve.log)"
 fi
@@ -161,8 +166,9 @@ best() {
         log "best"
         unstamp best
         # Its team columns are A2's: achieve publishes the values the A2 fit froze.
-        if $bin/fit --config out/best/config.toml > out/best/fit.log 2>&1 &&
-            $bin/achieve --publish out/best/ratings.db > out/best/achieve.log 2>&1 &&
+        if $bin/fit --config out/best/config.toml --out out/best/ratings.db.new > out/best/fit.log 2>&1 &&
+            $bin/achieve --publish out/best/ratings.db.new > out/best/achieve.log 2>&1 &&
+            mv -f out/best/ratings.db.new out/best/ratings.db &&
             $bin/webindex --rebuild --config out/best/config.toml --ratings out/best/ratings.db --out out/best/web.db > out/best/webindex.log 2>&1; then
             stamp best "$k_best"
             log "best done"
