@@ -6,6 +6,10 @@ the unit file. At start-up the server runs `typst` to draw the formulas on
 /method/, and finds it through `/usr/local/bin/typst`, a link to
 `~/.local/bin/typst`, since a unit's PATH leaves out `~/.local/bin`.
 
+The server reads the databases through a memory map, so most of what systemd
+counts as its memory is file pages the kernel can drop. `MemoryHigh=1G` in the
+unit makes the kernel reclaim them first once the service passes it.
+
 The service runs out of `/srv/a2` and needs no checkout. The folder holds
 `bin/` (the model binaries, `serve` and `update.sh`), the configs, `data/`,
 `buff.db` and `out/`. `just install` builds a checkout and copies its part in;

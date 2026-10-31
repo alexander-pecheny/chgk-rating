@@ -10,6 +10,9 @@ WorkingDirectory=/srv/a2
 ExecStart=/srv/a2/bin/serve --addr 127.0.0.1:9684
 Restart=on-failure
 RestartSec=2
+# Past this the kernel reclaims the service's memory first, mostly the mapped
+# database pages, which it reads back from disk as pages need them.
+MemoryHigh=1G
 
 [Install]
 WantedBy=multi-user.target

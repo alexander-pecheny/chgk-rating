@@ -123,13 +123,19 @@ func (st *store) metaInt(key string) (int, error) {
 // `x`, so a page joins names onto ratings in a single query. Every connection
 // in the pool gets the attachment from the hook, not just the first one; a
 // connection to any other file gets none.
+//
+// Reads go through a memory map, so a page is one the kernel caches once for
+// all connections and drops under pressure. The map is as large as the driver
+// allows, its SQLITE_MAX_MMAP_SIZE of just under 2 GiB; a page past it is
+// copied into SQLite's own cache, a copy per connection that only swap can
+// take back, so that cache stays small.
 func openRatings(ratings, web string) (*sql.DB, error) {
 	attachOnce.Do(func() { sqlite.RegisterConnectionHook(attach) })
 	pragmas := []string{
 		"mode=ro",
 		"_pragma=query_only(1)",
-		"_pragma=cache_size(-65536)",
-		"_pragma=mmap_size(1073741824)",
+		"_pragma=cache_size(-4096)",
+		"_pragma=mmap_size(2147418112)",
 	}
 	dsn := "file:" + ratings + "?" + strings.Join(pragmas, "&")
 	attachments.Store(dsn, web)
