@@ -186,6 +186,18 @@ pub struct Evening<'a> {
     pub events: &'a [TeamEvent],
 }
 
+/// A tournament after the window, forecast from the states the pass ended in.
+/// Nothing has learnt from it, and nothing will: its unseen players are put
+/// back unseen and the team step ran on a copy of the team states.
+pub struct Upcoming<'a> {
+    pub t: &'a Tournament,
+    pub players: &'a Players,
+    /// The field as the question model reads it, every lineup at its strength
+    /// on the day, for the expected answers on someone else's questions.
+    pub field: &'a Field,
+    pub events: &'a [TeamEvent],
+}
+
 /// A Thursday, after the gauge has been re-centred.
 pub struct Release<'a> {
     pub id: i64,
@@ -212,6 +224,10 @@ pub trait Observer {
         Ok(())
     }
     fn release(&mut self, _r: &Release) -> Result<()> {
+        Ok(())
+    }
+    /// One of `Arena.upcoming`, after the last release.
+    fn upcoming(&mut self, _u: &Upcoming) -> Result<()> {
         Ok(())
     }
 }
@@ -284,6 +300,9 @@ pub fn run(arena: &Arena, cfg: &Config, opts: Options, obs: &mut dyn Observer) -
         }
         if last {
             sweep.releases_through(sweep.to_day, obs)?;
+            for t in &arena.upcoming {
+                sweep.upcoming(t, obs)?;
+            }
         }
         releases = sweep.release_id;
     }
@@ -316,6 +335,10 @@ impl Observer for Tee<'_> {
     fn release(&mut self, r: &Release) -> Result<()> {
         self.0.release(r)?;
         self.1.release(r)
+    }
+    fn upcoming(&mut self, u: &Upcoming) -> Result<()> {
+        self.0.upcoming(u)?;
+        self.1.upcoming(u)
     }
 }
 
@@ -459,6 +482,28 @@ impl<'a> Sweep<'a> {
         }
         self.learn_teams(t, &q.team_grads, &events);
         obs.evening(&Evening { index: n, t, players: self.players, grads: &q.grads, events: &events })
+    }
+
+    /// A tournament after the window: the forecast of the S2 engine on a copy
+    /// of the team states, with every player put back as the pass left them.
+    /// The Kalman engine reads fitted questions, which a field not yet played
+    /// has none of, so it forecasts nothing here.
+    fn upcoming(&mut self, t: &Tournament, obs: &mut dyn Observer) -> Result<()> {
+        let cfg = self.cfg;
+        let Engine::S2(teams) = &self.teams else { return Ok(()) };
+        let mut lineup: Vec<u32> = t.teams.iter().flat_map(|r| r.members.iter().copied()).collect();
+        lineup.sort_unstable();
+        lineup.dedup();
+        let kept: Vec<(u32, PlayerState)> = lineup.iter().map(|&i| (i, self.players.state[i as usize].clone())).collect();
+        self.players.seed(t, cfg);
+        let field = qm::build_field(t, self.players, &self.mem.chem, cfg);
+        let rows = team_s2::rows_of(t, self.players, &self.mem.context(), cfg);
+        let events = teams.clone().step_rows(t.id, t.day, t.weight, t.format, &rows, &cfg.team.s2);
+        obs.upcoming(&Upcoming { t, players: self.players, field: &field, events: &events })?;
+        for (i, s) in kept {
+            self.players.state[i as usize] = s;
+        }
+        Ok(())
     }
 
     /// Step 1 of a tournament: its players seeded, its questions fitted, and

@@ -692,6 +692,11 @@ pub struct Data {
     /// Empty publishes from `from`.
     #[serde(default)]
     pub publish_from: String,
+    /// Tournaments starting within this many days after `to` that already
+    /// list at least one lineup are forecast after the pass, from the states
+    /// it ends in, and learnt from by nothing. 0 forecasts none.
+    #[serde(default)]
+    pub upcoming_days: i32,
 }
 
 fn today() -> String {

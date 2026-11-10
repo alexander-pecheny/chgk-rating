@@ -66,7 +66,25 @@ CREATE TABLE team_events (tournament_id INTEGER, date TEXT, team_id INTEGER, c R
 CREATE TABLE player_events (tournament_id INTEGER, player_id INTEGER, theta_before REAL, theta_after REAL, sigma_after REAL, phi_before REAL, sigma_before REAL, games_ip INTEGER, days_ip INTEGER);
 CREATE TABLE question_params (tournament_id INTEGER, q INTEGER, b REAL, a REAL, m REAL);
 CREATE TABLE tournament_metrics (tournament_id INTEGER PRIMARY KEY, date TEXT, type TEXT, weight REAL, n_teams INTEGER, n_q INTEGER, n_obs INTEGER, logloss_insample REAL, logloss_crossfit REAL, spearman_forecast REAL, spearman_old_system REAL, truedl REAL);
+CREATE TABLE upcoming (tournament_id INTEGER PRIMARY KEY, date TEXT, type TEXT, weight REAL, n_teams INTEGER, n_q INTEGER, as_of TEXT, ref_id INTEGER, ref_rule TEXT, ref_truedl REAL, announced REAL);
+CREATE TABLE upcoming_events (tournament_id INTEGER, team_id INTEGER, s_r REAL, forecast REAL, forecast_place REAL, e_score REAL);
+CREATE TABLE upcoming_players (tournament_id INTEGER, team_id INTEGER, player_id INTEGER, theta REAL, phi REAL, sigma REAL);
 ";
+
+/// One row of `upcoming`: a tournament not yet played, the last day whose
+/// results the player states it was forecast from had seen, and the played pack its expected scores were
+/// read on, with the rule that chose it.
+pub struct UpcomingRow<'a> {
+    pub tid: i64,
+    pub date: &'a str,
+    pub kind: &'a str,
+    pub weight: f64,
+    pub n_teams: usize,
+    pub n_q: usize,
+    pub as_of: &'a str,
+    pub reference: Option<(i64, &'a str, Option<f64>)>,
+    pub announced: Option<f64>,
+}
 
 impl Writer {
     pub fn create(path: &str) -> rusqlite::Result<Writer> {
@@ -123,6 +141,27 @@ impl Writer {
                 e.actual_place, e.s_pair, e.i_pair, known(e.mu_before), known(e.mu_after), e.sigma_before, e.sigma_after,
                 e.evidence, e.gap_days, e.var_diff, e.lost_prev, e.rated, e.z, e.expected_place, known(e.d_place), known(e.d_pull),
             ])?;
+        }
+        Ok(())
+    }
+
+    /// A tournament not yet played, `(team, lineup strength, forecast,
+    /// forecast place, expected questions taken)` per result, and `(team,
+    /// player, theta, phi, sigma)` per listed player as the forecast read them.
+    pub fn upcoming(&self, u: &UpcomingRow, teams: &[(i64, f64, f64, f64, f64)], players: &[(i64, i64, f64, f64, f64)]) -> rusqlite::Result<()> {
+        let known = |x: f64| x.is_finite().then_some(x);
+        let (ref_id, rule, ref_dl) = u.reference.map_or((None, None, None), |(i, r, d)| (Some(i), Some(r), d));
+        self.conn.execute(
+            "INSERT INTO upcoming VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+            params![u.tid, u.date, u.kind, u.weight, u.n_teams as i64, u.n_q as i64, u.as_of, ref_id, rule, ref_dl, u.announced],
+        )?;
+        let mut st = self.conn.prepare_cached("INSERT INTO upcoming_events VALUES (?1,?2,?3,?4,?5,?6)")?;
+        for &(team, q, fc, place, e) in teams {
+            st.execute(params![u.tid, team, known(q), fc, place, known(e)])?;
+        }
+        let mut st = self.conn.prepare_cached("INSERT INTO upcoming_players VALUES (?1,?2,?3,?4,?5,?6)")?;
+        for &(team, player, theta, phi, sigma) in players {
+            st.execute(params![u.tid, team, player, theta, phi, sigma])?;
         }
         Ok(())
     }

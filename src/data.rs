@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::util::parse_date;
+use crate::util::{format_date, parse_date};
 use rusqlite::Connection;
 use std::collections::{HashMap, HashSet};
 
@@ -97,6 +97,10 @@ pub struct Tournament {
 /// Everything the online pass reads, loaded once and kept in memory.
 pub struct Arena {
     pub tournaments: Vec<Tournament>,
+    /// Tournaments after the window that already list a lineup, oldest first,
+    /// read by `load_with_upcoming` alone. Each is `forecast_only`: the pass
+    /// forecasts it from the states it ends in and nothing learns from it.
+    pub upcoming: Vec<Tournament>,
     pub player_ids: Vec<i64>,
     pub editor_ids: Vec<i64>,
     pub team_ids: Vec<i64>,
@@ -384,6 +388,17 @@ const HALF: f64 = 0.5;
 /// A correlation of take rates needs this many questions to mean anything.
 
 pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error> {
+    load_window(cfg, from, to, false)
+}
+
+/// `load`, and the tournaments of the `data.upcoming_days` after `to` that
+/// already list a lineup, in `Arena.upcoming`. Their players and teams are
+/// numbered after everyone else's, so every index `load` gives is the same.
+pub fn load_with_upcoming(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error> {
+    load_window(cfg, from, to, cfg.data.upcoming_days > 0)
+}
+
+fn load_window(cfg: &Config, from: &str, to: &str, upcoming: bool) -> Result<Arena, rusqlite::Error> {
     let conn = Connection::open_with_flags(&cfg.data.db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut ld = Loader::new(cfg, crate::age::young_fields(&conn)?);
     read(&mut ld, &conn, &results_sql(cfg), from, to)?;
@@ -393,7 +408,15 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
         read(&mut ld, &conn, &results_where(""), from.max(cfg.data.forecast_from.as_str()), to)?;
         ld.tournaments.sort_by_key(|t| (t.day, t.id));
     }
-    Ok(ld.finish(&conn))
+    let mut later = Vec::new();
+    if let (true, Some(day)) = (upcoming, parse_date(to)) {
+        let until = format_date(day + cfg.data.upcoming_days);
+        let n = ld.tournaments.len();
+        ld.forecast_only = true;
+        read(&mut ld, &conn, &results_sql(cfg), to, &until)?;
+        later = ld.tournaments.split_off(n);
+    }
+    Ok(ld.finish(&conn, later))
 }
 
 /// The results of `sql` into `ld`, skipping the tournaments it already holds.
@@ -547,14 +570,15 @@ impl<'a> Loader<'a> {
         Ok(())
     }
 
-    fn finish(mut self, conn: &Connection) -> Arena {
+    fn finish(mut self, conn: &Connection, mut upcoming: Vec<Tournament>) -> Arena {
         self.tournaments.retain(|t| !t.teams.is_empty());
+        upcoming.retain(|t| t.teams.iter().any(|r| !r.members.is_empty()));
         if self.cfg.data.merge_cities {
             let d = &self.cfg.data;
             merge_cities(&mut self.tournaments, d.merge_days, &links(conn), d.merge_venue_drop);
         }
         let rosters = base_rosters(conn);
-        for t in self.tournaments.iter_mut() {
+        for t in self.tournaments.iter_mut().chain(upcoming.iter_mut()) {
             mark_base(t, &rosters, &self.teams.ids, &self.players.ids);
             if t.n_q == 0 {
                 t.n_q = t.n_q_declared;
@@ -562,6 +586,7 @@ impl<'a> Loader<'a> {
         }
         Arena {
             tournaments: self.tournaments,
+            upcoming,
             player_ids: self.players.ids,
             editor_ids: self.editors.ids,
             team_ids: self.teams.ids,

@@ -19,6 +19,7 @@ mod history;
 mod index;
 mod results;
 mod schema;
+mod upcoming;
 
 use std::path::{Path, PathBuf};
 

@@ -10,7 +10,7 @@ use std::path::Path;
 
 /// Bumped whenever the index grows a table or column the server reads, so a
 /// deploy rebuilds it instead of serving a page with nothing behind it.
-pub const VERSION: &str = "19";
+pub const VERSION: &str = "20";
 
 /// `place_hist.kind`: whose places a blob holds.
 pub const KIND_PLAYER: i64 = 0;
@@ -47,6 +47,12 @@ CREATE TABLE forecast_metrics (tournament_id INTEGER, system TEXT, ndcg REAL, nd
 CREATE TABLE field_score (tournament_id INTEGER, team_id INTEGER, score INTEGER, PRIMARY KEY (tournament_id, team_id)) WITHOUT ROWID;
 CREATE TABLE base_roster (team_id INTEGER, player_id INTEGER, name TEXT, date_added TEXT);
 CREATE TABLE place_hist (kind INTEGER, id INTEGER, places BLOB, PRIMARY KEY (kind, id)) WITHOUT ROWID;
+CREATE TABLE upcoming (tournament_id INTEGER PRIMARY KEY, as_of TEXT, ref_id INTEGER, ref_rule TEXT,
+                       ref_truedl REAL, announced REAL);
+CREATE TABLE upcoming_team (tournament_id INTEGER, team_id INTEGER, name TEXT, forecast REAL, forecast_place REAL,
+                            e_score REAL, s_r REAL);
+CREATE TABLE upcoming_player (tournament_id INTEGER, team_id INTEGER, player_id INTEGER, name TEXT, theta REAL,
+                              phi REAL, sigma REAL);
 CREATE VIRTUAL TABLE player_fts USING fts5(name, tokenize='unicode61 remove_diacritics 0');
 CREATE VIRTUAL TABLE team_fts USING fts5(name, town, aliases, tokenize='unicode61 remove_diacritics 0');
 CREATE VIRTUAL TABLE tournament_fts USING fts5(name, tokenize='unicode61 remove_diacritics 0');
@@ -62,6 +68,8 @@ CREATE INDEX idx_tour_date ON tournament(date);
 CREATE INDEX idx_anom_player ON anomaly(player_id);
 CREATE INDEX idx_base_team ON base_roster(team_id);
 CREATE INDEX idx_venue_field ON venue(field_id);
+CREATE INDEX idx_upteam_tour ON upcoming_team(tournament_id);
+CREATE INDEX idx_upplayer_tour ON upcoming_player(tournament_id);
 ";
 
 /// The columns of `out/ratings.db` the server reads directly: the per-release

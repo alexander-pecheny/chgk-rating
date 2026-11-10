@@ -186,6 +186,25 @@ pub fn truedl(field: &Field, params: &[QParams], cfg: &Config) -> Option<f64> {
     (n > 0).then(|| TRUEDL_SCALE * (1.0 - sum / n as f64))
 }
 
+/// Each member's slope at strength `z`, as `build_field` reads it.
+pub fn slopes(z: &[f64], cfg: &Config) -> Vec<f64> {
+    z.iter().map(|&zi| slope(zi, cfg)).collect()
+}
+
+/// The share of the questions `params` a lineup of strengths `z` and slopes
+/// `k` is expected to take, by the likelihood the questions were fitted with.
+/// NaN for no lineup or no questions.
+pub fn expected_share(z: &[f64], k: &[f64], params: &[QParams], cfg: &Config) -> f64 {
+    if z.is_empty() || params.is_empty() {
+        return f64::NAN;
+    }
+    let take = |p: &QParams| {
+        let u = intensity(z, k, p.a(), p.b, cfg);
+        (p.m() * log_p_step(u * u_scale(u, cfg))).exp()
+    };
+    params.iter().map(take).sum::<f64>() / params.len() as f64
+}
+
 /// Strength at which a lone player matches `target` correct answers on these
 /// questions; the realised team strength used to calibrate `sigma_model`.
 pub fn realised_strength(params: &[QParams], mask: &[u8], target: f64, cfg: &Config) -> Option<f64> {

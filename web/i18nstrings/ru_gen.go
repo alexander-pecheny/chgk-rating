@@ -380,6 +380,36 @@ var RU = Strings{
 			Venues:    func() string { return "Площадок" },
 		},
 		Untitled: func() string { return "Турнир без названия" },
+		Upcoming: TournamentUpcomingStrings{
+			Announced: func() string { return "Заявленная сложность" },
+			Caveat: func() string {
+				return "На сыгранных очных турнирах такое число ошибается в среднем на пять вопросов, и почти всегда на всё поле сразу: вопросы оказываются проще или сложнее, чем у образца. Порядок команд от этого почти не зависит."
+			},
+			Expected: func() string { return "Взятых" },
+			ExpectedTitle: func() string {
+				return "Ожидаемое число взятых на вопросах образца, пересчитанное на число вопросов турнира"
+			},
+			Lede: func(date string) string {
+				return fmt.Sprintf("Турнир ещё не сыгран. Места — по силе заявленных составов, с рейтингами игроков по результатам до %s включительно; из заявки больше шести игроков считаются шесть сильнейших.", date)
+			},
+			LineupTitle: func() string {
+				return "Сила заявленного состава по рейтингам игроков на релиз"
+			},
+			Near: func() string {
+				return "Ожидаемое число взятых посчитано на вопросах турнира, сложность которого ближе всего к заявленной, — "
+			},
+			NoRef: func() string {
+				return "Ожидаемое число взятых не посчитано: у турнира нет прошлого в серии и не заявлена сложность."
+			},
+			RefNear: func(date string, dl string, announced string) string {
+				return fmt.Sprintf(" (%s, сложность %s при заявленной %s).", date, dl, announced)
+			},
+			RefSeries: func(date string, dl string) string { return fmt.Sprintf(" (%s, сложность %s).", date, dl) },
+			Series: func() string {
+				return "Ожидаемое число взятых посчитано на вопросах прошлого турнира серии — "
+			},
+			Title: func() string { return "Прогноз" },
+		},
 		Venues: func(n int) string {
 			return fmt.Sprintf("Сводный зачёт %d %s:", n, core.Plural("ru", n, "площадки", "площадок", "площадок"))
 		},

@@ -1,10 +1,11 @@
 use chgk_rating::config::{Config, FormatEffect};
 use chgk_rating::data::{Arena, Format, Tournament};
 use chgk_rating::features::{Features, Pre};
-use chgk_rating::output::{PlayerEvent, PlayerRow, TournamentMetrics, Writer};
-use chgk_rating::pass::{self, Engine, Evening, Morning, Observer, Release};
+use chgk_rating::output::{PlayerEvent, PlayerRow, TournamentMetrics, UpcomingRow, Writer};
+use chgk_rating::pass::{self, Engine, Evening, Morning, Observer, Release, Upcoming};
 use chgk_rating::question_model::Players;
 use chgk_rating::team_event::TeamEvent;
+use chgk_rating::upcoming::{Backtest, Refs};
 use chgk_rating::util::{format_date, parse_date, spearman};
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
@@ -116,17 +117,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         scores: true,
         chemistry: features.is_some(),
     };
-    let mut fit = Fit::new(&arena, &cfg, features, start)?;
+    let db = rusqlite::Connection::open_with_flags(&cfg.data.db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut fit = Fit::new(&arena, &cfg, features, Refs::new(&db)?, start)?;
     // `--achieve DIR` freezes the achievement rating's values on this same
     // pass, which `achieve --build` would otherwise replay on its own.
     let achieve = arg("--achieve");
-    let db = rusqlite::Connection::open_with_flags(&cfg.data.db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut freezer = achieve.as_ref().map(|_| chgk_rating::achieve::Freezer::new(&arena, &cfg, &db)).transpose()?;
     let n = match freezer.as_mut() {
         Some(fr) => pass::run(&arena, &cfg, opts, &mut pass::Tee(&mut fit, fr))?,
         None => pass::run(&arena, &cfg, opts, &mut fit)?,
     };
     let strengths = fit.last_display();
+    if let Some((_, b)) = &fit.backtest {
+        b.print();
+    }
     if let Some(f) = fit.features {
         println!("features: {} rows", f.rows());
         f.finish()?;
@@ -166,7 +170,7 @@ fn config() -> Result<Config, Box<dyn std::error::Error>> {
 
 /// The window's tournaments, with the acceptance tests' edits applied.
 fn arena(cfg: &Config, start: Instant) -> Result<Arena, Box<dyn std::error::Error>> {
-    let mut arena = chgk_rating::data::load(cfg, &cfg.data.from, &cfg.data.to)?;
+    let mut arena = chgk_rating::data::load_with_upcoming(cfg, &cfg.data.from, &cfg.data.to)?;
     if let Some(s) = arg("--swap") {
         apply_swap(&mut arena, &s)?;
     }
@@ -176,6 +180,9 @@ fn arena(cfg: &Config, start: Instant) -> Result<Arena, Box<dyn std::error::Erro
     let counts = (arena.tournaments.len(), arena.n_players(), arena.n_teams(), arena.n_editors());
     let secs = start.elapsed().as_secs_f64();
     println!("loaded {} tournaments, {} players, {} teams, {} editors in {secs:.1}s", counts.0, counts.1, counts.2, counts.3);
+    if !arena.upcoming.is_empty() {
+        println!("{} upcoming tournaments with a lineup listed", arena.upcoming.len());
+    }
     Ok(arena)
 }
 
@@ -211,10 +218,16 @@ struct Fit<'a> {
     elo_players: Option<(f64, Vec<Vec<(i32, f64)>>)>,
     /// The venue each player of this tournament played at.
     venue_of: HashMap<u32, i64>,
+    /// Every pack fitted so far, which an upcoming tournament borrows its
+    /// questions from.
+    refs: Refs,
+    /// `--upcoming-backtest DATE`: every field from DATE on, forecast as if
+    /// it were upcoming.
+    backtest: Option<(i32, Backtest)>,
 }
 
 impl<'a> Fit<'a> {
-    fn new(arena: &'a Arena, cfg: &'a Config, features: Option<Features>, start: Instant) -> rusqlite::Result<Fit<'a>> {
+    fn new(arena: &'a Arena, cfg: &'a Config, features: Option<Features>, refs: Refs, start: Instant) -> Result<Fit<'a>, Box<dyn std::error::Error>> {
         let diag = arg("--diag-player").and_then(|v| v.parse::<i64>().ok());
         let w = Writer::create(&cfg.data.out_path)?;
         w.meta("model_version", &cfg.model.version)?;
@@ -234,6 +247,10 @@ impl<'a> Fit<'a> {
             prev_t: vec![f64::NAN; arena.n_teams()],
             before: Vec::new(),
             venue_of: HashMap::new(),
+            refs,
+            backtest: arg("--upcoming-backtest")
+                .map(|d| parse_date(&d).map(|day| (day, Backtest::default())).ok_or("bad --upcoming-backtest"))
+                .transpose()?,
             elo: cfg.blend.as_ref().filter(|b| b.elo > 0.0).map(|b| load_elo(&b.elo_db).map(|x| (b.elo, x))).transpose()?,
             newcomer_gate: cfg.blend.as_ref().map_or(0.0, |b| b.newcomer_gate),
             elo_players: cfg
@@ -265,6 +282,13 @@ impl Observer for Fit<'_> {
             f.emit(t, self.arena, m.players, &m.memories.chem, &m.memories.edmem, &pre, m.events, cfg)?;
         }
         self.before = self.lineup_states(m);
+        if !t.train_only {
+            let truedl = chgk_rating::question_model::truedl(m.field, m.params, cfg);
+            if let Some((_, b)) = self.backtest.as_mut().filter(|(from, _)| t.day >= *from) {
+                b.field(t, m.field, m.params, &self.refs, cfg);
+            }
+            self.refs.absorb(t, m.field, m.params, truedl);
+        }
         if !m.forecast || t.day < self.publish_from {
             return Ok(());
         }
@@ -394,6 +418,48 @@ impl Observer for Fit<'_> {
             })
             .collect();
         self.w.team_ratings(id, &trows, |m| chgk_rating::display::team(m, cfg))?;
+        Ok(())
+    }
+
+    fn upcoming(&mut self, u: &Upcoming) -> pass::Result<()> {
+        let (t, cfg, arena) = (u.t, self.cfg, self.arena);
+        let pick = self.refs.pick(t.id, t.day, t.format);
+        let expected = pick.map(|(p, _)| chgk_rating::upcoming::expected(u.field, p, t.n_q, Some(t.format), cfg)).unwrap_or_default();
+        let teams: Vec<(i64, f64, f64, f64, f64)> = u
+            .events
+            .iter()
+            .map(|e| {
+                let x = expected.get(&e.team).copied().unwrap_or(f64::NAN);
+                (arena.team_ids[e.team as usize], e.s_r, e.forecast, e.forecast_place, x)
+            })
+            .collect();
+        let players: Vec<(i64, i64, f64, f64, f64)> = t
+            .teams
+            .iter()
+            .flat_map(|r| r.members.iter().map(move |&m| (r.team, m as usize)))
+            .map(|(team, m)| {
+                let p = u.players;
+                (arena.team_ids[team as usize], arena.player_ids[m], p.published(m), p.phi(m), p.sigma_at(m, t.day, cfg))
+            })
+            .collect();
+        let date = format_date(t.day);
+        // The pass has read every result before `data.to`.
+        let as_of = parse_date(&cfg.data.to).map_or(String::new(), |d| format_date(d - 1));
+        let reference = pick.map(|(p, rule)| (p.id, rule.name(), p.truedl));
+        let row = UpcomingRow {
+            tid: t.id,
+            date: &date,
+            kind: t.format.name(),
+            weight: t.weight,
+            n_teams: t.teams.len(),
+            n_q: t.n_q,
+            as_of: &as_of,
+            reference,
+            announced: self.refs.announced(t.id),
+        };
+        self.w.upcoming(&row, &teams, &players)?;
+        let from = pick.map_or("no questions to read".to_string(), |(p, rule)| format!("questions of {} by {}", p.id, rule.name()));
+        println!("upcoming {} on {date}: {} teams, {from}", t.id, t.teams.len());
         Ok(())
     }
 }

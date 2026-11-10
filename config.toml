@@ -43,6 +43,9 @@ player_aliases = "data/player_aliases.csv"
 # and enter no metric. Off in A2; on in the view with Elo.
 train_unrated = false
 w_unrated = 0.5
+# Tournaments of the next 60 days that already list a lineup get a forecast
+# from the states the pass ends in; nothing learns from them.
+upcoming_days = 60
 
 [question]
 # From b_bar down to the [team.s2] lineup, the forecast's constants are those

@@ -48,6 +48,7 @@ pub fn build(ratings: &Path, buff: &Path, ext: &Path, out: &Path, d: &Display, r
     let last = releases(&c);
     assert!(last.0 > 0, "no releases in {}", ratings.display());
     let tours = tournaments(&c);
+    crate::upcoming::build(&c);
     venues(&c);
     field_scores(&c);
     crate::forecasts::build(&c, ext, &d.clean_from);
@@ -220,7 +221,7 @@ fn base_rosters(c: &Ctx) {
 }
 
 /// Text as the search index holds it: ё is е, as most people type it.
-fn without_yo(s: &str) -> String {
+pub fn without_yo(s: &str) -> String {
     s.replace('ё', "е").replace('Ё', "Е")
 }
 

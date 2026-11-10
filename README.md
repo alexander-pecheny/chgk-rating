@@ -33,11 +33,18 @@ Runs the chronological pass and writes `out/ratings.db` (about 1.4 GB, under a m
 ./target/release/fit --rows-every 0                   # rows at the last release only
 ./target/release/fit --diag-player 24850              # per-release uncertainty decomposition
 ./target/release/fit --swap 28751:49804,16329:168@2018-12-22 --out out/swap.db
+./target/release/fit --upcoming-backtest 2024-01-01   # score the expected-score rules on played fields
 ```
 
 `data.to` is optional: absent, or the literal `"today"`, means the current UTC
 date, which is what the daily run uses. `--to` still overrides it, and `fit`
 prints the resolved window on its first line.
+
+`data.upcoming_days` (60 in `config.toml`) forecasts the tournaments of that
+many days after the window that already list a lineup, into the `upcoming`,
+`upcoming_events` and `upcoming_players` tables; webindex lists them and their
+page at /tournaments/ID/ shows the forecast. Nothing learns from them, and a
+run with it at 0 writes every other table identically.
 
 `data.rows_every` says how often a row per player and per team is written: 1,
 every release, is the production setting and the reason `out/ratings.db` is 1.4

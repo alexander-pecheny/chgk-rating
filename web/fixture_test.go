@@ -62,6 +62,9 @@ CREATE TABLE forecast_metrics (tournament_id INTEGER, system TEXT, ndcg REAL, nd
 CREATE TABLE field_score (tournament_id INTEGER, team_id INTEGER, score INTEGER, PRIMARY KEY (tournament_id, team_id)) WITHOUT ROWID;
 CREATE TABLE base_roster (team_id INTEGER, player_id INTEGER, name TEXT, date_added TEXT);
 CREATE TABLE place_hist (kind INTEGER, id INTEGER, places BLOB, PRIMARY KEY (kind, id)) WITHOUT ROWID;
+CREATE TABLE upcoming (tournament_id INTEGER PRIMARY KEY, as_of TEXT, ref_id INTEGER, ref_rule TEXT, ref_truedl REAL, announced REAL);
+CREATE TABLE upcoming_team (tournament_id INTEGER, team_id INTEGER, name TEXT, forecast REAL, forecast_place REAL, e_score REAL, s_r REAL);
+CREATE TABLE upcoming_player (tournament_id INTEGER, team_id INTEGER, player_id INTEGER, name TEXT, theta REAL, phi REAL, sigma REAL);
 CREATE VIRTUAL TABLE player_fts USING fts5(name);
 CREATE VIRTUAL TABLE team_fts USING fts5(name, town, aliases);
 CREATE VIRTUAL TABLE tournament_fts USING fts5(name);
@@ -85,6 +88,10 @@ INSERT INTO place_hist VALUES (1, 10, X'0100000001000000'), (0, 100, X'010000000
 INSERT INTO player_fts(rowid, name) VALUES (100, 'Анна Иванова'), (101, 'Борис Петров'), (102, 'Вера Сидорова');
 INSERT INTO team_fts(rowid, name, town, aliases) VALUES (10, 'Альфа', 'Москва', ''), (11, 'Бета', '', 'Бета-2');
 INSERT INTO tournament_fts(rowid, name) VALUES (500, 'Кубок');
+INSERT INTO tournament (id, name, date, type, weight, n_teams, n_q) VALUES (600, 'Кубок', '2027-09-01', 'in-person', 1.0, 2, 36);
+INSERT INTO upcoming VALUES (600, '2026-09-04', 500, 'series', 4.2, NULL);
+INSERT INTO upcoming_team VALUES (600, 10, 'Альфа', 9.4, 1, 31.6, 9.4), (600, 12, 'Гамма', 7.0, 2, 20.2, 7.0);
+INSERT INTO upcoming_player VALUES (600, 10, 100, 'Анна Иванова', 0.5, 0.1, 0.1), (600, 12, 103, 'Дмитрий Новиков', -1.0, 0, 1.0);
 `
 
 // fixture writes the two databases into a temporary directory.
@@ -142,6 +149,10 @@ func TestFixturePages(t *testing.T) {
 		{"/search/?q=%D0%BA%D1%83%D0%B1", 200, []string{`href="/tournaments/500/"`, "Турниры (1)"}},
 		{"/releases/", 200, []string{"2026-09-03", "Версия модели 1.0"}},
 		{"/anomaly/", 200, nil},
+		// Not yet played: the forecast place, the expected score, the
+		// lineup at the numbers the forecast read and the pack it borrowed.
+		{"/tournaments/600/", 200, []string{"Турнир ещё не сыгран", "до 2026-09-04", "прошлого турнира серии", `href="/tournaments/500/"`,
+			"Гамма", `href="/teams/12/"`, ">32<", ">9400<", ">600<", "Дмитрий Новиков", "предв."}},
 		{"/tournaments/1/", 404, nil},
 		{"/teams/x/", 404, nil},
 	} {

@@ -17,6 +17,12 @@ func (s *site) tournamentPage(id int64) (string, []ui.Item, error) {
 	if !ok || err != nil {
 		return "", nil, orNotFound(err)
 	}
+	if u, ok, err := s.q.upcoming(id); err != nil {
+		return "", nil, err
+	} else if ok {
+		out, err := s.upcomingPage(id, t, u)
+		return tournamentTitle(t), out, err
+	}
 	// One package played in several cities is one field: whichever venue the
 	// reader opens, the page shows every venue's teams, ranked together.
 	venues, err := s.q.venues(id)
