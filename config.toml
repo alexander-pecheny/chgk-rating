@@ -1,7 +1,7 @@
 [model]
 # The version of the rules. Bump it with any change that moves a published
 # number, so two outputs can be compared knowing which rules made each.
-version = "1.5.1"
+version = "1.5.2"
 
 [data]
 db_path = "buff.db"
