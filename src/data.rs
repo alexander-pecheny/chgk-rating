@@ -65,6 +65,9 @@ pub struct TeamResult {
     /// `merge_cities` keeps while it re-ranks `position` over the merged field.
     pub venue: i64,
     pub venue_position: f64,
+    /// The youngest age class among the team's flags that day: 0 none,
+    /// 1 student, 2 school, 3 middle school, 4 junior school.
+    pub flag: u8,
 }
 
 pub struct Tournament {
@@ -380,6 +383,7 @@ const C_QUESTIONS: usize = 10;
 const C_IN_RATING: usize = 11;
 const C_TOWN: usize = 12;
 const C_TEAM_TOWN: usize = 13;
+const C_FLAGS: usize = 14;
 /// The date columns of the roster files and of `team_seasons`.
 const SEASON_END: usize = 2;
 const ROSTER_ADDED: usize = 3;
@@ -459,11 +463,21 @@ fn results_sql(cfg: &Config) -> String {
     results_where(rated)
 }
 
+/// The rating site's flag ids and the age class each stands for.
+const FLAG_CLASSES: [(i64, u8); 5] = [(4, 1), (3, 2), (38, 2), (37, 3), (39, 4)];
+
+/// The youngest age class in a result's `flags` JSON; 0 when it has none.
+fn flag_class(flags: &str) -> u8 {
+    let Ok(serde_json::Value::Array(list)) = serde_json::from_str(flags) else { return 0 };
+    let ids: Vec<i64> = list.iter().filter_map(|f| f.get("id").and_then(serde_json::Value::as_i64)).collect();
+    FLAG_CLASSES.iter().filter(|(id, _)| ids.contains(id)).map(|&(_, c)| c).max().unwrap_or(0)
+}
+
 fn results_where(rated: &str) -> String {
     format!(
         "SELECT t.id, substr(t.date_start,1,10), t.tournament_type, t.editors,
                 r.team_id, r.position, r.questions_total, r.mask, r.team_members, r.rating,
-                t.questions_by_tour, t.in_rating, t.town_id, r.team_current_town
+                t.questions_by_tour, t.in_rating, t.town_id, r.team_current_town, r.flags
          FROM tournaments t JOIN tournament_results r ON r.id = t.id
          WHERE {rated} substr(t.date_start,1,10) >= ?1 AND substr(t.date_start,1,10) < ?2
          ORDER BY substr(t.date_start,1,10), t.id"
@@ -566,7 +580,8 @@ impl<'a> Loader<'a> {
         t.n_q = t.n_q.max(mask.len());
         let venue = t.id;
         let base = Vec::new();
-        t.teams.push(TeamResult { team, position, venue, venue_position: position, score, pred_pos, rated, town, base, members, mask });
+        let flag = row.get::<_, Option<String>>(C_FLAGS)?.map_or(0, |f| flag_class(&f));
+        t.teams.push(TeamResult { team, position, venue, venue_position: position, score, pred_pos, rated, town, base, members, mask, flag });
         Ok(())
     }
 

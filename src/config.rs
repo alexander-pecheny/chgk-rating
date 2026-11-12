@@ -973,6 +973,11 @@ pub struct Player {
     /// +0.0009 / +0.0006, and open fields lose nothing.
     #[serde(default)]
     pub mu_young: f64,
+    /// Added instead of `mu_young` to the start of a player whose first team
+    /// carries an age flag that day: student, school, middle school, junior
+    /// school, in that order. Empty is off.
+    #[serde(default)]
+    pub mu_flag: Vec<f64>,
     /// Volatility bounds and adaptation rate; `tau_p` is the starting volatility.
     pub v_min: f64,
     pub v_max: f64,

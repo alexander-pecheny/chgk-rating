@@ -155,7 +155,7 @@ log "rivals done"
 # tournament, its forecasts and player ratings blended with the London Elo's.
 # Team ratings stay A2's. It reads the Elo replay, so it runs after the rivals.
 mkdir -p out/best
-sed -e 's|^out_path = .*|out_path = "out/best/ratings.db"|' -e 's/^w_async = .*/w_async = 0.25/' \
+sed -e 's|^out_path = .*|out_path = "out/best/ratings.db"|' -e 's/^w_async = .*/w_async = 0.5/' \
     -e 's/^train_unrated = .*/train_unrated = true/' config.toml > out/best/config.toml
 printf '\n[blend]\nelo_db = "out/ext/elot.db"\nelo = 0.35\nplayers = 0.35\n' >> out/best/config.toml
 k_best=$(echo "$k_pub $(cat out/stamps/ext_elot 2>/dev/null) $(hash out/best/config.toml)" | hash -)

@@ -669,7 +669,8 @@ impl Players {
     pub fn seed(&mut self, t: &Tournament, cfg: &Config) {
         let young = if t.young { cfg.player.mu_young } else { 0.0 };
         for team in &t.teams {
-            let start = self.newcomer_start(&team.members, cfg) + young;
+            let by_flag = (team.flag as usize).checked_sub(1).and_then(|k| cfg.player.mu_flag.get(k));
+            let start = self.newcomer_start(&team.members, cfg) + by_flag.copied().unwrap_or(young);
             for &i in &team.members {
                 let s = &mut self.state[i as usize];
                 if !s.seen {

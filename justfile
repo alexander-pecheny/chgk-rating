@@ -111,7 +111,7 @@ metrics-fit:
     rated() { sed -e 's/^w_async = .*/w_async = 0.0/' -e 's/^include_unrated = .*/include_unrated = false/'; }
     one() { sed -e "s|^out_path = .*|out_path = \"$1\"|" -e 's/^rows_every = .*/rows_every = 0/' -e "/^\[data\]/a forecast_from = \"$from\""; }
     blend() { printf '\n[blend]\nelo_db = "%s"\nelo = 0.35\nplayers = 0.35\n' $1; }
-    all() { sed -e 's/^w_async = .*/w_async = 0.25/' -e 's/^train_unrated = .*/train_unrated = true/'; }
+    all() { sed -e 's/^w_async = .*/w_async = 0.5/' -e 's/^train_unrated = .*/train_unrated = true/'; }
     one $d/rated/a2.db < config.toml > $d/a2_rated.toml
     one $d/all/a2.db < config.toml | all > $d/a2_all.toml
     { one $d/rated/blendt.db < config.toml; blend $d/rated/elot.db; } > $d/blendt_rated.toml
@@ -151,8 +151,8 @@ metrics:
         shift
         uv run tools/rival_metrics.py --json --from 2025-01-01 --to 2026-08-28 --set $set $how "$@" | jq -c --arg t "$train" --arg s "$set" '. + {train: $t, set: $s}' | sed 's/A2_1/A2 1/g'
     }
-    all="A2_1.5=$d/all/a2.db A2+Elo+tweaks=$d/all/blendt.db elo-chgk.uk=out/ext/elo.db:x elo-chgk.uk+tweaks=out/ext/elot.db:x chgk.fun=out/ext/fun.db chgk.quest=out/ext/quest.db chgk.gg=$d/all/gg.db"
-    rated="A2_1.5=$d/rated/a2.db A2+Elo+tweaks=$d/rated/blendt.db elo-chgk.uk=$d/rated/elo.db:x elo-chgk.uk+tweaks=$d/rated/elot.db:x chgk.fun=$d/rated/fun.db chgk.quest=$d/rated/quest.db chgk.gg=out/ext/gg.db"
+    all="A2_1.6=$d/all/a2.db A2+Elo+tweaks=$d/all/blendt.db elo-chgk.uk=out/ext/elo.db:x elo-chgk.uk+tweaks=out/ext/elot.db:x chgk.fun=out/ext/fun.db chgk.quest=out/ext/quest.db chgk.gg=$d/all/gg.db"
+    rated="A2_1.6=$d/rated/a2.db A2+Elo+tweaks=$d/rated/blendt.db elo-chgk.uk=$d/rated/elo.db:x elo-chgk.uk+tweaks=$d/rated/elot.db:x chgk.fun=$d/rated/fun.db chgk.quest=$d/rated/quest.db chgk.gg=out/ext/gg.db"
     k=0
     for train in rated all; do
         eval specs=\$$train
