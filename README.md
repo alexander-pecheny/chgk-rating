@@ -41,7 +41,8 @@ date, which is what the daily run uses. `--to` still overrides it, and `fit`
 prints the resolved window on its first line.
 
 `data.upcoming_days` (60 in `config.toml`) forecasts the tournaments of that
-many days after the window that already list a lineup, into the `upcoming`,
+many days after the window that already list a lineup, and those of as many
+days before its end whose results are not entered yet, into the `upcoming`,
 `upcoming_events` and `upcoming_players` tables; webindex lists them and their
 page at /tournaments/ID/ shows the forecast. Nothing learns from them, and a
 run with it at 0 writes every other table identically.

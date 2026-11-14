@@ -401,6 +401,9 @@ var RU = Strings{
 			NoRef: func() string {
 				return "Ожидаемое число взятых не посчитано: у турнира нет прошлого в серии и не заявлена сложность."
 			},
+			Pending: func(date string) string {
+				return fmt.Sprintf("Результаты турнира ещё не внесены. Места — по силе заявленных составов, с рейтингами игроков по результатам до %s включительно; из заявки больше шести игроков считаются шесть сильнейших.", date)
+			},
 			RefNear: func(date string, dl string, announced string) string {
 				return fmt.Sprintf(" (%s, сложность %s при заявленной %s).", date, dl, announced)
 			},

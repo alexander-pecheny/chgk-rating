@@ -61,6 +61,11 @@ pub fn build(c: &Ctx, ext: &Path, from: &str) {
         };
         let mut n = 0;
         for (tid, field) in fields(db, &sql(src, from)) {
+            // A field whose places are all one, as before its results are
+            // entered, ranks nothing.
+            if field.iter().all(|f| f.1 == field[0].1) {
+                continue;
+            }
             if let Some(m) = method_metrics(tid, &field) {
                 let v = m.map(|x| x.is_finite().then_some(x));
                 ins.execute(params![tid, system, v[0], v[1], v[2], v[3], v[4], v[5], field.len() as i64]).unwrap();

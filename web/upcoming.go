@@ -7,7 +7,7 @@ import (
 	"ratingweb/ui"
 )
 
-// A tournament not yet played whose lineups are already listed: the fit
+// A tournament not yet played, or not yet entered, whose lineups are listed: the fit
 // forecast it from the players as they stood at the last release, and read
 // its expected scores on the questions of a pack already played.
 
@@ -88,7 +88,11 @@ func (s *site) upcomingPage(id int64, t tourHead, u upcomingHead) ([]ui.Item, er
 	if u.announce != nil {
 		stats = append(stats, stat(S.Tournament.Upcoming.Announced(), fmt.Sprintf("%.1f", *u.announce)))
 	}
-	about := []ui.Item{ui.Paragraph(ui.Text(S.Tournament.Upcoming.Lede(u.asOf))), referenceNote(u)}
+	lede := S.Tournament.Upcoming.Lede(u.asOf)
+	if str(t.date) <= u.asOf {
+		lede = S.Tournament.Upcoming.Pending(u.asOf)
+	}
+	about := []ui.Item{ui.Paragraph(ui.Text(lede)), referenceNote(u)}
 	if u.refID != nil {
 		about = append(about, ui.Paragraph(ui.Text(S.Tournament.Upcoming.Caveat())))
 	}

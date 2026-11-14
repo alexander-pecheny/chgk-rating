@@ -694,7 +694,9 @@ pub struct Data {
     pub publish_from: String,
     /// Tournaments starting within this many days after `to` that already
     /// list at least one lineup are forecast after the pass, from the states
-    /// it ends in, and learnt from by nothing. 0 forecasts none.
+    /// it ends in, and learnt from by nothing. So are those of as many days
+    /// before `to` whose results are not entered yet, every place the 9999 of
+    /// a registration and no mask: `load` leaves them out. 0 forecasts none.
     #[serde(default)]
     pub upcoming_days: i32,
 }

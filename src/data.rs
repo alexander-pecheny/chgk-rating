@@ -101,6 +101,7 @@ pub struct Tournament {
 pub struct Arena {
     pub tournaments: Vec<Tournament>,
     /// Tournaments after the window that already list a lineup, oldest first,
+    /// after the recent ones whose results are not entered yet,
     /// read by `load_with_upcoming` alone. Each is `forecast_only`: the pass
     /// forecasts it from the states it ends in and nothing learns from it.
     pub upcoming: Vec<Tournament>,
@@ -396,7 +397,8 @@ pub fn load(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error
 }
 
 /// `load`, and the tournaments of the `data.upcoming_days` after `to` that
-/// already list a lineup, in `Arena.upcoming`. Their players and teams are
+/// already list a lineup, in `Arena.upcoming`, after those of the same days
+/// before `to` whose results are not entered yet, which `load` leaves out. Their players and teams are
 /// numbered after everyone else's, so every index `load` gives is the same.
 pub fn load_with_upcoming(cfg: &Config, from: &str, to: &str) -> Result<Arena, rusqlite::Error> {
     load_window(cfg, from, to, cfg.data.upcoming_days > 0)
@@ -413,14 +415,35 @@ fn load_window(cfg: &Config, from: &str, to: &str, upcoming: bool) -> Result<Are
         ld.tournaments.sort_by_key(|t| (t.day, t.id));
     }
     let mut later = Vec::new();
-    if let (true, Some(day)) = (upcoming, parse_date(to)) {
-        let until = format_date(day + cfg.data.upcoming_days);
-        let n = ld.tournaments.len();
-        ld.forecast_only = true;
-        read(&mut ld, &conn, &results_sql(cfg), to, &until)?;
-        later = ld.tournaments.split_off(n);
+    if let Some(day) = parse_date(to) {
+        // A recent tournament whose results are not entered yet has nothing to
+        // learn from: it waits with the ones not played yet.
+        let since = day - cfg.data.upcoming_days;
+        let (mut pending, played): (Vec<_>, _) =
+            std::mem::take(&mut ld.tournaments).into_iter().partition(|t| t.day >= since && !entered(t));
+        ld.tournaments = played;
+        if upcoming {
+            for t in &mut pending {
+                (t.train_only, t.forecast_only) = (true, true);
+            }
+            let until = format_date(day + cfg.data.upcoming_days);
+            let n = ld.tournaments.len();
+            ld.forecast_only = true;
+            read(&mut ld, &conn, &results_sql(cfg), to, &until)?;
+            later = pending;
+            later.append(&mut ld.tournaments.split_off(n));
+        }
     }
     Ok(ld.finish(&conn, later))
+}
+
+/// The placeholder place rating.chgk.info gives a registered team before its
+/// result is entered.
+const NOT_ENTERED: f64 = 9999.0;
+
+/// Whether any result of `t` is entered: it has a mask or a real place.
+fn entered(t: &Tournament) -> bool {
+    t.teams.iter().any(|r| !r.mask.is_empty() || (r.position > 0.0 && r.position != NOT_ENTERED))
 }
 
 /// The results of `sql` into `ld`, skipping the tournaments it already holds.

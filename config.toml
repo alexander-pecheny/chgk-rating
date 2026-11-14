@@ -44,7 +44,8 @@ player_aliases = "data/player_aliases.csv"
 train_unrated = false
 w_unrated = 0.5
 # Tournaments of the next 60 days that already list a lineup get a forecast
-# from the states the pass ends in; nothing learns from them.
+# from the states the pass ends in; nothing learns from them. So do those of the
+# last 60 days whose results are not entered yet.
 upcoming_days = 60
 
 [question]
