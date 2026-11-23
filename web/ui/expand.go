@@ -3,8 +3,8 @@ package ui
 import (
 	"strconv"
 
-	"pecheny.me/dopeuikit/icons"
-	base "pecheny.me/dopeuikit/kit"
+	"code.pecheny.me/pecheny/dopesuite/dopeuikit/icons"
+	base "code.pecheny.me/pecheny/dopesuite/dopeuikit/kit"
 
 	sitestrings "ratingweb/i18nstrings"
 )

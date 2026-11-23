@@ -8,6 +8,7 @@
 use crate::config::Config;
 use crate::data::{Format, Tournament, CORRECT, SKIP};
 use crate::question_model::{self as qm, Field, QParams};
+use crate::team_event::TeamEvent;
 use crate::util::spearman;
 use rusqlite::Connection;
 use std::collections::{HashMap, HashSet};
@@ -195,6 +196,37 @@ pub fn expected(field: &Field, pack: &Pack, n_q: usize, seat: Option<Format>, cf
     field.teams.iter().filter(|tm| !tm.z.is_empty()).map(|tm| (tm.team, n * share(tm))).collect()
 }
 
+/// `expected` moved by what the published forecast adds to a lineup's
+/// strength (the editor memory, the in-person freshness, the shape of the
+/// lineup): each lineup's forecast less its strength, centred on the field so
+/// the field's total stays the question model's, and put in questions by the
+/// slope of `expected` on strength across the field. The values are then dealt
+/// out again in forecast order, so the column ranks as the places do.
+pub fn corrected(expected: &HashMap<u32, f64>, events: &[TeamEvent]) -> HashMap<u32, f64> {
+    let rows: Vec<(&TeamEvent, f64)> = events
+        .iter()
+        .filter(|e| e.s_r.is_finite() && e.forecast.is_finite())
+        .filter_map(|e| expected.get(&e.team).map(|&x| (e, x)))
+        .collect();
+    let mut out = expected.clone();
+    if rows.len() < 2 {
+        return out;
+    }
+    let n = rows.len() as f64;
+    let mean = |f: &dyn Fn(&(&TeamEvent, f64)) -> f64| rows.iter().map(f).sum::<f64>() / n;
+    let (ms, mx, md) = (mean(&|r| r.0.s_r), mean(&|r| r.1), mean(&|r| r.0.forecast - r.0.s_r));
+    let var = mean(&|r| (r.0.s_r - ms).powi(2));
+    let slope = if var > 0.0 { mean(&|r| (r.0.s_r - ms) * (r.1 - mx)) / var } else { 0.0 };
+    let mut values: Vec<f64> = rows.iter().map(|(e, x)| x + slope * (e.forecast - e.s_r - md)).collect();
+    values.sort_by(|a, b| b.total_cmp(a));
+    let mut order: Vec<&TeamEvent> = rows.iter().map(|r| r.0).collect();
+    order.sort_by(|a, b| b.forecast.total_cmp(&a.forecast).then(a.team.cmp(&b.team)));
+    for (e, v) in order.into_iter().zip(values) {
+        out.insert(e.team, v);
+    }
+    out
+}
+
 /// Seats at a table.
 const SEATS: usize = 6;
 
@@ -234,7 +266,7 @@ pub struct Backtest {
 
 impl Backtest {
     /// One played field, before `refs` has absorbed it.
-    pub fn field(&mut self, t: &Tournament, field: &Field, own: &[QParams], refs: &Refs, cfg: &Config) {
+    pub fn field(&mut self, t: &Tournament, field: &Field, own: &[QParams], events: &[TeamEvent], refs: &Refs, cfg: &Config) {
         if t.format == Format::Async || answering(field) < MIN_TEAMS {
             return;
         }
@@ -250,9 +282,18 @@ impl Backtest {
         let series = refs.series(t.id, t.day, t.format);
         let near = refs.nearest(t.id, t.day, t.format);
         let both = series.is_some() && near.is_some();
-        for (name, pack) in [("own questions", Some(&me)), ("series", series), ("difficulty", near)] {
+        let forecast: HashMap<u32, f64> = events.iter().filter(|e| e.forecast.is_finite()).map(|e| (e.team, e.forecast)).collect();
+        let mut runs: Vec<(&'static str, &Pack, HashMap<u32, f64>)> = Vec::new();
+        for (name, fixed, pack) in [("own questions", "own + forecast", Some(&me)), ("series", "series + forecast", series), ("difficulty", "difficulty + forecast", near)] {
             let Some(pack) = pack else { continue };
             let e = expected(field, pack, 0, None, cfg);
+            runs.push((fixed, pack, corrected(&e, events)));
+            runs.push((name, pack, e));
+        }
+        // The published forecast ranks alone: its "error" columns are those of
+        // its own pack and mean nothing; only the rank correlation is read.
+        runs.push(("forecast place", &me, forecast));
+        for (name, pack, e) in runs {
             let (mut fc, mut ac) = (Vec::new(), Vec::new());
             for (team, &(score, n)) in &actual {
                 if let Some(&x) = e.get(team) {
@@ -286,7 +327,7 @@ impl Backtest {
         for (title, m) in [("every field a rule reaches", &self.by), ("fields both rules reach", &self.both)] {
             println!("upcoming backtest, {title}: per field, mean |error| per lineup, |error| of the field mean, Spearman");
             for format in [Format::InPerson, Format::Sync, Format::StrictSync].map(Format::name) {
-                for name in ["own questions", "series", "difficulty"] {
+                for name in ["forecast place", "own questions", "own + forecast", "series", "series + forecast", "difficulty", "difficulty + forecast"] {
                     if let Some(x) = m.get(&(format, name)) {
                         let f = x.fields as f64;
                         println!("  {format:11} {name:14} {:5} fields {:6} lineups  {:.2}  {:.2}  {:.3}", x.fields, x.lineups, x.mae / f, x.bias / f, x.rho / f);

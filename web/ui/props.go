@@ -1,6 +1,6 @@
 package ui
 
-import base "pecheny.me/dopeuikit/kit"
+import base "code.pecheny.me/pecheny/dopesuite/dopeuikit/kit"
 
 // The props app.go adds to the kit's own table primitives. uigen generates
 // helpers only for the props vocab.json declares, so these are written by hand.

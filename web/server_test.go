@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"pecheny.me/dopeuikit/kit"
+	"code.pecheny.me/pecheny/dopesuite/dopeuikit/kit"
 )
 
 func TestFormat(t *testing.T) {

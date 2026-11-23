@@ -21,7 +21,7 @@ import (
 	"strings"
 
 	"code.pecheny.me/pecheny/dopesuite/dopecore/webassets"
-	"pecheny.me/dopeuikit/kit"
+	"code.pecheny.me/pecheny/dopesuite/dopeuikit/kit"
 
 	"ratingweb/ui"
 )

@@ -12,7 +12,7 @@ package ui
 import (
 	_ "embed"
 
-	base "pecheny.me/dopeuikit/kit"
+	base "code.pecheny.me/pecheny/dopesuite/dopeuikit/kit"
 
 	sitestrings "ratingweb/i18nstrings"
 )

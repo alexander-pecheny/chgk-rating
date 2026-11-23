@@ -4,10 +4,10 @@ go 1.26.4
 
 require (
 	code.pecheny.me/pecheny/dopesuite/dopecore v0.0.0
+	code.pecheny.me/pecheny/dopesuite/dopeuikit v0.0.0
 	github.com/wyatt915/treeblood v0.1.16
 	github.com/yuin/goldmark v1.8.6
 	modernc.org/sqlite v1.50.0
-	pecheny.me/dopeuikit v0.0.0
 )
 
 require (
@@ -27,6 +27,6 @@ require (
 
 // The kit and the platform layer are read from the dopesuite checkout at
 // /home/pecheny/dopesuite, which also holds the kit's built menu.js.
-replace pecheny.me/dopeuikit => /home/pecheny/dopesuite/dopeuikit
+replace code.pecheny.me/pecheny/dopesuite/dopeuikit => /home/pecheny/dopesuite/dopeuikit
 
 replace code.pecheny.me/pecheny/dopesuite/dopecore => /home/pecheny/dopesuite/dopecore

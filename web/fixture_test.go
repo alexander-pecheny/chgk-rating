@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"pecheny.me/dopeuikit/kit"
+	"code.pecheny.me/pecheny/dopesuite/dopeuikit/kit"
 )
 
 // fixtureRatings is the part of a fit's out/ratings.db the site reads, with

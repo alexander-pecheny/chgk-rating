@@ -285,7 +285,7 @@ impl Observer for Fit<'_> {
         if !t.train_only {
             let truedl = chgk_rating::question_model::truedl(m.field, m.params, cfg);
             if let Some((_, b)) = self.backtest.as_mut().filter(|(from, _)| t.day >= *from) {
-                b.field(t, m.field, m.params, &self.refs, cfg);
+                b.field(t, m.field, m.params, m.events, &self.refs, cfg);
             }
             self.refs.absorb(t, m.field, m.params, truedl);
         }
@@ -424,7 +424,9 @@ impl Observer for Fit<'_> {
     fn upcoming(&mut self, u: &Upcoming) -> pass::Result<()> {
         let (t, cfg, arena) = (u.t, self.cfg, self.arena);
         let pick = self.refs.pick(t.id, t.day, t.format);
-        let expected = pick.map(|(p, _)| chgk_rating::upcoming::expected(u.field, p, t.n_q, Some(t.format), cfg)).unwrap_or_default();
+        let expected = pick
+            .map(|(p, _)| chgk_rating::upcoming::corrected(&chgk_rating::upcoming::expected(u.field, p, t.n_q, Some(t.format), cfg), u.events))
+            .unwrap_or_default();
         let teams: Vec<(i64, f64, f64, f64, f64)> = u
             .events
             .iter()
